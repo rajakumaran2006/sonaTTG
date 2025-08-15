@@ -9,6 +9,12 @@ export interface FacultyAllocation {
   availableSlots: Set<string>;
   labPreference: boolean;
   subjectIds: Set<string>; // subjects this faculty teaches
+  isClassCounselor: boolean;
+}
+
+export interface Slot {
+  day: number;
+  period: number;
 }
 
 export interface AllocationResult {
@@ -96,12 +102,32 @@ export async function fetchFacultyExistingAllocations(
           const cellStr = String(cell).trim();
           if (!cellStr) return;
           
-          // Find matching subject
-          const subjectId = subjectNameToId.get(cellStr);
-          if (!subjectId) return;
+          // Handle special cases like "Seminar (Faculty Name)"
+          let facultyInfo: { facultyId: string; facultyName: string } | undefined;
           
-          // Find faculty for this subject
-          const facultyInfo = subjectToFaculty.get(subjectId);
+          const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
+          if (specialMatch) {
+            const [, specialType, facultyName] = specialMatch;
+            
+            // Find faculty by name for special entries
+            const facultyAssignment = (assignments || []).find((a: any) => 
+              a.faculty_members?.name === facultyName
+            );
+            
+            if (facultyAssignment) {
+              facultyInfo = {
+                facultyId: facultyAssignment.faculty_id,
+                facultyName: facultyName
+              };
+            }
+          } else {
+            // Regular subject - find matching subject
+            const subjectId = subjectNameToId.get(cellStr);
+            if (subjectId) {
+              facultyInfo = subjectToFaculty.get(subjectId);
+            }
+          }
+          
           if (!facultyInfo) return;
           
           const slotId = createSlotId(dayIndex, periodIndex);
@@ -144,6 +170,10 @@ export async function buildFacultyAllocationMap(
 
     if (facultyError) throw facultyError;
 
+    // For now, we'll skip class counselor detection to avoid DB schema issues
+    // This can be enhanced later when the schema is properly set up
+    const classCounselor: { faculty_id: string } | null = null;
+
     // Get faculty subject assignments for this specific year/section
     const { data: assignments, error: assignError } = await supabase
       .from('faculty_subject_assignments')
@@ -166,12 +196,20 @@ export async function buildFacultyAllocationMap(
     // Build allocation map for each faculty
     (faculty || []).forEach((f: any) => {
       const assignedSlots = existingAllocations.get(f.id) || new Set();
+      const isClassCounselor = classCounselor?.faculty_id === f.id;
       const availableSlots = new Set<string>();
       
       // Calculate available slots (all slots minus assigned ones)
       for (let day = 0; day < 6; day++) {
         for (let period = 0; period < PERIODS; period++) {
           const slotId = createSlotId(day, period);
+          
+          // Reserve Saturday P3-P7 for class counselor
+          if (isClassCounselor && day === 5 && period >= 2) {
+            // CC gets Saturday P3-P7 reserved, so these are not available for regular allocation
+            continue;
+          }
+          
           if (!assignedSlots.has(slotId)) {
             availableSlots.add(slotId);
           }
@@ -185,6 +223,7 @@ export async function buildFacultyAllocationMap(
         availableSlots,
         labPreference: Boolean(f.takes_electives), // Using takes_electives as proxy for lab preference
         subjectIds: facultySubjects.get(f.id) || new Set(),
+        isClassCounselor,
       });
     });
 
@@ -256,8 +295,12 @@ export function findAvailableFacultyForSlot(
     };
   }
   
-  // Return the first available faculty (could be enhanced with priority logic)
-  const selectedFaculty = availableFaculty[0];
+  // Prioritize faculty with fewer current assignments (workload balancing)
+  const selectedFaculty = availableFaculty.reduce((best, current) => {
+    const bestAssigned = best.assignedSlots.size;
+    const currentAssigned = current.assignedSlots.size;
+    return currentAssigned < bestAssigned ? current : best;
+  });
   
   return {
     success: true,
@@ -326,39 +369,62 @@ export async function validateFacultyConflicts(
         const cellStr = String(cell).trim();
         if (!cellStr) return;
         
-        const subjectId = subjectNameToId.get(cellStr);
-        if (!subjectId) return;
-        
         const slotId = createSlotId(dayIndex, periodIndex);
+        let facultyInfo: { facultyId: string; facultyName: string } | undefined;
         
-        // Find faculty for this subject
-        const eligibleFaculty = Array.from(facultyMap.values())
-          .filter(faculty => faculty.subjectIds.has(subjectId));
+        // Handle special cases like "Seminar (Faculty Name)"
+        const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
+        if (specialMatch) {
+          const [, specialType, facultyName] = specialMatch;
           
-        if (eligibleFaculty.length === 0) {
-          warnings.push(`No faculty assigned for ${cellStr} at ${slotId}`);
-          return;
+          // Find faculty by name for special entries
+          const faculty = Array.from(facultyMap.values()).find(f => f.facultyName === facultyName);
+          if (faculty) {
+            facultyInfo = {
+              facultyId: faculty.facultyId,
+              facultyName: faculty.facultyName
+            };
+          }
+        } else {
+          // Regular subject
+          const subjectId = subjectNameToId.get(cellStr);
+          if (subjectId) {
+            // Find faculty for this subject
+            const eligibleFaculty = Array.from(facultyMap.values())
+              .filter(faculty => faculty.subjectIds.has(subjectId));
+              
+            if (eligibleFaculty.length === 0) {
+              warnings.push(`No faculty assigned for ${cellStr} at ${slotId}`);
+              return;
+            }
+            
+            // Check for conflicts with existing assignments (other timetables)
+            const availableFaculty = eligibleFaculty.filter(faculty => 
+              faculty.availableSlots.has(slotId)
+            );
+            
+            if (availableFaculty.length === 0) {
+              conflicts.push(`Faculty conflict for ${cellStr} at ${slotId} - all assigned faculty are busy`);
+              return;
+            }
+            
+            facultyInfo = {
+              facultyId: availableFaculty[0].facultyId,
+              facultyName: availableFaculty[0].facultyName
+            };
+          }
         }
         
-        // Check for conflicts with existing assignments (other timetables)
-        const availableFaculty = eligibleFaculty.filter(faculty => 
-          faculty.availableSlots.has(slotId)
-        );
-        
-        if (availableFaculty.length === 0) {
-          conflicts.push(`Faculty conflict for ${cellStr} at ${slotId} - all assigned faculty are busy`);
-          return;
-        }
+        if (!facultyInfo) return;
         
         // Track assignments within this timetable
-        const faculty = availableFaculty[0];
-        if (!currentAssignments.has(faculty.facultyId)) {
-          currentAssignments.set(faculty.facultyId, []);
+        if (!currentAssignments.has(facultyInfo.facultyId)) {
+          currentAssignments.set(facultyInfo.facultyId, []);
         }
         
-        const facultySlots = currentAssignments.get(faculty.facultyId)!;
+        const facultySlots = currentAssignments.get(facultyInfo.facultyId)!;
         if (facultySlots.includes(slotId)) {
-          conflicts.push(`Faculty ${faculty.facultyName} assigned to multiple subjects at ${slotId}`);
+          conflicts.push(`Faculty ${facultyInfo.facultyName} assigned to multiple subjects at ${slotId}`);
         } else {
           facultySlots.push(slotId);
         }
@@ -388,6 +454,7 @@ export async function getFacultyWorkloadSummary(
   totalSlots: number;
   availableSlots: number;
   workloadPercentage: number;
+  isClassCounselor: boolean;
 }>> {
   const facultyMap = await buildFacultyAllocationMap(departmentId, '', '');
   const totalPossibleSlots = 6 * PERIODS; // 6 days * 7 periods
@@ -402,9 +469,45 @@ export async function getFacultyWorkloadSummary(
       facultyName: faculty.facultyName,
       totalSlots,
       availableSlots,
-      workloadPercentage: Math.round(workloadPercentage * 100) / 100
+      workloadPercentage: Math.round(workloadPercentage * 100) / 100,
+      isClassCounselor: faculty.isClassCounselor
     };
   }).sort((a, b) => b.workloadPercentage - a.workloadPercentage);
 }
 
-// All functions are already exported individually above
+/**
+ * Finds available slots for a faculty, excluding labs if they don't prefer them
+ */
+export function findAvailableSlots(
+  facultyId: string, 
+  timetable: Grid, 
+  facultyMap: Map<string, FacultyAllocation>,
+  excludeLabs: boolean = false
+): Slot[] {
+  const faculty = facultyMap.get(facultyId);
+  if (!faculty) return [];
+  
+  const availableSlots: Slot[] = [];
+  
+  for (let day = 0; day < 6; day++) {
+    for (let period = 0; period < PERIODS; period++) {
+      const slotId = createSlotId(day, period);
+      
+      // Skip if not available for this faculty
+      if (!faculty.availableSlots.has(slotId)) continue;
+      
+      // Skip if slot is already occupied in the current timetable
+      if (timetable[day] && timetable[day][period] !== null) continue;
+      
+      // Skip lab periods if excludeLabs is true and faculty doesn't prefer labs
+      if (excludeLabs && !faculty.labPreference) {
+        // Assume P4-P7 are typically lab periods (can be refined based on actual lab schedule)
+        if (period >= 3) continue;
+      }
+      
+      availableSlots.push({ day, period });
+    }
+  }
+  
+  return availableSlots;
+}
