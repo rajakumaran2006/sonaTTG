@@ -7,64 +7,13 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
+  // Allows to automatically instanciate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.4"
   }
   public: {
     Tables: {
-      class_counselors: {
-        Row: {
-          batch: string | null
-          created_at: string
-          department_id: string
-          faculty_id: string
-          id: string
-          is_active: boolean
-          section: string
-          updated_at: string
-          year: string
-        }
-        Insert: {
-          batch?: string | null
-          created_at?: string
-          department_id: string
-          faculty_id: string
-          id?: string
-          is_active?: boolean
-          section: string
-          updated_at?: string
-          year: string
-        }
-        Update: {
-          batch?: string | null
-          created_at?: string
-          department_id?: string
-          faculty_id?: string
-          id?: string
-          is_active?: boolean
-          section?: string
-          updated_at?: string
-          year?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_counselors_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_counselors_faculty_id_fkey"
-            columns: ["faculty_id"]
-            isOneToOne: false
-            referencedRelation: "faculty_members"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       department_settings: {
         Row: {
           break_periods: Json
@@ -106,6 +55,116 @@ export type Database = {
           },
         ]
       }
+      faculty_electives: {
+        Row: {
+          id: string
+          faculty_id: string
+          department_id: string
+          subject_id: string | null
+          year: string
+          section: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          faculty_id: string
+          department_id: string
+          subject_id?: string | null
+          year: string
+          section: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          faculty_id?: string
+          department_id?: string
+          subject_id?: string | null
+          year?: string
+          section?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faculty_electives_faculty_id_fkey"
+            columns: ["faculty_id"]
+            isOneToOne: false
+            referencedRelation: "faculty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_electives_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_electives_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faculty_labs: {
+        Row: {
+          id: string
+          faculty_id: string
+          department_id: string
+          subject_id: string
+          year: string
+          section: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          faculty_id: string
+          department_id: string
+          subject_id: string
+          year: string
+          section: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          faculty_id?: string
+          department_id?: string
+          subject_id?: string
+          year?: string
+          section?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faculty_labs_faculty_id_fkey"
+            columns: ["faculty_id"]
+            isOneToOne: false
+            referencedRelation: "faculty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_labs_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_labs_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           created_at: string
@@ -131,8 +190,8 @@ export type Database = {
           designation: string | null
           email: string | null
           id: string
+          takes_electives: boolean
           name: string
-          takes_electives: string | null
           updated_at: string
         }
         Insert: {
@@ -141,8 +200,8 @@ export type Database = {
           designation?: string | null
           email?: string | null
           id?: string
+          takes_electives?: boolean
           name: string
-          takes_electives?: string | null
           updated_at?: string
         }
         Update: {
@@ -151,8 +210,8 @@ export type Database = {
           designation?: string | null
           email?: string | null
           id?: string
+          takes_electives?: boolean
           name?: string
-          takes_electives?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -161,6 +220,61 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      faculty_subject_class: {
+        Row: {
+          id: string
+          department_id: string
+          faculty_id: string
+          subject_id: string
+          year: string
+          section: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          department_id: string
+          faculty_id: string
+          subject_id: string
+          year: string
+          section: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          department_id?: string
+          faculty_id?: string
+          subject_id?: string
+          year?: string
+          section?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faculty_subject_class_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_subject_class_faculty_id_fkey"
+            columns: ["faculty_id"]
+            isOneToOne: false
+            referencedRelation: "faculty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_subject_class_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
             referencedColumns: ["id"]
           },
         ]
