@@ -25,7 +25,9 @@ const FacultyPage = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [deptFilterId, setDeptFilterId] = useState<string>("ALL");
   const [faculty, setFaculty] = useState<FacultyItem[]>([]);
+  const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState("");
+  const [yearFilter, setYearFilter] = useState<string>("ALL");
 
   // Add form state
   const [addOpen, setAddOpen] = useState<boolean>(false);
@@ -104,14 +106,44 @@ const FacultyPage = () => {
             designation: f.designation ?? null,
             departmentId: f.department_id,
           })) as FacultyItem[];
-      setFaculty(list);
+          setFaculty(list);
+          
+          // Load faculty year mappings
+          await loadFacultyYears(list.map(f => f.id));
         }
       } else if (deptFilterId) {
         const list = await getFacultyByDepartment(deptFilterId);
-      setFaculty(list);
+        setFaculty(list);
+        
+        // Load faculty year mappings
+        await loadFacultyYears(list.map(f => f.id));
       }
     })();
   }, [deptFilterId]);
+
+  const loadFacultyYears = async (facultyIds: string[]) => {
+    try {
+      const { data: assignments, error } = await (supabase as any)
+        .from('faculty_subject_assignments')
+        .select('faculty_id, year')
+        .in('faculty_id', facultyIds);
+      
+      if (!error && assignments) {
+        const yearMap: Record<string, string[]> = {};
+        assignments.forEach((assignment: any) => {
+          if (!yearMap[assignment.faculty_id]) {
+            yearMap[assignment.faculty_id] = [];
+          }
+          if (!yearMap[assignment.faculty_id].includes(assignment.year)) {
+            yearMap[assignment.faculty_id].push(assignment.year);
+          }
+        });
+        setFacultyYears(yearMap);
+      }
+    } catch (error) {
+      console.error('Failed to load faculty years:', error);
+    }
+  };
 
   // Load subjects when form department changes
   useEffect(() => {
@@ -479,8 +511,24 @@ const FacultyPage = () => {
     }
   };
 
-  const filtered = faculty
-    .filter((f) => f.name.toLowerCase().includes(search.toLowerCase()) || (f.email || '').toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => {
+    return faculty.filter((f) => {
+      // Text search filter
+      const matchesSearch = f.name.toLowerCase().includes(search.toLowerCase()) || 
+                           (f.email || '').toLowerCase().includes(search.toLowerCase());
+      
+      // Year filter - check if faculty teaches any subjects in the selected year
+      if (yearFilter === "ALL") {
+        return matchesSearch;
+      }
+      
+      // Check if faculty has assignments in the selected year
+      const facultyTeachingYears = facultyYears[f.id] || [];
+      const matchesYear = facultyTeachingYears.includes(yearFilter);
+      
+      return matchesSearch && matchesYear;
+    });
+  }, [faculty, search, yearFilter, facultyYears]);
 
   return (
     <main className="min-h-screen bg-background">
@@ -504,6 +552,19 @@ const FacultyPage = () => {
               <SelectContent>
                 <SelectItem value="ALL">All departments</SelectItem>
                 {departments.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Year Filter</div>
+            <Select value={yearFilter} onValueChange={setYearFilter}>
+              <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All years</SelectItem>
+                <SelectItem value="I">Year I</SelectItem>
+                <SelectItem value="II">Year II</SelectItem>
+                <SelectItem value="III">Year III</SelectItem>
+                <SelectItem value="IV">Year IV</SelectItem>
               </SelectContent>
             </Select>
           </div>
