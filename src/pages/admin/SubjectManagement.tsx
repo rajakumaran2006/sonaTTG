@@ -13,7 +13,9 @@ import { SUBJECT_HOUR_LIMIT, Subject, subjectTotals, specialHours, useTimetableS
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk } from "@/lib/supabaseService";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
+import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, assignFacultyToSubjectsYearWide, getSubjectFacultyMap } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 
 const SubjectManagement = () => {
@@ -44,6 +46,14 @@ const SubjectManagement = () => {
   const [enablePriorityAll, setEnablePriorityAll] = useState(false);
   const [priorityByLab, setPriorityByLab] = useState<Record<string, number>>({});
   const [eveningStartAt5ByLab, setEveningStartAt5ByLab] = useState<Record<string, boolean>>({});
+
+  // Faculty management state
+  type Faculty = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
+  const [availableFaculty, setAvailableFaculty] = useState<Faculty[]>([]);
+  const [subjectFacultyMap, setSubjectFacultyMap] = useState<Record<string, string>>({});
+  const [facultyAssignmentOpen, setFacultyAssignmentOpen] = useState(false);
+  const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] = useState<Subject | null>(null);
+  const [assignmentLoading, setAssignmentLoading] = useState(false);
 
   // Load subjects for current selection from Supabase
   useEffect(() => {
@@ -86,6 +96,29 @@ const SubjectManagement = () => {
     })();
   }, [selection.department, selection.year]);
 
+  // Load faculty and subject-faculty mapping when department/year changes
+  useEffect(() => {
+    if (!selection.department || !selection.year) return;
+    (async () => {
+      try {
+        const dep = await ensureDepartment(selection.department!);
+        
+        // Load faculty for this department
+        const facultyList = await getFacultyByDepartment(dep.id);
+        setAvailableFaculty(facultyList);
+        
+        // Load current subject-faculty assignments
+        const facultyMap = await getSubjectFacultyMap(dep.id, selection.year!);
+        setSubjectFacultyMap(facultyMap);
+        
+        console.log('Loaded faculty assignments:', facultyMap);
+      } catch (e: any) {
+        console.warn('Failed to load faculty data:', e);
+        toast({ title: "Failed to load faculty data", description: e?.message || String(e) });
+      }
+    })();
+  }, [selection.department, selection.year, available.length]); // Re-load when subjects change
+
   const handleAdd = async () => {
     try {
       if (!form.name || !form.hours) return;
@@ -112,6 +145,79 @@ const SubjectManagement = () => {
     } catch (e: any) {
       toast({ title: "Failed to add subject", description: e?.message || String(e) });
     }
+  };
+
+  // Faculty assignment functions
+  const handleFacultyAssignment = async (facultyId: string) => {
+    if (!selectedSubjectForAssignment || !selection.department || !selection.year) return;
+    
+    setAssignmentLoading(true);
+    try {
+      const dep = await ensureDepartment(selection.department);
+      await assignFacultyToSubjectsYearWide(
+        facultyId, 
+        dep.id, 
+        selection.year, 
+        [selectedSubjectForAssignment.id]
+      );
+      
+      // Update the faculty mapping
+      const facultyName = availableFaculty.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+      setSubjectFacultyMap(prev => ({ 
+        ...prev, 
+        [selectedSubjectForAssignment.id]: facultyName 
+      }));
+      
+      toast({ 
+        title: "Faculty assigned successfully", 
+        description: `${facultyName} has been assigned to ${selectedSubjectForAssignment.name}` 
+      });
+      
+      setFacultyAssignmentOpen(false);
+      setSelectedSubjectForAssignment(null);
+    } catch (e: any) {
+      toast({ 
+        title: "Assignment failed", 
+        description: e?.message || String(e) 
+      });
+    } finally {
+      setAssignmentLoading(false);
+    }
+  };
+
+  const openFacultyAssignment = (subject: Subject) => {
+    setSelectedSubjectForAssignment(subject);
+    setFacultyAssignmentOpen(true);
+  };
+
+  const getAssignedFaculty = (subjectId: string): string => {
+    return subjectFacultyMap[subjectId] || 'Unassigned';
+  };
+
+  // Auto-suggest faculty based on subject name/type
+  const getSuggestedFaculty = (subject: Subject): Faculty[] => {
+    const subjectNameLower = subject.name.toLowerCase();
+    const subjectType = subject.type;
+    
+    return availableFaculty.filter(faculty => {
+      const facultyNameLower = faculty.name.toLowerCase();
+      const designation = faculty.designation?.toLowerCase() || '';
+      
+      // Priority 1: Name contains subject keywords
+      const subjectKeywords = ['ml', 'machine learning', 'ai', 'artificial intelligence', 'dbms', 'database', 'cn', 'computer network', 'os', 'operating system'];
+      const hasSubjectMatch = subjectKeywords.some(keyword => 
+        subjectNameLower.includes(keyword) && facultyNameLower.includes(keyword)
+      );
+      
+      // Priority 2: Designation matches subject type
+      const hasDesignationMatch = (
+        (subjectType === 'lab' && designation.includes('lab')) ||
+        (subject.tags?.includes('SSA') && designation.includes('ssa')) ||
+        (subjectType === 'theory' && designation.includes('professor'))
+      );
+      
+      return hasSubjectMatch || hasDesignationMatch;
+    }).slice(0, 3); // Return top 3 suggestions
   };
 
   const applyLabSettings = () => {
@@ -151,7 +257,7 @@ const SubjectManagement = () => {
           <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <Card className="rounded-2xl">
             <CardHeader>
               <CardTitle>Summary</CardTitle>
@@ -174,6 +280,59 @@ const SubjectManagement = () => {
                 <div className="text-sm text-muted-foreground">Specials</div>
                 <div className="text-2xl font-semibold">{specialHrs}</div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Faculty Overview */}
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Faculty Overview
+              </CardTitle>
+              <CardDescription>Auto-assignment available</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
+                <div className="text-sm text-muted-foreground">Available Faculty</div>
+                <div className="text-lg font-semibold">{availableFaculty.length}</div>
+              </div>
+              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
+                <div className="text-sm text-muted-foreground">Assigned Subjects</div>
+                <div className="text-lg font-semibold text-green-600">
+                  {Object.keys(subjectFacultyMap).length}
+                </div>
+              </div>
+              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
+                <div className="text-sm text-muted-foreground">Unassigned</div>
+                <div className="text-lg font-semibold text-orange-600">
+                  {available.length - Object.keys(subjectFacultyMap).length}
+                </div>
+              </div>
+              {availableFaculty.length > 0 && (
+                <div className="pt-2 border-t">
+                  <div className="text-xs text-muted-foreground mb-2">Quick Actions</div>
+                  <div className="space-y-1">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="w-full text-xs"
+                      onClick={() => {
+                        // Auto-assign all subjects with suggestions
+                        available.forEach(subject => {
+                          const suggestions = getSuggestedFaculty(subject);
+                          if (suggestions.length > 0 && getAssignedFaculty(subject.id) === 'Unassigned') {
+                            handleFacultyAssignment(suggestions[0].id);
+                          }
+                        });
+                      }}
+                      disabled={assignmentLoading}
+                    >
+                      Auto-Assign All
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -230,22 +389,54 @@ const SubjectManagement = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="rounded-2xl">
             <CardHeader>
-              <CardTitle>Available Subjects</CardTitle>
-              <CardDescription>From Supabase</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5" />
+                Available Subjects
+              </CardTitle>
+              <CardDescription>From Supabase • {availableFaculty.length} faculty available</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {available.map((s) => (
-                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
-                  <div className="flex items-center gap-3">
-                    <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
-                    <div>
-                      <div className="font-medium">{s.name}</div>
-                      <div className="text-xs text-muted-foreground">{s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}</div>
+              {available.map((s) => {
+                const assignedFaculty = getAssignedFaculty(s.id);
+                const suggestedFaculty = getSuggestedFaculty(s);
+                
+                return (
+                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
+                      <div className="flex-1">
+                        <div className="font-medium">{s.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
+                        </div>
+                        <div className="text-xs flex items-center gap-1 mt-1">
+                          <UserCheck className="h-3 w-3" />
+                          <span className={assignedFaculty === 'Unassigned' ? 'text-orange-600' : 'text-green-600'}>
+                            {assignedFaculty}
+                          </span>
+                          {suggestedFaculty.length > 0 && assignedFaculty === 'Unassigned' && (
+                            <span className="text-blue-600 ml-2">
+                              • Suggested: {suggestedFaculty[0].name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => openFacultyAssignment(s)}
+                        className="text-xs"
+                      >
+                        <Users className="h-3 w-3 mr-1" />
+                        Assign
+                      </Button>
+                      <Button size="sm" variant="soft" onClick={() => moveToSelected(s.id)}>Add</Button>
                     </div>
                   </div>
-                  <Button size="sm" variant="soft" onClick={() => moveToSelected(s.id)}>Add</Button>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 
@@ -255,18 +446,47 @@ const SubjectManagement = () => {
               <CardDescription>Used by the algorithm</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {selected.map((s) => (
-                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
-                  <div className="flex items-center gap-3">
-                    <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
-                    <div>
-                      <div className="font-medium">{s.name}</div>
-                      <div className="text-xs text-muted-foreground">{s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}</div>
+              {selected.map((s) => {
+                const assignedFaculty = getAssignedFaculty(s.id);
+                const suggestedFaculty = getSuggestedFaculty(s);
+                
+                return (
+                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
+                      <div className="flex-1">
+                        <div className="font-medium">{s.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
+                        </div>
+                        <div className="text-xs flex items-center gap-1 mt-1">
+                          <UserCheck className="h-3 w-3" />
+                          <span className={assignedFaculty === 'Unassigned' ? 'text-orange-600' : 'text-green-600'}>
+                            {assignedFaculty}
+                          </span>
+                          {suggestedFaculty.length > 0 && assignedFaculty === 'Unassigned' && (
+                            <span className="text-blue-600 ml-2">
+                              • Suggested: {suggestedFaculty[0].name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => openFacultyAssignment(s)}
+                        className="text-xs"
+                      >
+                        <Users className="h-3 w-3 mr-1" />
+                        Assign
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => moveToAvailable(s.id)}>Remove</Button>
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => moveToAvailable(s.id)}>Remove</Button>
-                </div>
-              ))}
+                );
+              })}
 
               <Separator className="my-4" />
 
@@ -395,6 +615,116 @@ const SubjectManagement = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Faculty Assignment Dialog */}
+        <Dialog open={facultyAssignmentOpen} onOpenChange={setFacultyAssignmentOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Assign Faculty to {selectedSubjectForAssignment?.name}
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedSubjectForAssignment && (
+              <div className="space-y-4">
+                {/* Current Assignment */}
+                <div className="p-3 rounded-lg bg-muted">
+                  <div className="text-sm font-medium">Current Assignment</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {getAssignedFaculty(selectedSubjectForAssignment.id)}
+                  </div>
+                </div>
+
+                {/* Suggestions */}
+                {getSuggestedFaculty(selectedSubjectForAssignment).length > 0 && (
+                  <div>
+                    <div className="text-sm font-medium mb-2">Suggested Faculty</div>
+                    <div className="space-y-2">
+                      {getSuggestedFaculty(selectedSubjectForAssignment).map((faculty) => (
+                        <div 
+                          key={faculty.id}
+                          className="flex items-center justify-between p-3 rounded-lg border bg-blue-50 border-blue-200"
+                        >
+                          <div>
+                            <div className="font-medium text-blue-900">{faculty.name}</div>
+                            <div className="text-xs text-blue-700">
+                              {faculty.designation || 'Faculty'} 
+                              {faculty.email && ` • ${faculty.email}`}
+                            </div>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="default"
+                            onClick={() => handleFacultyAssignment(faculty.id)}
+                            disabled={assignmentLoading}
+                          >
+                            {assignmentLoading ? 'Assigning...' : 'Assign'}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* All Faculty */}
+                <div>
+                  <div className="text-sm font-medium mb-2">All Department Faculty</div>
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {availableFaculty.length === 0 ? (
+                      <div className="text-center text-muted-foreground py-8">
+                        <Users className="h-8 w-8 mx-auto mb-2" />
+                        <div>No faculty found</div>
+                        <div className="text-xs">Add faculty to this department first</div>
+                      </div>
+                    ) : (
+                      availableFaculty.map((faculty) => (
+                        <div 
+                          key={faculty.id}
+                          className="flex items-center justify-between p-3 rounded-lg border"
+                        >
+                          <div>
+                            <div className="font-medium">{faculty.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {faculty.designation || 'Faculty'}
+                              {faculty.email && ` • ${faculty.email}`}
+                              {faculty.takesElectives && (
+                                <Badge variant="outline" className="ml-2 text-xs">
+                                  Electives
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => handleFacultyAssignment(faculty.id)}
+                            disabled={assignmentLoading}
+                          >
+                            {assignmentLoading ? 'Assigning...' : 'Assign'}
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Assignment Summary */}
+                {availableFaculty.length > 0 && (
+                  <div className="p-3 rounded-lg bg-muted">
+                    <div className="text-sm font-medium">Assignment Summary</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Department: {selection.department} • Year: {selection.year}
+                      <br />
+                      Total Faculty: {availableFaculty.length} • 
+                      Assigned Subjects: {Object.keys(subjectFacultyMap).length}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </section>
     </main>
   );
