@@ -28,38 +28,12 @@ export interface AllocationResult {
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"] as const;
 const PERIODS = 7;
-const MAX_PERIODS_PER_DAY = 4;
 
 /**
  * Creates a slot identifier for quick lookup
  */
 function createSlotId(day: number, period: number): string {
   return `${DAYS[day]}-p${period + 1}`;
-}
-
-/**
- * Counts periods per day for a faculty
- */
-function countPeriodsPerDay(assignedSlots: Set<string>): Map<number, number> {
-  const dailyCounts = new Map<number, number>();
-  
-  assignedSlots.forEach(slotId => {
-    const dayName = slotId.split('-')[0];
-    const dayIndex = DAYS.indexOf(dayName as any);
-    if (dayIndex !== -1) {
-      dailyCounts.set(dayIndex, (dailyCounts.get(dayIndex) || 0) + 1);
-    }
-  });
-  
-  return dailyCounts;
-}
-
-/**
- * Checks if adding a slot would exceed daily limit
- */
-function wouldExceedDailyLimit(facultyAssignedSlots: Set<string>, day: number): boolean {
-  const dailyCounts = countPeriodsPerDay(facultyAssignedSlots);
-  return (dailyCounts.get(day) || 0) >= MAX_PERIODS_PER_DAY;
 }
 
 /**
@@ -238,23 +212,22 @@ export async function buildFacultyAllocationMap(
       const isClassCounselor = classCounselor?.faculty_id === f.id;
       const availableSlots = new Set<string>();
       
-        // Calculate available slots (all slots minus assigned ones)
-        for (let day = 0; day < 6; day++) {
-          for (let period = 0; period < PERIODS; period++) {
-            const slotId = createSlotId(day, period);
-            
-            // Reserve and assign Saturday P3-P7 for class counselor
-            if (isClassCounselor && day === 5 && period >= 2) {
-              // CC gets Saturday P3-P7 automatically assigned for CC duties
-              assignedSlots.add(slotId);
-              continue;
-            }
-            
-            if (!assignedSlots.has(slotId)) {
-              availableSlots.add(slotId);
-            }
+      // Calculate available slots (all slots minus assigned ones)
+      for (let day = 0; day < 6; day++) {
+        for (let period = 0; period < PERIODS; period++) {
+          const slotId = createSlotId(day, period);
+          
+          // Reserve Saturday P3-P7 for class counselor
+          if (isClassCounselor && day === 5 && period >= 2) {
+            // CC gets Saturday P3-P7 reserved, so these are not available for regular allocation
+            continue;
+          }
+          
+          if (!assignedSlots.has(slotId)) {
+            availableSlots.add(slotId);
           }
         }
+      }
       
       facultyMap.set(f.id, {
         facultyId: f.id,
@@ -299,15 +272,10 @@ export function findAvailableFacultyForSlot(
     };
   }
   
-  // Filter by availability, lab preference, and daily limit
+  // Filter by availability and lab preference
   const availableFaculty = eligibleFaculty.filter(faculty => {
     // Check if slot is available
     if (!faculty.availableSlots.has(slotId)) {
-      return false;
-    }
-    
-    // Check daily period limit
-    if (wouldExceedDailyLimit(faculty.assignedSlots, day)) {
       return false;
     }
     
@@ -555,151 +523,4 @@ export function findAvailableSlots(
   }
   
   return availableSlots;
-}
-
-/**
- * Generates a faculty's individual timetable showing all their assigned periods
- */
-export async function generateFacultyTimetable(
-  facultyId: string,
-  departmentId: string
-): Promise<Grid> {
-  const grid: Grid = Array.from({ length: 6 }, () => Array.from({ length: PERIODS }, () => null));
-  
-  try {
-    // Get all timetables for the department
-    const { data: timetables, error } = await supabase
-      .from('timetables')
-      .select('grid_data, year, section')
-      .eq('department_id', departmentId);
-
-    if (error) throw error;
-
-    // Get faculty info
-    const { data: faculty, error: facultyError } = await supabase
-      .from('faculty_members')
-      .select('id, name')
-      .eq('id', facultyId)
-      .single();
-
-    if (facultyError) throw facultyError;
-
-    // Get all faculty subject assignments
-    const { data: assignments, error: assignError } = await supabase
-      .from('faculty_subject_assignments')
-      .select(`
-        faculty_id,
-        subject_id,
-        year,
-        section,
-        subjects!inner(name)
-      `)
-      .eq('faculty_id', facultyId)
-      .eq('department_id', departmentId);
-
-    if (assignError) throw assignError;
-
-    // Build subject mapping
-    const subjectIdToName = new Map<string, string>();
-    (assignments || []).forEach((assignment: any) => {
-      subjectIdToName.set(assignment.subject_id, assignment.subjects?.name || 'Unknown Subject');
-    });
-
-    // Get all subjects for name-to-id mapping
-    const { data: subjects, error: subjectError } = await supabase
-      .from('subjects')
-      .select('id, name')
-      .eq('department_id', departmentId);
-
-    if (subjectError) throw subjectError;
-
-    const subjectNameToId = new Map<string, string>();
-    (subjects || []).forEach((subject: any) => {
-      subjectNameToId.set(subject.name, subject.id);
-    });
-
-    // Check if this faculty is CC for any class
-    const ccClasses: string[] = [];
-    for (const timetable of timetables || []) {
-      try {
-        const { data: ccData } = await supabase
-          .rpc('get_class_counselor_info', {
-            dept_id: departmentId,
-            year_param: timetable.year,
-            section_param: timetable.section
-          });
-        
-        if (ccData && ccData.length > 0 && ccData[0].faculty_id === facultyId) {
-          ccClasses.push(`${timetable.year}-${timetable.section}`);
-        }
-      } catch (error) {
-        console.warn('Could not check CC status for class:', error);
-      }
-    }
-
-    // Process each timetable to find this faculty's assignments
-    (timetables || []).forEach((timetable: any) => {
-      const timetableGrid: string[][] = timetable.grid_data || [];
-      
-      timetableGrid.forEach((dayRow, dayIndex) => {
-        if (!dayRow) return;
-        
-        dayRow.forEach((cell, periodIndex) => {
-          if (!cell || cell === null) return;
-          
-          const cellStr = String(cell).trim();
-          if (!cellStr) return;
-          
-          let shouldAssign = false;
-          let displayText = cellStr;
-          
-          // Handle special cases like "Seminar (Faculty Name)"
-          const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
-          if (specialMatch) {
-            const [, specialType, facultyName] = specialMatch;
-            
-            if (facultyName === faculty.name) {
-              shouldAssign = true;
-              displayText = `${specialType} (CC: ${timetable.year}-${timetable.section})`;
-            }
-          } else {
-            // Regular subject - check if this faculty teaches it
-            const subjectId = subjectNameToId.get(cellStr);
-            if (subjectId && subjectIdToName.has(subjectId)) {
-              shouldAssign = true;
-              displayText = `${cellStr} (${timetable.year}-${timetable.section})`;
-            }
-          }
-          
-          if (shouldAssign) {
-            if (grid[dayIndex][periodIndex] === null) {
-              grid[dayIndex][periodIndex] = displayText;
-            } else {
-              // Handle conflicts by combining the assignments
-              grid[dayIndex][periodIndex] = `${grid[dayIndex][periodIndex]} | ${displayText}`;
-            }
-          }
-        });
-      });
-    });
-
-    // If faculty is CC, ensure Saturday special periods are shown
-    if (ccClasses.length > 0) {
-      const saturdayIndex = 5;
-      for (let period = 2; period < PERIODS; period++) { // P3-P7
-        if (grid[saturdayIndex][period] === null) {
-          const periodName = period === 2 ? "Seminar" : 
-                           period === 3 ? "Seminar" :
-                           period === 4 ? "Library" :
-                           "Student Counselling";
-          grid[saturdayIndex][period] = `${periodName} (CC: ${ccClasses.join(', ')})`;
-        }
-      }
-    }
-
-  } catch (error) {
-    console.error('Error generating faculty timetable:', error);
-  }
-
-  return grid;
 }
