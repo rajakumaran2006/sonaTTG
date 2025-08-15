@@ -1,6 +1,13 @@
 import { Subject, SubjectType, SpecialFlags } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
 import { getClassCounselor, getFacultyById, getDepartmentByName } from "./supabaseService";
+import { 
+  buildFacultyAllocationMap, 
+  findAvailableFacultyForSlot, 
+  allocateFacultyToSlot,
+  validateFacultyConflicts,
+  type FacultyAllocation 
+} from "./facultyAllocation";
 
 export type Grid = (string | null)[][]; // [day][period]
 
@@ -84,6 +91,22 @@ export async function generateTimetable({
   // Pre-lock Saturday specials
   await placeSaturdaySpecials(grid, special, departmentName, year, section);
 
+  // Initialize faculty allocation tracking
+  let facultyMap: Map<string, FacultyAllocation> = new Map();
+  let departmentId: string | undefined;
+  
+  if (departmentName && year && section) {
+    try {
+      const department = await getDepartmentByName(departmentName);
+      if (department) {
+        departmentId = department.id;
+        facultyMap = await buildFacultyAllocationMap(departmentId, year, section);
+      }
+    } catch (error) {
+      console.warn('Could not load faculty allocation map:', error);
+    }
+  }
+
   // Separate labs and theory
   const labs = subjects.filter((s) => s.type === "lab");
   const theory = subjects.filter((s) => s.type === "theory");
@@ -130,10 +153,19 @@ export async function generateTimetable({
         }
         
         if (ok) {
-          fillBlock(grid, d, startIdx, endIdx, lab.name);
-          remaining.set(lab.id, 0); // Mark as fully placed - morning labs place ALL hours
-          placedLabs.add(lab.name);
-          placed = true;
+          // Check faculty availability for lab placement
+          const canAllocateFaculty = checkFacultyAvailabilityForBlock(
+            lab, d, startIdx, endIdx, facultyMap, true
+          );
+          
+          if (canAllocateFaculty.success) {
+            fillBlock(grid, d, startIdx, endIdx, lab.name);
+            // Allocate faculty for all periods in the lab block
+            allocateFacultyForBlock(lab, d, startIdx, endIdx, facultyMap);
+            remaining.set(lab.id, 0); // Mark as fully placed - morning labs place ALL hours
+            placedLabs.add(lab.name);
+            placed = true;
+          }
         }
       }
     }
@@ -185,13 +217,22 @@ export async function generateTimetable({
         
         for (const [start, end] of tryBlocks) {
           if (canPlaceBlock(grid, day, start, end, labNames)) {
-            fillBlock(grid, day, start, end, lab.name);
-            const hoursPlaced = end - start + 1;
-            remaining.set(lab.id, (remaining.get(lab.id) || 0) - hoursPlaced);
-            hrs -= hoursPlaced;
-            placedLabs.add(lab.name);
-            placed = true;
-            break;
+            // Check faculty availability for lab placement
+            const canAllocateFaculty = checkFacultyAvailabilityForBlock(
+              lab, day, start, end, facultyMap, true
+            );
+            
+            if (canAllocateFaculty.success) {
+              fillBlock(grid, day, start, end, lab.name);
+              // Allocate faculty for all periods in the lab block
+              allocateFacultyForBlock(lab, day, start, end, facultyMap);
+              const hoursPlaced = end - start + 1;
+              remaining.set(lab.id, (remaining.get(lab.id) || 0) - hoursPlaced);
+              hrs -= hoursPlaced;
+              placedLabs.add(lab.name);
+              placed = true;
+              break;
+            }
           }
         }
         
@@ -227,11 +268,22 @@ export async function generateTimetable({
           const limit = d === 5 ? 2 : PERIODS;
           const idx = grid[d].findIndex((c, i) => c == null && i < limit);
           if (idx !== -1) {
-            grid[d][idx] = s.name;
-            remaining.set(s.id, left - 1);
-            dayCap[d] -= 1;
-            placedSomething = true;
-            break;
+            // Check faculty availability for theory subject
+            const facultyResult = findAvailableFacultyForSlot(
+              s.id, d, idx, facultyMap, false
+            );
+            
+            if (facultyResult.success) {
+              grid[d][idx] = s.name;
+              // Allocate faculty to this slot
+              if (facultyResult.facultyId) {
+                allocateFacultyToSlot(facultyResult.facultyId, d, idx, facultyMap);
+              }
+              remaining.set(s.id, left - 1);
+              dayCap[d] -= 1;
+              placedSomething = true;
+              break;
+            }
           }
         }
       }
@@ -250,10 +302,41 @@ export async function generateTimetable({
         const limit = d === 5 ? 2 : PERIODS;
         const idx = grid[d].findIndex((c, i) => c == null && i < limit);
         if (idx !== -1) {
-          grid[d][idx] = subj.name;
-          left--;
+          // Try to allocate faculty for remaining subjects
+          const facultyResult = findAvailableFacultyForSlot(
+            subj.id, d, idx, facultyMap, false
+          );
+          
+          if (facultyResult.success) {
+            grid[d][idx] = subj.name;
+            // Allocate faculty to this slot
+            if (facultyResult.facultyId) {
+              allocateFacultyToSlot(facultyResult.facultyId, d, idx, facultyMap);
+            }
+            left--;
+          } else {
+            // If no faculty available, still place but log warning
+            console.warn(`No faculty available for ${subj.name} at day ${d}, period ${idx + 1}`);
+            grid[d][idx] = subj.name;
+            left--;
+          }
         }
       }
+    }
+  }
+
+  // Validate faculty conflicts if we have department info
+  if (departmentId && year && section) {
+    try {
+      const validation = await validateFacultyConflicts(grid, subjects, departmentId, year, section);
+      if (!validation.valid) {
+        console.warn('Faculty conflicts detected:', validation.conflicts);
+      }
+      if (validation.warnings.length > 0) {
+        console.warn('Faculty allocation warnings:', validation.warnings);
+      }
+    } catch (error) {
+      console.warn('Could not validate faculty conflicts:', error);
     }
   }
 
@@ -291,6 +374,63 @@ function fillBlock(grid: Grid, day: number, start: number, end: number, name: st
   for (let p = start; p <= end; p++) grid[day][p] = name;
 }
 
+/**
+ * Checks if faculty is available for a block of periods (for labs)
+ */
+function checkFacultyAvailabilityForBlock(
+  subject: Subject,
+  day: number,
+  startPeriod: number,
+  endPeriod: number,
+  facultyMap: Map<string, FacultyAllocation>,
+  isLabSubject: boolean
+): { success: boolean; facultyId?: string; facultyName?: string } {
+  // Check each period in the block
+  for (let period = startPeriod; period <= endPeriod; period++) {
+    const result = findAvailableFacultyForSlot(
+      subject.id, day, period, facultyMap, isLabSubject
+    );
+    
+    if (!result.success) {
+      return { success: false };
+    }
+  }
+  
+  // If we reach here, all periods are available
+  const firstPeriodResult = findAvailableFacultyForSlot(
+    subject.id, day, startPeriod, facultyMap, isLabSubject
+  );
+  
+  return {
+    success: true,
+    facultyId: firstPeriodResult.facultyId,
+    facultyName: firstPeriodResult.facultyName
+  };
+}
+
+/**
+ * Allocates faculty for a block of periods (for labs)
+ */
+function allocateFacultyForBlock(
+  subject: Subject,
+  day: number,
+  startPeriod: number,
+  endPeriod: number,
+  facultyMap: Map<string, FacultyAllocation>
+): void {
+  // Find the faculty for this subject
+  const result = findAvailableFacultyForSlot(
+    subject.id, day, startPeriod, facultyMap, true
+  );
+  
+  if (result.success && result.facultyId) {
+    // Allocate all periods in the block to this faculty
+    for (let period = startPeriod; period <= endPeriod; period++) {
+      allocateFacultyToSlot(result.facultyId, day, period, facultyMap);
+    }
+  }
+}
+
 export function validateTotalHours(subjects: Subject[]): { ok: boolean; total: number; } {
   const total = subjects.reduce((a, s) => a + s.hoursPerWeek, 0);
   return { ok: total <= 42, total };
@@ -302,6 +442,19 @@ export function validateTotalHours(subjects: Subject[]): { ok: boolean; total: n
  * - Morning labs are placed in P1-P4 when enabled
  * - Evening labs respect their time preferences
  */
+/**
+ * Validates faculty allocations and conflicts in a timetable
+ */
+export async function validateTimetableFacultyConflicts(
+  grid: Grid,
+  subjects: Subject[],
+  departmentId: string,
+  year: string,
+  section: string
+): Promise<{ valid: boolean; conflicts: string[]; warnings: string[] }> {
+  return await validateFacultyConflicts(grid, subjects, departmentId, year, section);
+}
+
 export function validateLabPlacement(grid: Grid, subjects: Subject[], labPreferences?: LabPrefsMap): { 
   valid: boolean; 
   errors: string[]; 

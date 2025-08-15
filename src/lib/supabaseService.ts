@@ -444,6 +444,7 @@ export async function findFacultyByEmail(email: string): Promise<Faculty | null>
   };
 }
 
+
 // List current timetables for a department
 export async function getCurrentTimetablesByDept(deptId: string): Promise<Array<{ department_id: string; year: string; section: string; grid_data: string[][]; updated_at: string }>> {
   const { data, error } = await (supabase as any)
