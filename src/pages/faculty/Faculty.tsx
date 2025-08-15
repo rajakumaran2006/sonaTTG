@@ -48,6 +48,7 @@ const FacultyPage = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(new Set());
   const [subjectSearch, setSubjectSearch] = useState("");
+  const [subjectYearFilter, setSubjectYearFilter] = useState<string>("ALL");
   
   // Subject type toggles
   const [theoryEnabled, setTheoryEnabled] = useState<boolean>(false);
@@ -260,6 +261,7 @@ const FacultyPage = () => {
     setSubjects([]);
     setSelectedSubjectIds(new Set());
     setSubjectSearch("");
+    setSubjectYearFilter("ALL");
     setTheoryEnabled(false);
     setLabEnabled(false);
     setIsCC(false);
@@ -701,6 +703,19 @@ const FacultyPage = () => {
                 <div className="sm:col-span-2">
                   <div className="text-xs text-muted-foreground mb-2">Select subjects (optional)</div>
                   
+                  <div className="mb-2">
+                    <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                    <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
+                      <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All years</SelectItem>
+                        <SelectItem value="I">I</SelectItem>
+                        <SelectItem value="II">II</SelectItem>
+                        <SelectItem value="III">III</SelectItem>
+                        <SelectItem value="IV">IV</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   {/* Theory Subjects Toggle and Dropdown */}
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2">
@@ -734,6 +749,23 @@ const FacultyPage = () => {
                             <SelectValue placeholder="Search and select theory subjects..." />
                           </SelectTrigger>
                           <SelectContent>
+                            <div className="p-2 border-b">
+                              <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                              <div className="flex flex-wrap gap-1">
+                                {(["ALL","I","II","III","IV"] as const).map((y) => (
+                                  <Button
+                                    key={y}
+                                    size="sm"
+                                    variant={subjectYearFilter === y ? "default" : "outline"}
+                                    className="h-7 text-xs"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSubjectYearFilter(y); }}
+                                  >
+                                    {y === "ALL" ? "All" : y}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
                             <div className="p-2">
                               <Input
                                 placeholder="Search theory subjects..."
@@ -741,29 +773,35 @@ const FacultyPage = () => {
                                 onChange={(e) => setSubjectSearch(e.target.value)}
                                 className="mb-2"
                               />
-              </div>
-                            {subjects
-                              .filter(s => s.type === 'theory')
-                              .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
-                              .map(subject => {
-                                const isSelected = selectedSubjectIds.has(subject.id);
-                      return (
-                                  <SelectItem 
-                                    key={subject.id} 
-                                    value={subject.id}
-                                    disabled={isSelected}
-                                    className={isSelected ? "opacity-50 cursor-not-allowed" : ""}
-                                  >
-                                    {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
-                                    {isSelected && " ✓"}
-                                  </SelectItem>
-                      );
-                    })}
-                            {subjects.filter(s => s.type === 'theory').length === 0 && (
-                              <div className="p-2 text-sm text-muted-foreground">
-                                No theory subjects found
-                  </div>
-                            )}
+                            </div>
+                            <div className="max-h-64 overflow-y-auto pr-1">
+                              {subjects
+                                .filter(s => s.type === 'theory')
+                                .filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter)
+                                .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
+                                .map(subject => {
+                                  const isSelected = selectedSubjectIds.has(subject.id);
+                                  return (
+                                    <SelectItem 
+                                      key={subject.id} 
+                                      value={subject.id}
+                                      disabled={isSelected}
+                                      className={isSelected ? "opacity-50 cursor-not-allowed" : ""}
+                                    >
+                                      {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
+                                      {isSelected && " ✓"}
+                                    </SelectItem>
+                                  );
+                                })}
+                              {subjects
+                                .filter(s => s.type === 'theory')
+                                .filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter)
+                                .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+                                <div className="p-2 text-sm text-muted-foreground">
+                                  No theory subjects found
+                                </div>
+                              )}
+                            </div>
                           </SelectContent>
                         </Select>
                       </>
@@ -803,6 +841,23 @@ const FacultyPage = () => {
                             <SelectValue placeholder="Search and select lab subjects..." />
                           </SelectTrigger>
                           <SelectContent>
+                            <div className="p-2 border-b">
+                              <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                              <div className="flex flex-wrap gap-1">
+                                {(["ALL","I","II","III","IV"] as const).map((y) => (
+                                  <Button
+                                    key={y}
+                                    size="sm"
+                                    variant={subjectYearFilter === y ? "default" : "outline"}
+                                    className="h-7 text-xs"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSubjectYearFilter(y); }}
+                                  >
+                                    {y === "ALL" ? "All" : y}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
                             <div className="p-2">
                               <Input
                                 placeholder="Search lab subjects..."
@@ -810,29 +865,35 @@ const FacultyPage = () => {
                                 onChange={(e) => setSubjectSearch(e.target.value)}
                                 className="mb-2"
                               />
-                </div>
-                            {subjects
-                              .filter(s => s.type === 'lab')
-                              .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
-                              .map(subject => {
-                                const isSelected = selectedSubjectIds.has(subject.id);
-                      return (
-                                  <SelectItem 
-                                    key={subject.id} 
-                                    value={subject.id}
-                                    disabled={isSelected}
-                                    className={isSelected ? "opacity-50 cursor-not-allowed" : ""}
-                                  >
-                                    {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
-                                    {isSelected && " ✓"}
-                                  </SelectItem>
-                      );
-                    })}
-                            {subjects.filter(s => s.type === 'lab').length === 0 && (
-                              <div className="p-2 text-sm text-muted-foreground">
-                                No lab subjects found
-                  </div>
-                            )}
+                            </div>
+                            <div className="max-h-64 overflow-y-auto pr-1">
+                              {subjects
+                                .filter(s => s.type === 'lab')
+                                .filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter)
+                                .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
+                                .map(subject => {
+                                  const isSelected = selectedSubjectIds.has(subject.id);
+                                  return (
+                                    <SelectItem 
+                                      key={subject.id} 
+                                      value={subject.id}
+                                      disabled={isSelected}
+                                      className={isSelected ? "opacity-50 cursor-not-allowed" : ""}
+                                    >
+                                      {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
+                                      {isSelected && " ✓"}
+                                    </SelectItem>
+                                  );
+                                })}
+                              {subjects
+                                .filter(s => s.type === 'lab')
+                                .filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter)
+                                .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+                                <div className="p-2 text-sm text-muted-foreground">
+                                  No lab subjects found
+                                </div>
+                              )}
+                            </div>
                           </SelectContent>
                         </Select>
                       </>
@@ -1163,6 +1224,20 @@ const FacultyPage = () => {
             <div className="sm:col-span-2 mt-2">
               <div className="text-sm font-medium mb-2">Select subjects (optional)</div>
 
+              <div className="mb-2">
+                <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
+                  <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All years</SelectItem>
+                    <SelectItem value="I">I</SelectItem>
+                    <SelectItem value="II">II</SelectItem>
+                    <SelectItem value="III">III</SelectItem>
+                    <SelectItem value="IV">IV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Theory Subjects Toggle and Selector */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
@@ -1184,21 +1259,40 @@ const FacultyPage = () => {
                     }}>
                       <SelectTrigger><SelectValue placeholder="Search and select theory subjects..." /></SelectTrigger>
                       <SelectContent>
+                        <div className="p-2 border-b">
+                          <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(["ALL","I","II","III","IV"] as const).map((y) => (
+                              <Button
+                                key={y}
+                                size="sm"
+                                variant={subjectYearFilter === y ? 'default' : 'outline'}
+                                className="h-7 text-xs"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSubjectYearFilter(y); }}
+                              >
+                                {y === 'ALL' ? 'All' : y}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
                         <div className="p-2">
                           <Input placeholder="Search theory subjects..." value={subjectSearch} onChange={(e) => setSubjectSearch(e.target.value)} className="mb-2" />
                         </div>
-                        {editSubjects.filter(s => s.type === 'theory').filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
-                          const isSelected = selectedSubjectIds.has(subject.id);
+                        <div className="max-h-64 overflow-y-auto pr-1">
+                          {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
+                            const isSelected = selectedSubjectIds.has(subject.id);
                             return (
-                            <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
-                              {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
-                              {isSelected && ' ✓'}
-                            </SelectItem>
+                              <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
+                                {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
+                                {isSelected && ' ✓'}
+                              </SelectItem>
                             );
                           })}
-                        {editSubjects.filter(s => s.type === 'theory').length === 0 && (
-                          <div className="p-2 text-sm text-muted-foreground">No theory subjects found</div>
-                        )}
+                          {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">No theory subjects found</div>
+                          )}
+                        </div>
                       </SelectContent>
                     </Select>
                   </>
@@ -1226,21 +1320,40 @@ const FacultyPage = () => {
                     }}>
                       <SelectTrigger><SelectValue placeholder="Search and select lab subjects..." /></SelectTrigger>
                       <SelectContent>
+                        <div className="p-2 border-b">
+                          <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                          <div className="flex flex-wrap gap-1">
+                            {(["ALL","I","II","III","IV"] as const).map((y) => (
+                              <Button
+                                key={y}
+                                size="sm"
+                                variant={subjectYearFilter === y ? 'default' : 'outline'}
+                                className="h-7 text-xs"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSubjectYearFilter(y); }}
+                              >
+                                {y === 'ALL' ? 'All' : y}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
                         <div className="p-2">
                           <Input placeholder="Search lab subjects..." value={subjectSearch} onChange={(e) => setSubjectSearch(e.target.value)} className="mb-2" />
-              </div>
-                        {editSubjects.filter(s => s.type === 'lab').filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
-                          const isSelected = selectedSubjectIds.has(subject.id);
-                          return (
-                            <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
-                              {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
-                              {isSelected && ' ✓'}
-                            </SelectItem>
-                          );
-                        })}
-                        {editSubjects.filter(s => s.type === 'lab').length === 0 && (
-                          <div className="p-2 text-sm text-muted-foreground">No lab subjects found</div>
-                        )}
+                        </div>
+                        <div className="max-h-64 overflow-y-auto pr-1">
+                          {editSubjects.filter(s => s.type === 'lab').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
+                            const isSelected = selectedSubjectIds.has(subject.id);
+                            return (
+                              <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
+                                {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
+                                {isSelected && ' ✓'}
+                              </SelectItem>
+                            );
+                          })}
+                          {editSubjects.filter(s => s.type === 'lab').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">No lab subjects found</div>
+                          )}
+                        </div>
                       </SelectContent>
                     </Select>
                   </>
