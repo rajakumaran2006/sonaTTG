@@ -28,12 +28,38 @@ export interface AllocationResult {
 
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat"] as const;
 const PERIODS = 7;
+const MAX_PERIODS_PER_DAY = 4;
 
 /**
  * Creates a slot identifier for quick lookup
  */
 function createSlotId(day: number, period: number): string {
   return `${DAYS[day]}-p${period + 1}`;
+}
+
+/**
+ * Counts periods per day for a faculty
+ */
+function countPeriodsPerDay(assignedSlots: Set<string>): Map<number, number> {
+  const dailyCounts = new Map<number, number>();
+  
+  assignedSlots.forEach(slotId => {
+    const dayName = slotId.split('-')[0];
+    const dayIndex = DAYS.indexOf(dayName as any);
+    if (dayIndex !== -1) {
+      dailyCounts.set(dayIndex, (dailyCounts.get(dayIndex) || 0) + 1);
+    }
+  });
+  
+  return dailyCounts;
+}
+
+/**
+ * Checks if adding a slot would exceed daily limit
+ */
+function wouldExceedDailyLimit(facultyAssignedSlots: Set<string>, day: number): boolean {
+  const dailyCounts = countPeriodsPerDay(facultyAssignedSlots);
+  return (dailyCounts.get(day) || 0) >= MAX_PERIODS_PER_DAY;
 }
 
 /**
@@ -220,6 +246,8 @@ export async function buildFacultyAllocationMap(
           // Reserve Saturday P3-P7 for class counselor
           if (isClassCounselor && day === 5 && period >= 2) {
             // CC gets Saturday P3-P7 reserved, so these are not available for regular allocation
+            // But we need to ensure CC periods are allocated in their timetable
+            assignedSlots.add(slotId); // Automatically assign CC special periods
             continue;
           }
           
@@ -272,10 +300,15 @@ export function findAvailableFacultyForSlot(
     };
   }
   
-  // Filter by availability and lab preference
+  // Filter by availability, lab preference, and daily limit
   const availableFaculty = eligibleFaculty.filter(faculty => {
     // Check if slot is available
     if (!faculty.availableSlots.has(slotId)) {
+      return false;
+    }
+    
+    // Check daily period limit
+    if (wouldExceedDailyLimit(faculty.assignedSlots, day)) {
       return false;
     }
     
