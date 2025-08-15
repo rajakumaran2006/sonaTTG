@@ -61,10 +61,14 @@ export async function fetchFacultyExistingAllocations(
 
     if (assignError) throw assignError;
 
-    // Build subject-to-faculty mapping
-    const subjectToFaculty = new Map<string, { facultyId: string; facultyName: string }>();
+    // Build subject-to-faculty mapping per section
+    const subjectToFaculty = new Map<string, Map<string, { facultyId: string; facultyName: string }>>();
     (assignments || []).forEach((assignment: any) => {
-      subjectToFaculty.set(assignment.subject_id, {
+      const sectionKey = `${assignment.year}-${assignment.section || 'null'}`;
+      if (!subjectToFaculty.has(sectionKey)) {
+        subjectToFaculty.set(sectionKey, new Map());
+      }
+      subjectToFaculty.get(sectionKey)!.set(assignment.subject_id, {
         facultyId: assignment.faculty_id,
         facultyName: assignment.faculty_members?.name || 'Unknown'
       });
@@ -86,6 +90,8 @@ export async function fetchFacultyExistingAllocations(
     // Process each timetable
     (timetables || []).forEach((timetable: any) => {
       const grid: string[][] = timetable.grid_data || [];
+      const sectionKey = `${timetable.year}-${timetable.section}`;
+      const sectionSubjectMap = subjectToFaculty.get(sectionKey) || new Map();
       
       grid.forEach((dayRow, dayIndex) => {
         if (!dayRow) return;
@@ -93,15 +99,29 @@ export async function fetchFacultyExistingAllocations(
         dayRow.forEach((cell, periodIndex) => {
           if (!cell || cell === null) return;
           
-          const cellStr = String(cell).trim();
+          let cellStr = String(cell).trim();
           if (!cellStr) return;
+          
+          // Handle special cases like "Seminar (Faculty Name)"
+          if (cellStr.includes('(') && cellStr.includes(')')) {
+            const baseSubject = cellStr.split('(')[0].trim();
+            cellStr = baseSubject;
+          }
           
           // Find matching subject
           const subjectId = subjectNameToId.get(cellStr);
           if (!subjectId) return;
           
-          // Find faculty for this subject
-          const facultyInfo = subjectToFaculty.get(subjectId);
+          // Find faculty for this subject in this specific section
+          let facultyInfo = sectionSubjectMap.get(subjectId);
+          
+          // Fallback to general assignments if no section-specific assignment
+          if (!facultyInfo) {
+            const generalKey = `${timetable.year}-null`;
+            const generalMap = subjectToFaculty.get(generalKey);
+            facultyInfo = generalMap?.get(subjectId);
+          }
+          
           if (!facultyInfo) return;
           
           const slotId = createSlotId(dayIndex, periodIndex);
@@ -256,8 +276,10 @@ export function findAvailableFacultyForSlot(
     };
   }
   
-  // Return the first available faculty (could be enhanced with priority logic)
-  const selectedFaculty = availableFaculty[0];
+  // Prioritize faculty with fewer current assignments to balance workload
+  const selectedFaculty = availableFaculty.sort((a, b) => {
+    return a.assignedSlots.size - b.assignedSlots.size;
+  })[0];
   
   return {
     success: true,
