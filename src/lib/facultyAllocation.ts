@@ -170,9 +170,22 @@ export async function buildFacultyAllocationMap(
 
     if (facultyError) throw facultyError;
 
-    // For now, we'll skip class counselor detection to avoid DB schema issues
-    // This can be enhanced later when the schema is properly set up
-    const classCounselor: { faculty_id: string } | null = null;
+    // Get class counselor info for this specific class using the new function
+    let classCounselor: { faculty_id: string } | null = null;
+    try {
+      const { data, error: ccError } = await supabase
+        .rpc('get_class_counselor_info', {
+          dept_id: departmentId,
+          year_param: year,
+          section_param: section
+        });
+      
+      if (!ccError && data && data.length > 0) {
+        classCounselor = { faculty_id: data[0].faculty_id };
+      }
+    } catch (error) {
+      console.warn('Could not fetch class counselor, continuing without CC info:', error);
+    }
 
     // Get faculty subject assignments for this specific year/section
     const { data: assignments, error: assignError } = await supabase
