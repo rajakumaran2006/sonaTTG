@@ -724,6 +724,7 @@ export async function assignFacultyToSubjectsYearWide(
   facultyId: string,
   departmentId: string,
   year: string,
+  section: string,
   subjectIds: string[],
 ): Promise<void> {
   if (!subjectIds?.length) return;
@@ -732,7 +733,7 @@ export async function assignFacultyToSubjectsYearWide(
     subject_id: sid,
     department_id: departmentId,
     year,
-    section: null,
+    section,
   }));
   const { error } = await (supabase as any)
     .from('faculty_subject_assignments')

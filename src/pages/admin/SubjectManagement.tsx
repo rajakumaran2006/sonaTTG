@@ -158,6 +158,7 @@ const SubjectManagement = () => {
         facultyId, 
         dep.id, 
         selection.year, 
+        selection.section!, 
         [selectedSubjectForAssignment.id]
       );
       
