@@ -51,7 +51,6 @@ const App = () => (
             <Route path="/pull-requests/:id" element={<PullRequestDetail />} />
             <Route path="/current-timetables" element={<CurrentTimetables />} />
             <Route path="/super-admin/faculty" element={<Faculty />} />
-            <Route path="/super-admin/settings" element={<Settings />} />
             <Route path="/faculty" element={<FacultyDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
