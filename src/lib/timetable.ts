@@ -107,9 +107,9 @@ export async function generateTimetable({
     }
   }
 
-  // Separate labs and theory
+  // Separate labs and theory-like subjects (theory, elective, open elective)
   const labs = subjects.filter((s) => s.type === "lab");
-  const theory = subjects.filter((s) => s.type === "theory");
+  const theory = subjects.filter((s) => s.type === "theory" || s.type === "elective" || s.type === "open elective");
 
   // Remaining hours tracker
   const remaining = new Map<string, number>();
