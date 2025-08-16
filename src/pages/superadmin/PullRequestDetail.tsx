@@ -16,52 +16,95 @@ const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 function cellChanged(a: any, b: any) { return (a || '') !== (b || ''); }
 
 
-const GridView = ({ grid, compareTo }: { grid: any[][]; compareTo?: any[][] }) => (
-  <div className="overflow-auto border rounded-lg">
-    <table className="text-sm w-full border-collapse">
-      <thead>
-        <tr className="border-b bg-muted/50">
-          <th className="text-left p-3 font-semibold">Day</th>
-          {colHeaders.map((c) => (
-            <th key={c} className="text-center p-3 font-semibold min-w-[80px]">
-              {c}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {grid.map((row, i) => (
-          <tr key={i} className="border-t hover:bg-muted/20">
-            <td className="p-3 font-medium bg-muted/30">{dayNames[i]}</td>
-            {[row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]].map((cell, j) => {
-              const otherRow = compareTo?.[i] || [];
-              const otherDisplay = [otherRow[0], otherRow[1], 'BREAK', otherRow[2], otherRow[3], 'LUNCH', otherRow[4], 'BREAK', otherRow[5], otherRow[6]];
-              const changed = compareTo ? cellChanged(cell, otherDisplay[j]) : false;
-              const isBreak = cell === 'BREAK' || cell === 'LUNCH';
-              
-              return (
-                <td key={j} className="p-2">
-                  <div className={`
-                    h-12 rounded-md px-3 flex items-center justify-center text-center font-medium
-                    ${isBreak 
-                      ? 'bg-orange-100 text-orange-800 border border-orange-200' 
-                      : cell && cell.trim() 
-                        ? 'bg-blue-50 text-blue-900 border border-blue-200' 
-                        : 'bg-gray-50 text-gray-500 border border-gray-200'
-                    }
-                    ${changed ? 'ring-2 ring-primary/50' : ''}
-                  `}>
-                    {cell || 'Free'}
-                  </div>
-                </td>
-              );
-            })}
+const GridView = ({ grid, compareTo, departmentId, year }: { grid: any[][]; compareTo?: any[][]; departmentId?: string; year?: string }) => {
+  const [subjectTypes, setSubjectTypes] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const fetchSubjectTypes = async () => {
+      if (!departmentId || !year) return;
+      
+      try {
+        const { data: subjects } = await (supabase as any)
+          .from('subjects')
+          .select('name, type')
+          .eq('department_id', departmentId)
+          .eq('year', year);
+
+        const typeMap: Record<string, string> = {};
+        (subjects || []).forEach((subject: any) => {
+          typeMap[subject.name] = subject.type;
+        });
+        setSubjectTypes(typeMap);
+      } catch (error) {
+        console.error('Error fetching subject types:', error);
+      }
+    };
+
+    fetchSubjectTypes();
+  }, [departmentId, year]);
+
+  // Function to format cell content based on subject type
+  const formatCellContent = (cell: string | null): string => {
+    if (!cell || !cell.trim()) return 'Free';
+    if (cell === 'BREAK' || cell === 'LUNCH') return cell;
+    
+    const subjectName = cell.trim();
+    const subjectType = subjectTypes[subjectName];
+    
+    if (subjectType === 'open elective') {
+      return 'OE';
+    }
+    
+    return subjectName;
+  };
+
+  return (
+    <div className="overflow-auto border rounded-lg">
+      <table className="text-sm w-full border-collapse">
+        <thead>
+          <tr className="border-b bg-muted/50">
+            <th className="text-left p-3 font-semibold">Day</th>
+            {colHeaders.map((c) => (
+              <th key={c} className="text-center p-3 font-semibold min-w-[80px]">
+                {c}
+              </th>
+            ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+        </thead>
+        <tbody>
+          {grid.map((row, i) => (
+            <tr key={i} className="border-t hover:bg-muted/20">
+              <td className="p-3 font-medium bg-muted/30">{dayNames[i]}</td>
+              {[row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]].map((cell, j) => {
+                const otherRow = compareTo?.[i] || [];
+                const otherDisplay = [otherRow[0], otherRow[1], 'BREAK', otherRow[2], otherRow[3], 'LUNCH', otherRow[4], 'BREAK', otherRow[5], otherRow[6]];
+                const changed = compareTo ? cellChanged(cell, otherDisplay[j]) : false;
+                const isBreak = cell === 'BREAK' || cell === 'LUNCH';
+                
+                return (
+                  <td key={j} className="p-2">
+                    <div className={`
+                      h-12 rounded-md px-3 flex items-center justify-center text-center font-medium
+                      ${isBreak 
+                        ? 'bg-orange-100 text-orange-800 border border-orange-200' 
+                        : cell && cell.trim() 
+                          ? 'bg-blue-50 text-blue-900 border border-blue-200' 
+                          : 'bg-gray-50 text-gray-500 border border-gray-200'
+                      }
+                      ${changed ? 'ring-2 ring-primary/50' : ''}
+                    `}>
+                      {formatCellContent(cell)}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 const PullRequestDetail = () => {
   const { id } = useParams();
@@ -186,7 +229,7 @@ const PullRequestDetail = () => {
             <CardTitle className="text-xl">Proposed Timetable</CardTitle>
           </CardHeader>
           <CardContent>
-            <GridView grid={pr.proposed_grid_data || []} />
+            <GridView grid={pr.proposed_grid_data || []} departmentId={pr.department_id} year={pr.year} />
           </CardContent>
         </Card>
 

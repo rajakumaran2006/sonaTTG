@@ -73,6 +73,21 @@ function Timetable() {
     return found?.type || 'theory';
   };
 
+  // Function to format cell content based on subject type
+  const formatCellContent = (cell: string | null): string => {
+    if (!cell || !cell.trim()) return '';
+    if (cell === 'BREAK' || cell === 'LUNCH') return cell;
+    
+    const subjectName = cell.trim();
+    const subject = selected.find(s => s.name === subjectName);
+    
+    if (subject?.type === 'open elective') {
+      return 'OE';
+    }
+    
+    return subjectName;
+  };
+
   const regenerate = async () => {
     try {
       const grid = await generateTimetable({ 
@@ -392,7 +407,7 @@ function Timetable() {
                       return (
                         <td key={i} className="p-2">
                           <div className={`h-12 rounded-md flex flex-col items-center justify-center text-center text-sm ${cell ? cellClass(type) : 'bg-muted'}`} title={`${cell || ''}${staff ? ' — ' + staff : ''}`}>
-                            <span>{cell || ''}</span>
+                            <span>{formatCellContent(cell)}</span>
                             {staff && <span className="text-[10px] text-muted-foreground leading-none mt-0.5">{staff}</span>}
                           </div>
                         </td>
