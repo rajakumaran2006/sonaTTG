@@ -1212,19 +1212,7 @@ const FacultyPage = () => {
             <div className="sm:col-span-2 mt-2">
               <div className="text-sm font-medium mb-2">Select subjects (optional)</div>
 
-              <div className="mb-2">
-                <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
-                <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
-                  <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All years</SelectItem>
-                    <SelectItem value="I">I</SelectItem>
-                    <SelectItem value="II">II</SelectItem>
-                    <SelectItem value="III">III</SelectItem>
-                    <SelectItem value="IV">IV</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+             
 
               {/* Theory Subjects Toggle and Selector */}
               <div className="mb-4">
@@ -1247,6 +1235,19 @@ const FacultyPage = () => {
                     }}>
                       <SelectTrigger><SelectValue placeholder="Search and select theory subjects..." /></SelectTrigger>
                       <SelectContent>
+                      <div className="mb-2">
+                <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
+                  <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All years</SelectItem>
+                    <SelectItem value="I">I</SelectItem>
+                    <SelectItem value="II">II</SelectItem>
+                    <SelectItem value="III">III</SelectItem>
+                    <SelectItem value="IV">IV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
                 
                         <div className="p-2">
                           <Input placeholder="Search theory subjects..." value={subjectSearch} onChange={(e) => setSubjectSearch(e.target.value)} className="mb-2" />
