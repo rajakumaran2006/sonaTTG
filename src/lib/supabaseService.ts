@@ -799,7 +799,7 @@ export async function listFacultySubjectClass(
 
 export async function deleteFacultySubjectClass(id: string): Promise<void> {
   const { error } = await (supabase as any)
-    .from('faculty_subject_class')
+    .from('faculty_subject_assignments')
     .delete()
     .eq('id', id);
   if (error) throw error;
@@ -1144,7 +1144,7 @@ export async function getSubjectFacultyMap(
   // Try precise class-level mapping first
   try {
     let query = (supabase as any)
-      .from('faculty_subject_class')
+      .from('faculty_subject_assignments')
       .select('subject_id, faculty_id')
       .eq('department_id', departmentId)
       .eq('year', year);
@@ -1173,7 +1173,7 @@ export async function getSubjectFacultyMap(
     }
   } catch (e) {
     // non-fatal; fallback below
-    console.warn('getSubjectFacultyMap: faculty_subject_class unavailable, falling back');
+    console.warn('getSubjectFacultyMap: faculty_subject_assignments unavailable, falling back');
   }
 
   // Fallback: year-wide assignments (section may be null)
@@ -1504,7 +1504,7 @@ async function populateFacultyScheduleJS(
 
   // Get faculty assignments for this class
   const { data: assignments } = await (supabase as any)
-    .from('faculty_subject_class')
+    .from('faculty_subject_assignments')
     .select(`
       faculty_id,
       subjects!inner(name, abbreviation, code)

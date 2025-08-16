@@ -200,7 +200,7 @@ const FacultyPage = () => {
   const loadExistingAssignments = async (departmentId: string) => {
     try {
       const { data, error } = await (supabase as any)
-        .from('faculty_subject_class')
+        .from('faculty_subject_assignments')
         .select('subject_id, section, year, faculty_id, faculty_members!inner(name)')
         .eq('department_id', departmentId);
       
@@ -548,7 +548,7 @@ const FacultyPage = () => {
       try {
         // Clear existing assignments
         await (supabase as any)
-          .from('faculty_subject_class')
+          .from('faculty_subject_assignments')
           .delete()
           .eq('faculty_id', editingId)
           .eq('department_id', editDeptId);
