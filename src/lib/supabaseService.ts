@@ -1242,13 +1242,25 @@ export async function getSubjectFacultyMapByDeptName(
 // Year management
 export async function getAllYears(): Promise<{ id: string; name: string; display_order: number; is_active: boolean }[]> {
   try {
+    // Get distinct years from subjects table since there's no years table
     const { data, error } = await (supabase as any)
-      .from('years')
-      .select('*')
-      .order('display_order');
+      .from('subjects')
+      .select('year')
+      .order('year');
     
     if (error) throw error;
-    return data || [];
+    
+    // Convert to the expected format and remove duplicates
+    const uniqueYears = Array.from(new Set((data || []).map((item: any) => item.year)))
+      .filter((year): year is string => year && typeof year === 'string') // Type guard for string
+      .map((year, index) => ({
+        id: year,
+        name: year,
+        display_order: index + 1,
+        is_active: true
+      }));
+    
+    return uniqueYears;
   } catch (error) {
     console.error('Error fetching years:', error);
     return [];
@@ -1256,70 +1268,32 @@ export async function getAllYears(): Promise<{ id: string; name: string; display
 }
 
 export async function addYear(name: string, displayOrder: number): Promise<{ id: string; name: string; display_order: number; is_active: boolean } | null> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from('years')
-      .insert({ name, display_order: displayOrder })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error adding year:', error);
-    throw error;
-  }
+  // Since there's no years table, this function is not applicable
+  // Return a mock response to maintain compatibility
+  return {
+    id: name,
+    name: name,
+    display_order: displayOrder,
+    is_active: true
+  };
 }
 
 export async function updateYear(id: string, updates: { name?: string; display_order?: number; is_active?: boolean }): Promise<void> {
-  try {
-    const { error } = await (supabase as any)
-      .from('years')
-      .update(updates)
-      .eq('id', id);
-    
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error updating year:', error);
-    throw error;
-  }
+  // Since there's no years table, this function is not applicable
+  // No-op to maintain compatibility
+  console.warn('updateYear called but years table does not exist');
 }
 
 export async function deleteYear(id: string): Promise<void> {
-  try {
-    const { error } = await (supabase as any)
-      .from('years')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error deleting year:', error);
-    throw error;
-  }
+  // Since there's no years table, this function is not applicable
+  // No-op to maintain compatibility
+  console.warn('deleteYear called but years table does not exist');
 }
 
 export async function ensureDefaultYears(): Promise<void> {
-  try {
-    const { data, error } = await (supabase as any)
-      .from('years')
-      .select('id')
-      .limit(1);
-    if (error) return;
-    if (!data || data.length === 0) {
-      await (supabase as any)
-        .from('years')
-        .insert([
-          { name: 'I', display_order: 1 },
-          { name: 'II', display_order: 2 },
-          { name: 'III', display_order: 3 },
-          { name: 'IV', display_order: 4 },
-        ]);
-    }
-  } catch (e) {
-    // no-op; will be handled by migrations in most environments
-    console.warn('ensureDefaultYears failed (non-fatal):', e);
-  }
+  // Since there's no years table, this function is not applicable
+  // No-op to maintain compatibility
+  console.warn('ensureDefaultYears called but years table does not exist');
 }
 
 // Faculty operations

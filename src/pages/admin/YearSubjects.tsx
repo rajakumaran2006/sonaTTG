@@ -45,6 +45,13 @@ const YearSubjects = () => {
   const [loading, setLoading] = useState<boolean>(true);
 
   const totalHours = subjects.reduce((s, r) => s + (r.hours_per_week || 0), 0);
+  
+  // Calculate hours by type for better breakdown
+  const hoursByType = subjects.reduce((acc, subject) => {
+    const type = subject.type;
+    acc[type] = (acc[type] || 0) + (subject.hours_per_week || 0);
+    return acc;
+  }, {} as Record<string, number>);
 
   useEffect(() => {
     document.title = `Manage Subjects - ${year}`;
@@ -89,28 +96,39 @@ const YearSubjects = () => {
   const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setMaxFacultyCount(1); setEditingId(null); };
 
   const handleAdd = async () => {
+    if (!name.trim()) { toast.error("Subject name is required"); return; }
+    
     const nextTotal = totalHours + hours;
     if (nextTotal > 42) { toast.error("Total hours for this year cannot exceed 42"); return; }
     
-    const subjectData: any = {
-      department_id: id,
-      year,
-      name,
-      type,
-      hours_per_week: hours,
-      code: code || null,
-    };
-    
-    // Add max_faculty_count for lab subjects
-    if (type === 'lab') {
-      subjectData.max_faculty_count = maxFacultyCount;
+    try {
+      const subjectData: any = {
+        department_id: id,
+        year,
+        name: name.trim(),
+        type,
+        hours_per_week: hours,
+        code: code.trim() || null,
+      };
+      
+      // Add max_faculty_count for lab subjects
+      if (type === 'lab') {
+        subjectData.max_faculty_count = maxFacultyCount;
+      }
+      
+      const { data, error } = await (supabase as any).from('subjects').insert(subjectData).select().single();
+      if (error) { 
+        console.error('Subject addition error:', error);
+        toast.error(`Failed to add subject: ${error.message}`); 
+        return; 
+      }
+      setSubjects((s) => [...s, data as SubjectRow]);
+      toast.success("Subject added");
+      resetForm();
+    } catch (err: any) {
+      console.error('Unexpected error:', err);
+      toast.error(`Failed to add subject: ${err.message || 'Unknown error'}`);
     }
-    
-    const { data, error } = await (supabase as any).from('subjects').insert(subjectData).select().single();
-    if (error) { toast.error("Failed to add subject"); return; }
-    setSubjects((s) => [...s, data as SubjectRow]);
-    toast.success("Subject added");
-    resetForm();
   };
 
   const handleDelete = async (sid: string) => {
@@ -187,7 +205,18 @@ const YearSubjects = () => {
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">{deptName || 'Department'} — Year {year}</h1>
-            <p className="text-sm text-muted-foreground">Manage subjects (Total hours: {totalHours}/42)</p>
+            <div className="text-sm text-muted-foreground">
+              <div>Total hours: {totalHours}/42</div>
+              {Object.keys(hoursByType).length > 0 && (
+                <div className="flex gap-4 mt-1">
+                  {Object.entries(hoursByType).map(([type, hours]) => (
+                    <span key={type} className="capitalize">
+                      {type}: {hours}h
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <Button variant="outline" onClick={() => navigate(`/super-admin/departments/${id}`)}>Back</Button>
         </header>
