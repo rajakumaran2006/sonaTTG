@@ -22,7 +22,6 @@ import DepartmentDetails from "./pages/superadmin/DepartmentDetails";
 import PullRequests from "./pages/superadmin/PullRequests";
 import CurrentTimetables from "./pages/superadmin/CurrentTimetables";
 import PullRequestDetail from "./pages/superadmin/PullRequestDetail";
-import Settings from "./pages/superadmin/Settings";
 
 // Shared Pages
 import NotFound from "./pages/NotFound";
