@@ -17,7 +17,7 @@ import Navbar from "@/components/navbar/Navbar";
 interface SubjectRow {
   id: string;
   name: string;
-  type: 'theory' | 'lab' | 'elective';
+  type: 'theory' | 'lab' | 'elective' | 'open elective';
   hours_per_week: number;
   year: string;
   code: string | null;
@@ -35,7 +35,7 @@ const YearSubjects = () => {
 
   // form state for add/edit
   const [name, setName] = useState("");
-  const [type, setType] = useState<'theory' | 'lab' | 'elective'>("theory");
+  const [type, setType] = useState<'theory' | 'lab' | 'elective' | 'open elective'>("theory");
   const [hours, setHours] = useState<number>(1);
   const [code, setCode] = useState("");
   const [maxFacultyCount, setMaxFacultyCount] = useState<number>(1);
@@ -205,6 +205,7 @@ const YearSubjects = () => {
                   <SelectItem value="theory">Theory</SelectItem>
                   <SelectItem value="lab">Lab</SelectItem>
                   <SelectItem value="elective">Elective</SelectItem>
+                  <SelectItem value="open elective">Open Elective</SelectItem>
                 </SelectContent>
               </Select>
               <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
@@ -367,6 +368,7 @@ const YearSubjects = () => {
                 <SelectItem value="theory">Theory</SelectItem>
                 <SelectItem value="lab">Lab</SelectItem>
                 <SelectItem value="elective">Elective</SelectItem>
+                <SelectItem value="open elective">Open Elective</SelectItem>
               </SelectContent>
             </Select>
             <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />

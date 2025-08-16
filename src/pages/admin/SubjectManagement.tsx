@@ -31,7 +31,7 @@ const SubjectManagement = () => {
 
   const totals = useMemo(() => subjectTotals(selected), [selected]);
   const specialHrs = useMemo(() => specialHours(special), [special]);
-  const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective"; tags: string; code?: string; abbreviation?: string; staff?: string; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "" });
+  const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "" });
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const setLabPreferences = useTimetableStore((s) => s.setLabPreferences);
   const selection = useTimetableStore((s) => s.selection);

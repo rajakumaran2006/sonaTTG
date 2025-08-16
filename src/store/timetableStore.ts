@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SubjectType = "theory" | "lab" | "elective";
+export type SubjectType = "theory" | "lab" | "elective" | "open elective";
 
 export interface Subject {
   id: string;

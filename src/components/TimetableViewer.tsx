@@ -34,6 +34,7 @@ interface FacultyAssignment {
 const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) => {
   const [timetableData, setTimetableData] = useState<TimetableData | null>(null);
   const [facultyAssignments, setFacultyAssignments] = useState<FacultyAssignment[]>([]);
+  const [subjectTypes, setSubjectTypes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,6 +55,20 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
           .maybeSingle();
 
         if (error) throw error;
+
+        // Fetch subject types for this department and year
+        const { data: subjects } = await (supabase as any)
+          .from('subjects')
+          .select('name, type')
+          .eq('department_id', departmentId)
+          .eq('year', year);
+
+        // Create subject name to type mapping
+        const typeMap: Record<string, string> = {};
+        (subjects || []).forEach((subject: any) => {
+          typeMap[subject.name] = subject.type;
+        });
+        setSubjectTypes(typeMap);
 
         if (data) {
           setTimetableData({
@@ -213,6 +228,21 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
 
   const { grid_data, updated_at, department_name } = timetableData;
 
+  // Function to format cell content based on subject type
+  const formatCellContent = (cell: string | null): string => {
+    if (!cell || !cell.trim()) return 'Free';
+    if (cell === 'BREAK' || cell === 'LUNCH') return cell;
+    
+    const subjectName = cell.trim();
+    const subjectType = subjectTypes[subjectName];
+    
+    if (subjectType === 'open elective') {
+      return 'OE';
+    }
+    
+    return subjectName;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Information */}
@@ -293,7 +323,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                           `}>
                             <div className="flex flex-col items-center">
                               <span className="text-sm font-semibold">
-                                {cell || 'Free'}
+                                {formatCellContent(cell)}
                               </span>
                               {hasSubject && (
                                 <span className="text-xs text-muted-foreground mt-1">
