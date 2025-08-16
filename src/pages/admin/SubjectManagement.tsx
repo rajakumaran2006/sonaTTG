@@ -15,7 +15,7 @@ import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
-import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, assignFacultyToSubjectsYearWide, getSubjectFacultyMap } from "@/lib/supabaseService";
+import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 //sample
 const SubjectManagement = () => {
@@ -96,28 +96,28 @@ const SubjectManagement = () => {
     })();
   }, [selection.department, selection.year]);
 
-  // Load faculty and subject-faculty mapping when department/year changes
+  // Load faculty and subject-faculty mapping when department/year/section changes
   useEffect(() => {
-    if (!selection.department || !selection.year) return;
+    if (!selection.department || !selection.year || !selection.section) return;
     (async () => {
       try {
         const dep = await ensureDepartment(selection.department!);
         
-        // Load faculty for this department
-        const facultyList = await getFacultyByDepartment(dep.id);
+        // Load faculty assigned to this specific section
+        const facultyList = await getFacultyBySection(dep.id, selection.year!, selection.section!);
         setAvailableFaculty(facultyList);
         
         // Load current subject-faculty assignments
-        const facultyMap = await getSubjectFacultyMap(dep.id, selection.year!);
+        const facultyMap = await getSubjectFacultyMap(dep.id, selection.year!, selection.section);
         setSubjectFacultyMap(facultyMap);
         
-        console.log('Loaded faculty assignments:', facultyMap);
+        console.log('Loaded faculty assignments for section:', facultyMap);
       } catch (e: any) {
         console.warn('Failed to load faculty data:', e);
         toast({ title: "Failed to load faculty data", description: e?.message || String(e) });
       }
     })();
-  }, [selection.department, selection.year, available.length]); // Re-load when subjects change
+  }, [selection.department, selection.year, selection.section, available.length]); // Re-load when subjects change
 
   const handleAdd = async () => {
     try {

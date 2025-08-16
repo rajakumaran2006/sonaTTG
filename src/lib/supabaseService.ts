@@ -429,6 +429,31 @@ export async function getFacultyByDepartment(deptId: string): Promise<Faculty[]>
   }));
 }
 
+// Get faculty assigned to a specific section
+export async function getFacultyBySection(deptId: string, year: string, section: string): Promise<Faculty[]> {
+  const { data, error } = await (supabase as any)
+    .from('faculty_members')
+    .select(`
+      id, name, email, designation, takes_electives, department_id,
+      faculty_subject_assignments!inner(section)
+    `)
+    .eq('department_id', deptId)
+    .eq('faculty_subject_assignments.year', year)
+    .eq('faculty_subject_assignments.section', section)
+    .order('name');
+  
+  if (error) throw error;
+  
+  return (data || []).map((f: any) => ({
+    id: f.id,
+    name: f.name,
+    email: f.email ?? null,
+    designation: f.designation ?? null,
+    takesElectives: Boolean(f.takes_electives),
+    departmentId: f.department_id,
+  }));
+}
+
 // Find a faculty by email (exact match)
 export async function findFacultyByEmail(email: string): Promise<Faculty | null> {
   const { data, error } = await (supabase as any)
