@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
 import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, assignFacultyToSubjectsYearWide, getSubjectFacultyMap } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
-
+//sample
 const SubjectManagement = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
