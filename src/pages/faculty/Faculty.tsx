@@ -54,6 +54,11 @@ const FacultyPage = () => {
   // Subject-section mappings
   const [subjectSections, setSubjectSections] = useState<Map<string, string[]>>(new Map());
   const [occupiedAssignments, setOccupiedAssignments] = useState<Map<string, string>>(new Map());
+  const [occupiedClassCounselors, setOccupiedClassCounselors] = useState<Map<string, string>>(new Map());
+  
+  // Elective section mappings
+  const [electiveSections, setElectiveSections] = useState<string[]>([]);
+  const [selectedElectiveSections, setSelectedElectiveSections] = useState<Set<string>>(new Set());
   
   // Subject type toggles
   const [theoryEnabled, setTheoryEnabled] = useState<boolean>(false);
@@ -213,6 +218,22 @@ const FacultyPage = () => {
         });
         setOccupiedAssignments(occupied);
       }
+      
+      // Load class counselor assignments
+      const { data: ccData, error: ccError } = await (supabase as any)
+        .from('class_counselors')
+        .select('year, section, faculty_id, faculty_members!inner(name)')
+        .eq('department_id', departmentId)
+        .eq('is_active', true);
+      
+      if (!ccError && ccData) {
+        const ccOccupied = new Map<string, string>();
+        ccData.forEach((cc: any) => {
+          const key = `${cc.year}-${cc.section}`;
+          ccOccupied.set(key, cc.faculty_members.name);
+        });
+        setOccupiedClassCounselors(ccOccupied);
+      }
     } catch (error) {
       console.error('Failed to load existing assignments:', error);
     }
@@ -245,6 +266,13 @@ const FacultyPage = () => {
   const isAssignmentOccupied = (subjectId: string, year: string, section: string): { occupied: boolean; facultyName?: string } => {
     const key = `${subjectId}-${year}-${section}`;
     const facultyName = occupiedAssignments.get(key);
+    return { occupied: !!facultyName, facultyName };
+  };
+
+  // Check if a class counselor position is occupied
+  const isCCOccupied = (year: string, section: string): { occupied: boolean; facultyName?: string } => {
+    const key = `${year}-${section}`;
+    const facultyName = occupiedClassCounselors.get(key);
     return { occupied: !!facultyName, facultyName };
   };
 
@@ -284,8 +312,10 @@ const FacultyPage = () => {
 
   // Load elective subjects when elective parameters change
   useEffect(() => {
-    if (!takesElectives || !electiveDeptId || !electiveYear || !electiveSection) {
+    if (!takesElectives || !electiveDeptId || !electiveYear) {
       setElectiveSubjects([]);
+      setElectiveSections([]);
+      setSelectedElectiveSections(new Set());
       return;
     }
     
@@ -313,12 +343,39 @@ const FacultyPage = () => {
         }));
         
         setElectiveSubjects(electiveSubjectsList);
+        
+        // Load available sections for the elective year
+        const { data: sectionData, error: sectionError } = await (supabase as any)
+          .from('section_subjects')
+          .select('section')
+          .eq('department_id', electiveDeptId)
+          .eq('year', electiveYear);
+        
+        if (!sectionError && sectionData) {
+          const uniqueSections = [...new Set(sectionData.map((item: any) => item.section))].sort() as string[];
+          setElectiveSections(uniqueSections);
+        }
+        
       } catch (error) {
         console.error('Failed to load elective subjects:', error);
         setElectiveSubjects([]);
+        setElectiveSections([]);
       }
     })();
-  }, [takesElectives, electiveDeptId, electiveYear, electiveSection]);
+  }, [takesElectives, electiveDeptId, electiveYear]);
+
+  // Handle elective section selection
+  const handleElectiveSectionToggle = (section: string) => {
+    setSelectedElectiveSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(section)) {
+        newSet.delete(section);
+      } else {
+        newSet.add(section);
+      }
+      return newSet;
+    });
+  };
 
   const resetForm = () => {
     setName(""); 
@@ -341,6 +398,9 @@ const FacultyPage = () => {
     setElectiveSubjects([]);
     setSubjectSections(new Map());
     setOccupiedAssignments(new Map());
+    setOccupiedClassCounselors(new Map());
+    setElectiveSections([]);
+    setSelectedElectiveSections(new Set());
     setAddOpen(false);
   };
 
@@ -362,8 +422,8 @@ const FacultyPage = () => {
             const subject = subjects.find(s => s.id === subjectId);
             const sections = subjectSections.get(subjectId) || [];
             
-            if (subject?.type === 'theory' && sections.length > 0) {
-              // For theory subjects, create one assignment per selected section
+            if ((subject?.type === 'theory' || subject?.type === 'lab') && sections.length > 0) {
+              // For theory and lab subjects, create one assignment per selected section
               sections.forEach(section => {
                 rows.push({
                   faculty_id: f.id,
@@ -374,7 +434,7 @@ const FacultyPage = () => {
                 });
               });
             } else {
-              // For lab subjects or theory without sections, use default
+              // For subjects without sections, use null section
               rows.push({
                 faculty_id: f.id,
                 subject_id: subjectId,
@@ -418,6 +478,19 @@ const FacultyPage = () => {
         } catch (ccError) {
           console.error('Failed to assign CC:', ccError);
           toast.success('Faculty created but failed to assign as CC');
+        }
+      }
+      
+      // Handle electives assignment
+      if (takesElectives && selectedElectiveSections.size > 0) {
+        try {
+          for (const section of selectedElectiveSections) {
+            await saveFacultyElectiveInfo(f.id, electiveDeptId || deptForCreate, electiveYear, section);
+          }
+          toast.success(`Faculty assigned to ${selectedElectiveSections.size} elective section(s)`);
+        } catch (electiveError) {
+          console.error('Failed to assign electives:', electiveError);
+          toast.success('Faculty created but failed to assign electives');
         }
       }
       
@@ -1083,10 +1156,19 @@ const FacultyPage = () => {
                           <SelectValue placeholder="Select section" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="A">A</SelectItem>
-                          <SelectItem value="B">B</SelectItem>
-                          <SelectItem value="C">C</SelectItem>
-                          <SelectItem value="D">D</SelectItem>
+                          {['A', 'B', 'C', 'D'].map(section => {
+                            const { occupied, facultyName } = ccYear ? isCCOccupied(ccYear, section) : { occupied: false };
+                            return (
+                              <SelectItem 
+                                key={section} 
+                                value={section}
+                                disabled={occupied}
+                                className={occupied ? 'text-red-500 opacity-50' : ''}
+                              >
+                                {section} {occupied && `(Occupied by ${facultyName})`}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
               </div>
@@ -1138,26 +1220,39 @@ const FacultyPage = () => {
                         </Select>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1">Section</div>
-                        <Select value={electiveSection} onValueChange={setElectiveSection}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select section" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="A">A</SelectItem>
-                            <SelectItem value="B">B</SelectItem>
-                            <SelectItem value="C">C</SelectItem>
-                            <SelectItem value="D">D</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="text-xs text-muted-foreground mb-1">Sections (multiple selection)</div>
+                        <div className="border rounded-md p-2 max-h-24 overflow-y-auto">
+                          {electiveSections.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {electiveSections.map(section => {
+                                const isSelected = selectedElectiveSections.has(section);
+                                return (
+                                  <Button
+                                    key={section}
+                                    size="sm"
+                                    variant={isSelected ? "default" : "outline"}
+                                    onClick={() => handleElectiveSectionToggle(section)}
+                                    className="h-7 px-2 text-xs"
+                                  >
+                                    {section}
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground">
+                              No sections available for selected year
+                            </div>
+                          )}
+                        </div>
                       </div>
                       </div>
 
                     {/* Elective Subjects List */}
-                    {electiveDeptId && electiveYear && electiveSection && (
+                    {electiveDeptId && electiveYear && selectedElectiveSections.size > 0 && (
                       <div>
                         <div className="text-xs text-muted-foreground mb-2">
-                          Available elective subjects for {departments.find(d => d.id === electiveDeptId)?.name} - Year {electiveYear} Section {electiveSection}:
+                          Available elective subjects for {departments.find(d => d.id === electiveDeptId)?.name} - Year {electiveYear} ({selectedElectiveSections.size} section{selectedElectiveSections.size > 1 ? 's' : ''} selected):
                         </div>
                         <div className="border rounded-md p-3 max-h-32 overflow-y-auto">
                           {electiveSubjects.length > 0 ? (
@@ -1171,9 +1266,14 @@ const FacultyPage = () => {
                           ) : (
                             <div className="text-sm text-muted-foreground text-center py-2">
                               No elective subjects found for the selected criteria
-                      </div>
+                            </div>
                           )}
                         </div>
+                        {selectedElectiveSections.size > 0 && (
+                          <div className="text-xs text-muted-foreground mt-2">
+                            Selected sections: {Array.from(selectedElectiveSections).join(', ')}
+                          </div>
+                        )}
                       </div>
                     )}
                   </>
@@ -1444,23 +1544,27 @@ const FacultyPage = () => {
                        </SelectContent>
                      </Select>
 
-                     {/* Section Selection for Theory Subjects in Edit Mode */}
-                     {Array.from(selectedSubjectIds).filter(id => 
-                       editSubjects.find(s => s.id === id)?.type === 'theory'
-                     ).length > 0 && (
-                       <div className="mt-4 space-y-3">
-                         <div className="text-sm font-medium">Section Selection for Theory Subjects</div>
-                         {Array.from(selectedSubjectIds)
-                           .filter(id => editSubjects.find(s => s.id === id)?.type === 'theory')
-                           .map(subjectId => {
-                             const subject = editSubjects.find(s => s.id === subjectId);
-                             const selectedSections = subjectSections.get(subjectId) || [];
-                             
-                             return (
-                               <div key={subjectId} className="border rounded-md p-3">
-                                 <div className="text-sm font-medium mb-2">
-                                   {subject?.name} (Year {subject?.year})
-                                 </div>
+                      {/* Section Selection for Theory and Lab Subjects in Edit Mode */}
+                      {Array.from(selectedSubjectIds).filter(id => {
+                        const subjectType = editSubjects.find(s => s.id === id)?.type;
+                        return subjectType === 'theory' || subjectType === 'lab';
+                      }).length > 0 && (
+                        <div className="mt-4 space-y-3">
+                          <div className="text-sm font-medium">Section Selection for Theory and Lab Subjects</div>
+                          {Array.from(selectedSubjectIds)
+                            .filter(id => {
+                              const subjectType = editSubjects.find(s => s.id === id)?.type;
+                              return subjectType === 'theory' || subjectType === 'lab';
+                            })
+                            .map(subjectId => {
+                              const subject = editSubjects.find(s => s.id === subjectId);
+                              const selectedSections = subjectSections.get(subjectId) || [];
+                              
+                              return (
+                                <div key={subjectId} className="border rounded-md p-3">
+                                  <div className="text-sm font-medium mb-2">
+                                    {subject?.name} (Year {subject?.year} • {subject?.type})
+                                  </div>
                                  <div className="grid grid-cols-4 gap-2">
                                    {['A', 'B', 'C', 'D'].map(section => {
                                      const { occupied, facultyName } = isAssignmentOccupied(subjectId, subject?.year || '', section);
