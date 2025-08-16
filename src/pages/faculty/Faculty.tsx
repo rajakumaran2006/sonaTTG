@@ -10,7 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getDepartments, createFaculty, deleteFaculty, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
+import { getDepartments, createFaculty, deleteFaculty, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 
 type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
@@ -199,7 +199,7 @@ const FacultyPage = () => {
   const loadExistingAssignments = async (departmentId: string) => {
     try {
       const { data, error } = await (supabase as any)
-        .from('faculty_subject_assignments')
+        .from('faculty_subject_class')
         .select('subject_id, section, year, faculty_id, faculty_members!inner(name)')
         .eq('department_id', departmentId);
       
@@ -355,44 +355,37 @@ const FacultyPage = () => {
       // Assign selected subjects to the faculty with their sections
       if (selectedSubjectIds.size > 0) {
         try {
-          const rows: any[] = [];
+          const allocations: Array<{ subjectId: string; year: string; section: string }> = [];
           
-          // Create assignments for each subject-section combination
+          // Create allocations for each subject-section combination
           Array.from(selectedSubjectIds).forEach(subjectId => {
             const subject = subjects.find(s => s.id === subjectId);
             const sections = subjectSections.get(subjectId) || [];
             
-            if (subject?.type === 'theory' && sections.length > 0) {
-              // For theory subjects, create one assignment per selected section
+            if (sections.length > 0) {
+              // For subjects with selected sections, create one allocation per section
               sections.forEach(section => {
-                rows.push({
-                  faculty_id: f.id,
-                  subject_id: subjectId,
-                  department_id: deptForCreate,
-                  year: subject.year,
+                allocations.push({
+                  subjectId: subjectId,
+                  year: subject?.year || 'I',
                   section: section,
                 });
               });
             } else {
-              // For lab subjects or theory without sections, use default
-              rows.push({
-                faculty_id: f.id,
-                subject_id: subjectId,
-                department_id: deptForCreate,
+              // For subjects without sections, use default section 'A'
+              allocations.push({
+                subjectId: subjectId,
                 year: subject?.year || 'I',
-                section: null,
+                section: 'A',
               });
             }
           });
 
-          if (rows.length > 0) {
-            const { error } = await (supabase as any)
-              .from('faculty_subject_assignments')
-              .insert(rows);
-            if (error) throw error;
+          if (allocations.length > 0) {
+            await upsertFacultySubjectClassAll(deptForCreate, f.id, allocations);
           }
           
-          const totalAssignments = rows.length;
+          const totalAssignments = allocations.length;
           toast.success(`Faculty created and assigned to ${totalAssignments} subject-section combination(s)`);
         } catch (assignmentError) {
           console.error('Subject assignment failed:', assignmentError);
@@ -511,47 +504,40 @@ const FacultyPage = () => {
       try {
         // Clear existing assignments
         await (supabase as any)
-          .from('faculty_subject_assignments')
+          .from('faculty_subject_class')
           .delete()
           .eq('faculty_id', editingId)
           .eq('department_id', editDeptId);
           
         if (selectedSubjectIds.size > 0) {
-          const rows: any[] = [];
+          const allocations: Array<{ subjectId: string; year: string; section: string }> = [];
           
-          // Create assignments for each subject-section combination
+          // Create allocations for each subject-section combination
           Array.from(selectedSubjectIds).forEach(subjectId => {
             const subject = editSubjects.find(s => s.id === subjectId);
             const sections = subjectSections.get(subjectId) || [];
             
-            if (subject?.type === 'theory' && sections.length > 0) {
-              // For theory subjects, create one assignment per selected section
+            if (sections.length > 0) {
+              // For subjects with selected sections, create one allocation per section
               sections.forEach(section => {
-                rows.push({
-                  faculty_id: editingId,
-                  subject_id: subjectId,
-                  department_id: editDeptId,
-                  year: subject.year,
+                allocations.push({
+                  subjectId: subjectId,
+                  year: subject?.year || 'I',
                   section: section,
                 });
               });
             } else {
-              // For lab subjects or theory without sections, use default
-              rows.push({
-                faculty_id: editingId,
-                subject_id: subjectId,
-                department_id: editDeptId,
+              // For subjects without sections, use default section 'A'
+              allocations.push({
+                subjectId: subjectId,
                 year: subject?.year || 'I',
-                section: null,
+                section: 'A',
               });
             }
           });
 
-          if (rows.length > 0) {
-            const { error } = await (supabase as any)
-              .from('faculty_subject_assignments')
-              .insert(rows);
-            if (error) throw error;
+          if (allocations.length > 0) {
+            await upsertFacultySubjectClassAll(editDeptId, editingId, allocations);
           }
         }
       } catch (assignErr: any) {
@@ -1041,6 +1027,60 @@ const FacultyPage = () => {
                             </div>
                           </SelectContent>
                         </Select>
+
+                        {/* Section Selection for Lab Subjects */}
+                        {Array.from(selectedSubjectIds).filter(id => 
+                          subjects.find(s => s.id === id)?.type === 'lab'
+                        ).length > 0 && (
+                          <div className="mt-4 space-y-3">
+                            <div className="text-sm font-medium">Section Selection for Lab Subjects</div>
+                            {Array.from(selectedSubjectIds)
+                              .filter(id => subjects.find(s => s.id === id)?.type === 'lab')
+                              .map(subjectId => {
+                                const subject = subjects.find(s => s.id === subjectId);
+                                const selectedSections = subjectSections.get(subjectId) || [];
+                                
+                                return (
+                                  <div key={subjectId} className="border rounded-md p-3">
+                                    <div className="text-sm font-medium mb-2">
+                                      {subject?.name} (Year {subject?.year})
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                      {['A', 'B', 'C', 'D'].map(section => {
+                                        const { occupied, facultyName } = isAssignmentOccupied(subjectId, subject?.year || '', section);
+                                        const isSelected = selectedSections.includes(section);
+                                        
+                                        return (
+                                          <Button
+                                            key={section}
+                                            size="sm"
+                                            variant={isSelected ? "default" : "outline"}
+                                            disabled={occupied}
+                                            onClick={() => handleSectionToggle(subjectId, section)}
+                                            className={`h-8 text-xs ${occupied ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                          >
+                                            <div className="text-center">
+                                              <div>Section {section}</div>
+                                              {occupied && (
+                                                <div className="text-xs text-destructive">
+                                                  Occupied by {facultyName}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </Button>
+                                        );
+                                      })}
+                                    </div>
+                                    {selectedSections.length > 0 && (
+                                      <div className="text-xs text-muted-foreground mt-2">
+                                        Selected sections: {selectedSections.join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </>
                     )}
                 </div>
@@ -1232,7 +1272,7 @@ const FacultyPage = () => {
                               ×
                             </Button>
                           </div>
-                          {subject.type === 'theory' && sections.length > 0 && (
+                          {(subject.type === 'theory' || subject.type === 'lab') && sections.length > 0 && (
                             <div className="text-xs text-muted-foreground mt-1">
                               Sections: {sections.join(', ')}
                             </div>
@@ -1557,7 +1597,61 @@ const FacultyPage = () => {
                           )}
                         </div>
                       </SelectContent>
-                    </Select>
+                                            </Select>
+
+                        {/* Section Selection for Lab Subjects in Edit Mode */}
+                        {Array.from(selectedSubjectIds).filter(id => 
+                          editSubjects.find(s => s.id === id)?.type === 'lab'
+                        ).length > 0 && (
+                          <div className="mt-4 space-y-3">
+                            <div className="text-sm font-medium">Section Selection for Lab Subjects</div>
+                            {Array.from(selectedSubjectIds)
+                              .filter(id => editSubjects.find(s => s.id === id)?.type === 'lab')
+                              .map(subjectId => {
+                                const subject = editSubjects.find(s => s.id === subjectId);
+                                const selectedSections = subjectSections.get(subjectId) || [];
+                                
+                                return (
+                                  <div key={subjectId} className="border rounded-md p-3">
+                                    <div className="text-sm font-medium mb-2">
+                                      {subject?.name} (Year {subject?.year})
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                      {['A', 'B', 'C', 'D'].map(section => {
+                                        const { occupied, facultyName } = isAssignmentOccupied(subjectId, subject?.year || '', section);
+                                        const isSelected = selectedSections.includes(section);
+                                        
+                                        return (
+                                          <Button
+                                            key={section}
+                                            size="sm"
+                                            variant={isSelected ? "default" : "outline"}
+                                            disabled={occupied && !isSelected}
+                                            onClick={() => handleSectionToggle(subjectId, section)}
+                                            className={`h-8 text-xs ${occupied && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                          >
+                                            <div className="text-center">
+                                              <div>Section {section}</div>
+                                              {occupied && !isSelected && (
+                                                <div className="text-xs text-destructive">
+                                                  Occupied by {facultyName}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </Button>
+                                        );
+                                      })}
+                                    </div>
+                                    {selectedSections.length > 0 && (
+                                      <div className="text-xs text-muted-foreground mt-2">
+                                        Selected sections: {selectedSections.join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                   </>
                 )}
               </div>
