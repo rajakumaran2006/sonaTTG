@@ -338,108 +338,20 @@ const SubjectManagement = () => {
 
           <Card className="rounded-2xl lg:col-span-2">
             <CardHeader>
-              <CardTitle>Add Subject</CardTitle>
-              <CardDescription>Saved for all sections in this year</CardDescription>
+              <CardTitle>Selected Subjects</CardTitle>
+              <CardDescription>Subjects currently selected for timetable generation</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <Label className="text-sm">Name</Label>
-                <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g., Operating Systems" />
-              </div>
-              <div>
-                <Label className="text-sm">Hours/week</Label>
-                <Input type="number" min={1} max={7} value={form.hours} onChange={(e) => setForm((f) => ({ ...f, hours: Number(e.target.value) }))} />
-              </div>
-              <div>
-                <Label className="text-sm">Type</Label>
-                <Select value={form.type} onValueChange={(v: "theory" | "lab" | "elective") => setForm((f) => ({ ...f, type: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose" />
-                  </SelectTrigger>
-                  <SelectContent className="z-50 bg-popover">
-                    <SelectItem value="theory">Theory</SelectItem>
-                    <SelectItem value="lab">Lab</SelectItem>
-                    <SelectItem value="elective">Elective</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-sm">Code</Label>
-                <Input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="e.g., U23IT501" />
-              </div>
-              <div>
-                <Label className="text-sm">Abbrev.</Label>
-                <Input value={form.abbreviation} onChange={(e) => setForm((f) => ({ ...f, abbreviation: e.target.value }))} placeholder="e.g., CN" />
-              </div>
-              <div>
-                <Label className="text-sm">Tags (comma)</Label>
-                <Input value={form.tags} onChange={(e) => setForm((f) => ({ ...f, tags: e.target.value }))} placeholder="SSA, Elective" />
-              </div>
-              <div className="md:col-span-3">
-                <Label className="text-sm">Staff</Label>
-                <Input value={form.staff} onChange={(e) => setForm((f) => ({ ...f, staff: e.target.value }))} placeholder="e.g., Mr. D. Jayaprakash" />
-              </div>
-              <div className="md:col-span-6 flex justify-end">
-                <Button variant="hero" onClick={handleAdd}>Add & Include</Button>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <div className="text-lg font-medium">No subjects selected</div>
+                <div className="text-sm">Subjects will be loaded from the database based on department and year selection</div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                Available Subjects
-              </CardTitle>
-              <CardDescription>From Supabase • {availableFaculty.length} faculty available</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {available.map((s) => {
-                const assignedFaculty = getAssignedFaculty(s.id);
-                const suggestedFaculty = getSuggestedFaculty(s);
-                
-                return (
-                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
-                    <div className="flex items-center gap-3 flex-1">
-                      <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
-                      <div className="flex-1">
-                        <div className="font-medium">{s.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
-                        </div>
-                        <div className="text-xs flex items-center gap-1 mt-1">
-                          <UserCheck className="h-3 w-3" />
-                          <span className={assignedFaculty === 'Unassigned' ? 'text-orange-600' : 'text-green-600'}>
-                            {assignedFaculty}
-                          </span>
-                          {suggestedFaculty.length > 0 && assignedFaculty === 'Unassigned' && (
-                            <span className="text-blue-600 ml-2">
-                              • Suggested: {suggestedFaculty[0].name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => openFacultyAssignment(s)}
-                        className="text-xs"
-                      >
-                        <Users className="h-3 w-3 mr-1" />
-                        Assign
-                      </Button>
-                      <Button size="sm" variant="soft" onClick={() => moveToSelected(s.id)}>Add</Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
           <Card className="rounded-2xl">
             <CardHeader>
               <CardTitle>Selected for Generation</CardTitle>
