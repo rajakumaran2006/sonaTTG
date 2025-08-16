@@ -124,6 +124,74 @@ export type Database = {
         }
         Relationships: []
       }
+      faculty_elective_assignments: {
+        Row: {
+          created_at: string
+          department_id: string
+          faculty_id: string
+          id: string
+          is_active: boolean
+          section: string
+          subject_id: string | null
+          subject_type_id: string
+          updated_at: string
+          year: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          faculty_id: string
+          id?: string
+          is_active?: boolean
+          section: string
+          subject_id?: string | null
+          subject_type_id: string
+          updated_at?: string
+          year: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          faculty_id?: string
+          id?: string
+          is_active?: boolean
+          section?: string
+          subject_id?: string | null
+          subject_type_id?: string
+          updated_at?: string
+          year?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "faculty_elective_assignments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_elective_assignments_faculty_id_fkey"
+            columns: ["faculty_id"]
+            isOneToOne: false
+            referencedRelation: "faculty_members"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_elective_assignments_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "faculty_elective_assignments_subject_type_id_fkey"
+            columns: ["subject_type_id"]
+            isOneToOne: false
+            referencedRelation: "subject_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faculty_members: {
         Row: {
           created_at: string
@@ -354,6 +422,142 @@ export type Database = {
           },
         ]
       }
+      special_subjects: {
+        Row: {
+          allocation_type: string
+          created_at: string
+          department_id: string | null
+          hours_per_week: number
+          id: string
+          is_active: boolean | null
+          name: string
+          priority: number | null
+          static_day_period: Json | null
+          static_hours: Json
+          updated_at: string
+          weekday_hours: number
+          year: string | null
+        }
+        Insert: {
+          allocation_type?: string
+          created_at?: string
+          department_id?: string | null
+          hours_per_week: number
+          id?: string
+          is_active?: boolean | null
+          name: string
+          priority?: number | null
+          static_day_period?: Json | null
+          static_hours?: Json
+          updated_at?: string
+          weekday_hours?: number
+          year?: string | null
+        }
+        Update: {
+          allocation_type?: string
+          created_at?: string
+          department_id?: string | null
+          hours_per_week?: number
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          priority?: number | null
+          static_day_period?: Json | null
+          static_hours?: Json
+          updated_at?: string
+          weekday_hours?: number
+          year?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_special_subjects_department"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subject_type_subjects: {
+        Row: {
+          created_at: string
+          id: string
+          subject_id: string
+          subject_type_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          subject_id: string
+          subject_type_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          subject_id?: string
+          subject_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_type_subjects_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subject_type_subjects_subject_type_id_fkey"
+            columns: ["subject_type_id"]
+            isOneToOne: false
+            referencedRelation: "subject_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subject_types: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          type_category: string
+          updated_at: string
+          year: string | null
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          type_category: string
+          updated_at?: string
+          year?: string | null
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          type_category?: string
+          updated_at?: string
+          year?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_types_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subjects: {
         Row: {
           abbreviation: string | null
@@ -365,6 +569,7 @@ export type Database = {
           name: string
           order_id: number | null
           staff: string | null
+          subject_type_id: string | null
           tags: string[] | null
           type: string
           updated_at: string
@@ -380,6 +585,7 @@ export type Database = {
           name: string
           order_id?: number | null
           staff?: string | null
+          subject_type_id?: string | null
           tags?: string[] | null
           type: string
           updated_at?: string
@@ -395,6 +601,7 @@ export type Database = {
           name?: string
           order_id?: number | null
           staff?: string | null
+          subject_type_id?: string | null
           tags?: string[] | null
           type?: string
           updated_at?: string
@@ -406,6 +613,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subjects_subject_type_id_fkey"
+            columns: ["subject_type_id"]
+            isOneToOne: false
+            referencedRelation: "subject_types"
             referencedColumns: ["id"]
           },
         ]
