@@ -97,7 +97,7 @@ const FacultyDashboard = () => {
 
       // Get all faculty subject assignments to match faculty to subjects
       const { data: facultyAssignments } = await (supabase as any)
-        .from('faculty_subject_class')
+        .from('faculty_subject_assignments')
         .select(`
           faculty_members!inner(name),
           subjects!inner(name, abbreviation, code),
@@ -128,7 +128,7 @@ const FacultyDashboard = () => {
       // Create a mapping of subjects to faculty
       const facultySubjects = new Set<string>();
       
-      // Add from faculty_subject_class
+      // Add from faculty_subject_assignments
       if (facultyAssignments) {
         facultyAssignments.forEach((assignment: any) => {
           const subject = assignment.subjects;
