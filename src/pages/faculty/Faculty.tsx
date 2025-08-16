@@ -16,6 +16,7 @@ type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
 type Subject = { id: string; name: string; year: string; type: string; hoursPerWeek: number; code?: string; abbreviation?: string; departmentId: string };
 type FacultySubjectClass = { id?: string; departmentId: string; facultyId: string; subjectId: string; year: string; section: string };
+type SubjectSection = { subjectId: string; sections: string[] };
 type FacultyElective = { id?: string; facultyId: string; departmentId: string; subjectId?: string | null; year: string; section: string };
 
 const FacultyPage = () => {
@@ -49,6 +50,10 @@ const FacultyPage = () => {
   const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(new Set());
   const [subjectSearch, setSubjectSearch] = useState("");
   const [subjectYearFilter, setSubjectYearFilter] = useState<string>("ALL");
+  
+  // Subject-section mappings
+  const [subjectSections, setSubjectSections] = useState<Map<string, string[]>>(new Map());
+  const [occupiedAssignments, setOccupiedAssignments] = useState<Map<string, string>>(new Map());
   
   // Subject type toggles
   const [theoryEnabled, setTheoryEnabled] = useState<boolean>(false);
@@ -151,6 +156,8 @@ const FacultyPage = () => {
     if (!formDeptId) {
       setSubjects([]);
       setSelectedSubjectIds(new Set());
+      setSubjectSections(new Map());
+      setOccupiedAssignments(new Map());
       return;
     }
     
@@ -177,12 +184,69 @@ const FacultyPage = () => {
         
         setSubjects(subjectsList);
         setSelectedSubjectIds(new Set()); // Reset selections when department changes
+        setSubjectSections(new Map());
+        
+        // Load existing assignments to check for conflicts
+        await loadExistingAssignments(formDeptId);
       } catch (error) {
         console.error('Failed to load subjects:', error);
         setSubjects([]);
       }
     })();
   }, [formDeptId]);
+
+  // Load existing faculty assignments to check for conflicts
+  const loadExistingAssignments = async (departmentId: string) => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('faculty_subject_assignments')
+        .select('subject_id, section, year, faculty_id, faculty_members!inner(name)')
+        .eq('department_id', departmentId);
+      
+      if (!error && data) {
+        const occupied = new Map<string, string>();
+        data.forEach((assignment: any) => {
+          if (assignment.section) {
+            const key = `${assignment.subject_id}-${assignment.year}-${assignment.section}`;
+            occupied.set(key, assignment.faculty_members.name);
+          }
+        });
+        setOccupiedAssignments(occupied);
+      }
+    } catch (error) {
+      console.error('Failed to load existing assignments:', error);
+    }
+  };
+
+  // Handle section selection for a subject
+  const handleSectionToggle = (subjectId: string, section: string) => {
+    setSubjectSections(prev => {
+      const newMap = new Map(prev);
+      const currentSections = newMap.get(subjectId) || [];
+      
+      if (currentSections.includes(section)) {
+        // Remove section
+        const updated = currentSections.filter(s => s !== section);
+        if (updated.length === 0) {
+          newMap.delete(subjectId);
+        } else {
+          newMap.set(subjectId, updated);
+        }
+      } else {
+        // Add section
+        newMap.set(subjectId, [...currentSections, section]);
+      }
+      
+      return newMap;
+    });
+  };
+
+  // Check if a subject-section combination is occupied
+  const isAssignmentOccupied = (subjectId: string, year: string, section: string): { occupied: boolean; facultyName?: string } => {
+    const key = `${subjectId}-${year}-${section}`;
+    const facultyName = occupiedAssignments.get(key);
+    return { occupied: !!facultyName, facultyName };
+  };
 
   // Load subjects when edit department changes (for Edit dialog)
   useEffect(() => {
@@ -209,6 +273,9 @@ const FacultyPage = () => {
           departmentId: s.department_id,
         }));
         setEditSubjects(list);
+        
+        // Load existing assignments for conflict detection
+        await loadExistingAssignments(editDeptId);
       } catch (_) {
         setEditSubjects([]);
       }
@@ -272,6 +339,8 @@ const FacultyPage = () => {
     setElectiveYear("");
     setElectiveSection("");
     setElectiveSubjects([]);
+    setSubjectSections(new Map());
+    setOccupiedAssignments(new Map());
     setAddOpen(false);
   };
 
@@ -283,43 +352,54 @@ const FacultyPage = () => {
       const f = await createFaculty({ departmentId: deptForCreate, name: name.trim(), email: email.trim() || null, designation: designation.trim() || null, takesElectives });
       setFaculty((list) => [...list, f]);
       
-      // Assign selected subjects to the faculty
+      // Assign selected subjects to the faculty with their sections
       if (selectedSubjectIds.size > 0) {
         try {
-          const rows = Array.from(selectedSubjectIds).map(subjectId => ({
-            faculty_id: f.id,
-            subject_id: subjectId,
-            department_id: deptForCreate,
-            year: subjects.find(s => s.id === subjectId)?.year || 'I',
-            section: 'A',
-          }));
-          const { error } = await (supabase as any)
-            .from('faculty_subject_class')
-            .insert(rows);
-          if (error) throw error;
-          toast.success(`Faculty created and assigned to ${selectedSubjectIds.size} subject(s)`);
-        } catch (assignmentError) {
-          console.warn('faculty_subject_class insert failed, falling back:', assignmentError);
-          try {
-            const rows = Array.from(selectedSubjectIds).map(subjectId => ({
-              faculty_id: f.id,
-              subject_id: subjectId,
-              department_id: deptForCreate,
-              year: subjects.find(s => s.id === subjectId)?.year || 'I',
-              section: null,
-            }));
-            const { error: fbErr } = await (supabase as any)
+          const rows: any[] = [];
+          
+          // Create assignments for each subject-section combination
+          Array.from(selectedSubjectIds).forEach(subjectId => {
+            const subject = subjects.find(s => s.id === subjectId);
+            const sections = subjectSections.get(subjectId) || [];
+            
+            if (subject?.type === 'theory' && sections.length > 0) {
+              // For theory subjects, create one assignment per selected section
+              sections.forEach(section => {
+                rows.push({
+                  faculty_id: f.id,
+                  subject_id: subjectId,
+                  department_id: deptForCreate,
+                  year: subject.year,
+                  section: section,
+                });
+              });
+            } else {
+              // For lab subjects or theory without sections, use default
+              rows.push({
+                faculty_id: f.id,
+                subject_id: subjectId,
+                department_id: deptForCreate,
+                year: subject?.year || 'I',
+                section: null,
+              });
+            }
+          });
+
+          if (rows.length > 0) {
+            const { error } = await (supabase as any)
               .from('faculty_subject_assignments')
               .insert(rows);
-            if (fbErr) throw fbErr;
-            toast.success(`Faculty created and assigned to ${selectedSubjectIds.size} subject(s)`);
-          } catch (fallbackErr) {
-            console.error('Fallback subject assignment failed:', fallbackErr);
-            toast.success('Faculty created but failed to assign subjects');
+            if (error) throw error;
           }
+          
+          const totalAssignments = rows.length;
+          toast.success(`Faculty created and assigned to ${totalAssignments} subject-section combination(s)`);
+        } catch (assignmentError) {
+          console.error('Subject assignment failed:', assignmentError);
+          toast.success('Faculty created but failed to assign subjects');
         }
       } else {
-      toast.success('Faculty created');
+        toast.success('Faculty created');
       }
       
       // Assign Class Counselor if enabled
@@ -374,13 +454,32 @@ const FacultyPage = () => {
     setEditDesignation(f.designation || "");
     // Reset shared toggles
     setSelectedSubjectIds(new Set());
+    setSubjectSections(new Map());
     setIsCC(false); setCcYear(""); setCcSection("");
     setTakesElectives(Boolean(f.takesElectives));
     setElectiveDeptId(""); setElectiveYear(""); setElectiveSection(""); setElectiveSubjects([]);
+    
+    // Load existing assignments to check for conflicts
+    await loadExistingAssignments(f.departmentId);
+    
     try {
       const details = await getFacultyDetails(f.id);
       const subjIds = new Set<string>((details.subjects || []).map(s => s.subjectId));
       setSelectedSubjectIds(subjIds);
+      
+      // Build subject-section mappings from existing assignments
+      const sectionMap = new Map<string, string[]>();
+      details.subjects?.forEach(assignment => {
+        if (assignment.section) {
+          const existing = sectionMap.get(assignment.subjectId) || [];
+          if (!existing.includes(assignment.section)) {
+            existing.push(assignment.section);
+            sectionMap.set(assignment.subjectId, existing);
+          }
+        }
+      });
+      setSubjectSections(sectionMap);
+      
       if (details.classCounselor) { setIsCC(true); setCcYear(details.classCounselor.year); setCcSection(details.classCounselor.section); }
       if (details.electives && details.electives.length > 0) {
         const e = details.electives[0];
@@ -408,51 +507,55 @@ const FacultyPage = () => {
       if (isCC && ccYear && ccSection) {
         await upsertClassCounselor({ departmentId: editDeptId, facultyId: editingId, year: ccYear, section: ccSection });
       }
-      // Replace subject mappings with fallback
+      // Replace subject mappings with section support
       try {
-        const existing = await listFacultySubjectClass(editDeptId, editingId);
-        for (const row of existing) {
-          if (row.id) await deleteFacultySubjectClass(row.id);
-        }
+        // Clear existing assignments
+        await (supabase as any)
+          .from('faculty_subject_assignments')
+          .delete()
+          .eq('faculty_id', editingId)
+          .eq('department_id', editDeptId);
+          
         if (selectedSubjectIds.size > 0) {
-          const rows = Array.from(selectedSubjectIds).map((sid) => ({
-            faculty_id: editingId,
-            subject_id: sid,
-            department_id: editDeptId,
-            year: editSubjects.find(s => s.id === sid)?.year || 'I',
-            section: 'A',
-          }));
-          const { error } = await (supabase as any)
-            .from('faculty_subject_class')
-            .insert(rows);
-          if (error) throw error;
-        }
-      } catch (assignErr: any) {
-        console.warn('faculty_subject_class not available, falling back:', assignErr?.message || assignErr);
-        // fallback: replace in faculty_subject_assignments
-        try {
-          // Clear existing assignments
-          await (supabase as any)
-            .from('faculty_subject_assignments')
-            .delete()
-            .eq('faculty_id', editingId)
-            .eq('department_id', editDeptId);
-          if (selectedSubjectIds.size > 0) {
-            const rows = Array.from(selectedSubjectIds).map((sid) => ({
-              faculty_id: editingId,
-              subject_id: sid,
-              department_id: editDeptId,
-              year: editSubjects.find(s => s.id === sid)?.year || 'I',
-              section: null,
-            }));
-            const { error: fbErr } = await (supabase as any)
+          const rows: any[] = [];
+          
+          // Create assignments for each subject-section combination
+          Array.from(selectedSubjectIds).forEach(subjectId => {
+            const subject = editSubjects.find(s => s.id === subjectId);
+            const sections = subjectSections.get(subjectId) || [];
+            
+            if (subject?.type === 'theory' && sections.length > 0) {
+              // For theory subjects, create one assignment per selected section
+              sections.forEach(section => {
+                rows.push({
+                  faculty_id: editingId,
+                  subject_id: subjectId,
+                  department_id: editDeptId,
+                  year: subject.year,
+                  section: section,
+                });
+              });
+            } else {
+              // For lab subjects or theory without sections, use default
+              rows.push({
+                faculty_id: editingId,
+                subject_id: subjectId,
+                department_id: editDeptId,
+                year: subject?.year || 'I',
+                section: null,
+              });
+            }
+          });
+
+          if (rows.length > 0) {
+            const { error } = await (supabase as any)
               .from('faculty_subject_assignments')
               .insert(rows);
-            if (fbErr) throw fbErr;
+            if (error) throw error;
           }
-        } catch (fb2) {
-          console.error('Fallback subject mapping failed:', fb2);
         }
+      } catch (assignErr: any) {
+        console.error('Subject assignment failed:', assignErr);
       }
       setFaculty((list) => list.map((x) => x.id === editingId ? {
         ...x,
@@ -723,7 +826,7 @@ const FacultyPage = () => {
                           {Array.from(selectedSubjectIds).filter(id => 
                             subjects.find(s => s.id === id)?.type === 'theory'
                           ).length} selected
-              </div>
+                        </div>
                         <Select
                           value=""
                           onValueChange={(subjectId) => {
@@ -792,6 +895,60 @@ const FacultyPage = () => {
                             </div>
                           </SelectContent>
                         </Select>
+
+                        {/* Section Selection for Theory Subjects */}
+                        {Array.from(selectedSubjectIds).filter(id => 
+                          subjects.find(s => s.id === id)?.type === 'theory'
+                        ).length > 0 && (
+                          <div className="mt-4 space-y-3">
+                            <div className="text-sm font-medium">Section Selection for Theory Subjects</div>
+                            {Array.from(selectedSubjectIds)
+                              .filter(id => subjects.find(s => s.id === id)?.type === 'theory')
+                              .map(subjectId => {
+                                const subject = subjects.find(s => s.id === subjectId);
+                                const selectedSections = subjectSections.get(subjectId) || [];
+                                
+                                return (
+                                  <div key={subjectId} className="border rounded-md p-3">
+                                    <div className="text-sm font-medium mb-2">
+                                      {subject?.name} (Year {subject?.year})
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                      {['A', 'B', 'C', 'D'].map(section => {
+                                        const { occupied, facultyName } = isAssignmentOccupied(subjectId, subject?.year || '', section);
+                                        const isSelected = selectedSections.includes(section);
+                                        
+                                        return (
+                                          <Button
+                                            key={section}
+                                            size="sm"
+                                            variant={isSelected ? "default" : "outline"}
+                                            disabled={occupied}
+                                            onClick={() => handleSectionToggle(subjectId, section)}
+                                            className={`h-8 text-xs ${occupied ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                          >
+                                            <div className="text-center">
+                                              <div>Section {section}</div>
+                                              {occupied && (
+                                                <div className="text-xs text-destructive">
+                                                  Occupied by {facultyName}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </Button>
+                                        );
+                                      })}
+                                    </div>
+                                    {selectedSections.length > 0 && (
+                                      <div className="text-xs text-muted-foreground mt-2">
+                                        Selected sections: {selectedSections.join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </>
                     )}
                 </div>
@@ -1033,7 +1190,10 @@ const FacultyPage = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSelectedSubjectIds(new Set())}
+                      onClick={() => {
+                        setSelectedSubjectIds(new Set());
+                        setSubjectSections(new Map());
+                      }}
                       className="h-7 text-xs"
                     >
                       Clear All
@@ -1042,31 +1202,46 @@ const FacultyPage = () => {
                   <div className="space-y-2">
                     {Array.from(selectedSubjectIds).map(subjectId => {
                       const subject = subjects.find(s => s.id === subjectId);
+                      const sections = subjectSections.get(subjectId) || [];
                       return subject ? (
-                        <div key={subjectId} className="flex items-center justify-between bg-muted px-3 py-2 rounded-md">
-                          <span className="text-sm">
-                            {subject.name} 
-                            <span className="text-xs text-muted-foreground ml-2">
-                              (Y{subject.year} • {subject.type} • {subject.hoursPerWeek}h)
+                        <div key={subjectId} className="bg-muted px-3 py-2 rounded-md">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">
+                              {subject.name} 
+                              <span className="text-xs text-muted-foreground ml-2">
+                                (Y{subject.year} • {subject.type} • {subject.hoursPerWeek}h)
+                              </span>
                             </span>
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedSubjectIds(prev => {
-                              const next = new Set(prev);
-                              next.delete(subjectId);
-                              return next;
-                            })}
-                            className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                          >
-                            ×
-                          </Button>
-              </div>
-                      ) : null;
-                          })}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setSelectedSubjectIds(prev => {
+                                  const next = new Set(prev);
+                                  next.delete(subjectId);
+                                  return next;
+                                });
+                                setSubjectSections(prev => {
+                                  const next = new Map(prev);
+                                  next.delete(subjectId);
+                                  return next;
+                                });
+                              }}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            >
+                              ×
+                            </Button>
+                          </div>
+                          {subject.type === 'theory' && sections.length > 0 && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Sections: {sections.join(', ')}
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
               )}
             </div>
             <div className="mt-4 flex items-center gap-2 justify-end">
@@ -1227,49 +1402,103 @@ const FacultyPage = () => {
                     <div className="text-xs text-muted-foreground mb-2">
                       {Array.from(selectedSubjectIds).filter(id => editSubjects.find(s => s.id === id)?.type === 'theory').length} selected
                     </div>
-                    <Select value="" onValueChange={(subjectId) => {
-                      if (subjectId && !selectedSubjectIds.has(subjectId)) {
-                        setSelectedSubjectIds(prev => new Set([...prev, subjectId]));
-                        setSubjectSearch('');
-                      }
-                    }}>
-                      <SelectTrigger><SelectValue placeholder="Search and select theory subjects..." /></SelectTrigger>
-                      <SelectContent>
-                      <div className="mb-2">
-                <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
-                <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
-                  <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All years</SelectItem>
-                    <SelectItem value="I">I</SelectItem>
-                    <SelectItem value="II">II</SelectItem>
-                    <SelectItem value="III">III</SelectItem>
-                    <SelectItem value="IV">IV</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-                
-                        <div className="p-2">
-                          <Input placeholder="Search theory subjects..." value={subjectSearch} onChange={(e) => setSubjectSearch(e.target.value)} className="mb-2" />
-                        </div>
-                        <div className="max-h-64 overflow-y-auto pr-1">
-                          {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
-                            const isSelected = selectedSubjectIds.has(subject.id);
-                            return (
-                              <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
-                                {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
-                                {isSelected && ' ✓'}
-                              </SelectItem>
-                            );
-                          })}
-                          {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
-                            <div className="p-2 text-sm text-muted-foreground">No theory subjects found</div>
-                          )}
-                        </div>
-                      </SelectContent>
-                    </Select>
-                  </>
-                )}
+                     <Select value="" onValueChange={(subjectId) => {
+                       if (subjectId && !selectedSubjectIds.has(subjectId)) {
+                         setSelectedSubjectIds(prev => new Set([...prev, subjectId]));
+                         setSubjectSearch('');
+                       }
+                     }}>
+                       <SelectTrigger><SelectValue placeholder="Search and select theory subjects..." /></SelectTrigger>
+                       <SelectContent>
+                       <div className="mb-2">
+                 <div className="text-xs text-muted-foreground mb-1">Filter by year</div>
+                 <Select value={subjectYearFilter} onValueChange={setSubjectYearFilter}>
+                   <SelectTrigger><SelectValue placeholder="All years" /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value="ALL">All years</SelectItem>
+                     <SelectItem value="I">I</SelectItem>
+                     <SelectItem value="II">II</SelectItem>
+                     <SelectItem value="III">III</SelectItem>
+                     <SelectItem value="IV">IV</SelectItem>
+                   </SelectContent>
+                 </Select>
+               </div>
+                 
+                         <div className="p-2">
+                           <Input placeholder="Search theory subjects..." value={subjectSearch} onChange={(e) => setSubjectSearch(e.target.value)} className="mb-2" />
+                         </div>
+                         <div className="max-h-64 overflow-y-auto pr-1">
+                           {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).map(subject => {
+                             const isSelected = selectedSubjectIds.has(subject.id);
+                             return (
+                               <SelectItem key={subject.id} value={subject.id} disabled={isSelected} className={isSelected ? 'opacity-50 cursor-not-allowed' : ''}>
+                                 {subject.name} (Y{subject.year} • {subject.hoursPerWeek}h)
+                                 {isSelected && ' ✓'}
+                               </SelectItem>
+                             );
+                           })}
+                           {editSubjects.filter(s => s.type === 'theory').filter(s => subjectYearFilter === 'ALL' || s.year === subjectYearFilter).filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase())).length === 0 && (
+                             <div className="p-2 text-sm text-muted-foreground">No theory subjects found</div>
+                           )}
+                         </div>
+                       </SelectContent>
+                     </Select>
+
+                     {/* Section Selection for Theory Subjects in Edit Mode */}
+                     {Array.from(selectedSubjectIds).filter(id => 
+                       editSubjects.find(s => s.id === id)?.type === 'theory'
+                     ).length > 0 && (
+                       <div className="mt-4 space-y-3">
+                         <div className="text-sm font-medium">Section Selection for Theory Subjects</div>
+                         {Array.from(selectedSubjectIds)
+                           .filter(id => editSubjects.find(s => s.id === id)?.type === 'theory')
+                           .map(subjectId => {
+                             const subject = editSubjects.find(s => s.id === subjectId);
+                             const selectedSections = subjectSections.get(subjectId) || [];
+                             
+                             return (
+                               <div key={subjectId} className="border rounded-md p-3">
+                                 <div className="text-sm font-medium mb-2">
+                                   {subject?.name} (Year {subject?.year})
+                                 </div>
+                                 <div className="grid grid-cols-4 gap-2">
+                                   {['A', 'B', 'C', 'D'].map(section => {
+                                     const { occupied, facultyName } = isAssignmentOccupied(subjectId, subject?.year || '', section);
+                                     const isSelected = selectedSections.includes(section);
+                                     
+                                     return (
+                                       <Button
+                                         key={section}
+                                         size="sm"
+                                         variant={isSelected ? "default" : "outline"}
+                                         disabled={occupied && !isSelected}
+                                         onClick={() => handleSectionToggle(subjectId, section)}
+                                         className={`h-8 text-xs ${occupied && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                       >
+                                         <div className="text-center">
+                                           <div>Section {section}</div>
+                                           {occupied && !isSelected && (
+                                             <div className="text-xs text-destructive">
+                                               Occupied by {facultyName}
+                                             </div>
+                                           )}
+                                         </div>
+                                       </Button>
+                                     );
+                                   })}
+                                 </div>
+                                 {selectedSections.length > 0 && (
+                                   <div className="text-xs text-muted-foreground mt-2">
+                                     Selected sections: {selectedSections.join(', ')}
+                                   </div>
+                                 )}
+                               </div>
+                             );
+                           })}
+                       </div>
+                     )}
+                   </>
+                 )}
                         </div>
 
               {/* Lab Subjects Toggle and Selector */}
