@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SubjectType = "theory" | "lab" | "special" | "elective";
+export type SubjectType = "theory" | "lab" | "elective";
 
 export interface Subject {
   id: string;
@@ -12,6 +12,7 @@ export interface Subject {
   code?: string; // e.g., U23IT501
   abbreviation?: string; // e.g., CN
   staff?: string; // e.g., Mr. D. Jayaprakash
+  maxFacultyCount?: number; // Maximum faculty members for lab subjects
 }
 
 export interface SpecialFlags {
@@ -127,10 +128,9 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
     };
     const key = datasetKey(state.selection);
     const datasets = { ...state.datasets };
-    const selected = subjects.filter((s) => s.type !== "special");
     const prev = datasets[key] || { available: [], selected: [], prefs: {} };
-    datasets[key] = { available: subjects, selected, prefs: prev.prefs };
-    return { datasets, availableSubjects: subjects, selectedSubjects: selected };
+    datasets[key] = { available: subjects, selected: subjects, prefs: prev.prefs };
+    return { datasets, availableSubjects: subjects, selectedSubjects: subjects };
   }),
   addAvailable: (s) => set((state) => {
     const datasetKey = (sel: SelectionState) => {
@@ -237,8 +237,7 @@ export const subjectTotals = (subjects: Subject[]) => {
   const total = subjects.reduce((a, s) => a + s.hoursPerWeek, 0);
   const theory = subjects.filter((s) => s.type === "theory").reduce((a, s) => a + s.hoursPerWeek, 0);
   const lab = subjects.filter((s) => s.type === "lab").reduce((a, s) => a + s.hoursPerWeek, 0);
-  const special = subjects.filter((s) => s.type === "special").length;
-  return { total, theory, lab, special };
+  return { total, theory, lab };
 };
 
 export const specialHours = (flags: SpecialFlags) =>

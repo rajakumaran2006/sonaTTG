@@ -382,8 +382,8 @@ function Timetable() {
                       const subj = selected.find((s) => s.name === cell);
                       let staff = subj ? (subjectToFaculty[subj.id] || subj.staff || '') : '';
                       
-                      // Check if this is a special subject with class counselor
-                      if (type === 'special' && classCounselorName && 
+                      // Check if this is a special activity with class counselor
+                      if (classCounselorName && 
                           (cell === 'Seminar' || cell === 'Library' || cell === 'Student Counselling' ||
                            cell?.startsWith('Seminar (') || cell?.startsWith('Library (') || cell?.startsWith('Student Counselling ('))) {
                         staff = classCounselorName;

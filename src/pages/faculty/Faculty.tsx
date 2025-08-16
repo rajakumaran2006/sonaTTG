@@ -14,7 +14,7 @@ import { getDepartments, createFaculty, deleteFaculty, getFacultyByDepartment, g
 
 type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
-type Subject = { id: string; name: string; year: string; type: string; hoursPerWeek: number; code?: string; abbreviation?: string; departmentId: string };
+type Subject = { id: string; name: string; year: string; type: string; hoursPerWeek: number; code?: string; abbreviation?: string; departmentId: string; maxFacultyCount?: number };
 type FacultySubjectClass = { id?: string; departmentId: string; facultyId: string; subjectId: string; year: string; section: string };
 type SubjectSection = { subjectId: string; sections: string[] };
 type FacultyElective = { id?: string; facultyId: string; departmentId: string; subjectId?: string | null; year: string; section: string };
@@ -180,6 +180,7 @@ const FacultyPage = () => {
           code: s.code,
           abbreviation: s.abbreviation,
           departmentId: s.department_id,
+          maxFacultyCount: s.max_faculty_count || 1,
         }));
         
         setSubjects(subjectsList);
@@ -208,7 +209,13 @@ const FacultyPage = () => {
         data.forEach((assignment: any) => {
           if (assignment.section) {
             const key = `${assignment.subject_id}-${assignment.year}-${assignment.section}`;
-            occupied.set(key, assignment.faculty_members.name);
+            const existing = occupied.get(key);
+            if (existing) {
+              // If multiple faculty, show "Multiple Faculty"
+              occupied.set(key, "Multiple Faculty");
+            } else {
+              occupied.set(key, assignment.faculty_members.name);
+            }
           }
         });
         setOccupiedAssignments(occupied);
@@ -241,11 +248,47 @@ const FacultyPage = () => {
     });
   };
 
-  // Check if a subject-section combination is occupied
-  const isAssignmentOccupied = (subjectId: string, year: string, section: string): { occupied: boolean; facultyName?: string } => {
+  // Check if a subject-section combination can accept more faculty
+  const canAcceptFaculty = (subjectId: string, year: string, section: string): { canAccept: boolean; reason?: string; currentCount: number; maxCount: number } => {
     const key = `${subjectId}-${year}-${section}`;
     const facultyName = occupiedAssignments.get(key);
-    return { occupied: !!facultyName, facultyName };
+    
+    // Find the subject to get max faculty count
+    const subject = subjects.find(s => s.id === subjectId) || editSubjects.find(s => s.id === subjectId);
+    const maxFacultyCount = subject?.maxFacultyCount || 1;
+    
+    if (!facultyName) {
+      return { canAccept: true, currentCount: 0, maxCount: maxFacultyCount };
+    }
+    
+    if (facultyName === "Multiple Faculty") {
+      // Count actual faculty assignments for this subject-section
+      const currentCount = Array.from(occupiedAssignments.entries())
+        .filter(([k, _]) => k === key)
+        .length;
+      
+      if (currentCount >= maxFacultyCount) {
+        return { canAccept: false, reason: "Maximum faculty reached", currentCount, maxCount: maxFacultyCount };
+      }
+      
+      return { canAccept: true, currentCount, maxCount: maxFacultyCount };
+    }
+    
+    // Single faculty assigned
+    if (maxFacultyCount > 1) {
+      return { canAccept: true, currentCount: 1, maxCount: maxFacultyCount };
+    }
+    
+    return { canAccept: false, reason: "Single faculty only", currentCount: 1, maxCount: maxFacultyCount };
+  };
+
+  // Check if a subject-section combination is occupied (for backward compatibility)
+  const isAssignmentOccupied = (subjectId: string, year: string, section: string): { occupied: boolean; facultyName?: string } => {
+    const canAccept = canAcceptFaculty(subjectId, year, section);
+    return { 
+      occupied: !canAccept.canAccept, 
+      facultyName: canAccept.reason || "Occupied" 
+    };
   };
 
   // Load subjects when edit department changes (for Edit dialog)
@@ -271,6 +314,7 @@ const FacultyPage = () => {
           code: s.code,
           abbreviation: s.abbreviation,
           departmentId: s.department_id,
+          maxFacultyCount: s.max_faculty_count || 1,
         }));
         setEditSubjects(list);
         

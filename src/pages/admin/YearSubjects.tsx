@@ -17,10 +17,11 @@ import Navbar from "@/components/navbar/Navbar";
 interface SubjectRow {
   id: string;
   name: string;
-  type: 'theory' | 'lab' | 'special' | 'elective';
+  type: 'theory' | 'lab' | 'elective';
   hours_per_week: number;
   year: string;
   code: string | null;
+  max_faculty_count?: number;
 }
 
 const YearSubjects = () => {
@@ -34,9 +35,10 @@ const YearSubjects = () => {
 
   // form state for add/edit
   const [name, setName] = useState("");
-  const [type, setType] = useState<'theory' | 'lab' | 'special' | 'elective'>("theory");
+  const [type, setType] = useState<'theory' | 'lab' | 'elective'>("theory");
   const [hours, setHours] = useState<number>(1);
   const [code, setCode] = useState("");
+  const [maxFacultyCount, setMaxFacultyCount] = useState<number>(1);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [search, setSearch] = useState("");
@@ -58,15 +60,16 @@ const YearSubjects = () => {
       if (d?.name) setDeptName(d.name);
       const list = await (async () => {
         try {
-          const arr = await getSubjectsForYear(id, year);
-          return (arr || []).map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            type: s.type,
-            hours_per_week: s.hoursPerWeek,
-            year: year,
-            code: s.code || null,
-          }));
+                  const arr = await getSubjectsForYear(id, year);
+        return (arr || []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          hours_per_week: s.hoursPerWeek,
+          year: year,
+          code: s.code || null,
+          max_faculty_count: s.maxFacultyCount || 1,
+        }));
         } catch {
           return [] as SubjectRow[];
         }
@@ -83,19 +86,27 @@ const YearSubjects = () => {
     })();
   }, [isLoggedIn, id, year]);
 
-  const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setEditingId(null); };
+  const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setMaxFacultyCount(1); setEditingId(null); };
 
   const handleAdd = async () => {
     const nextTotal = totalHours + hours;
     if (nextTotal > 42) { toast.error("Total hours for this year cannot exceed 42"); return; }
-    const { data, error } = await (supabase as any).from('subjects').insert({
+    
+    const subjectData: any = {
       department_id: id,
       year,
       name,
       type,
       hours_per_week: hours,
       code: code || null,
-    }).select().single();
+    };
+    
+    // Add max_faculty_count for lab subjects
+    if (type === 'lab') {
+      subjectData.max_faculty_count = maxFacultyCount;
+    }
+    
+    const { data, error } = await (supabase as any).from('subjects').insert(subjectData).select().single();
     if (error) { toast.error("Failed to add subject"); return; }
     setSubjects((s) => [...s, data as SubjectRow]);
     toast.success("Subject added");
@@ -115,6 +126,7 @@ const YearSubjects = () => {
     setType(s.type);
     setHours(s.hours_per_week);
     setCode(s.code || "");
+    setMaxFacultyCount(s.max_faculty_count || 1);
     setEditOpen(true);
   };
 
@@ -125,15 +137,27 @@ const YearSubjects = () => {
     if (nextTotal > 42) { toast.error("Total hours for this year cannot exceed 42"); return; }
 
     try {
+      const updateData: any = { 
+        name, 
+        type, 
+        hours_per_week: hours, 
+        code: code || null 
+      };
+      
+      // Update max_faculty_count for lab subjects
+      if (type === 'lab') {
+        updateData.max_faculty_count = maxFacultyCount;
+      }
+
       const { error } = await (supabase as any)
         .from('subjects')
-        .update({ name, type, hours_per_week: hours, code: code || null })
+        .update(updateData)
         .eq('id', editingId);
 
       if (error) throw error;
 
       setSubjects((list) => list.map((x) =>
-        x.id === editingId ? { ...x, name, type, hours_per_week: hours, code: code || null } : x
+        x.id === editingId ? { ...x, name, type, hours_per_week: hours, code: code || null, max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count } : x
       ));
       toast.success("Subject updated successfully");
       setEditOpen(false);
@@ -180,7 +204,6 @@ const YearSubjects = () => {
                 <SelectContent>
                   <SelectItem value="theory">Theory</SelectItem>
                   <SelectItem value="lab">Lab</SelectItem>
-                  <SelectItem value="special">Special</SelectItem>
                   <SelectItem value="elective">Elective</SelectItem>
                 </SelectContent>
               </Select>
@@ -188,6 +211,29 @@ const YearSubjects = () => {
               <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
               <Button onClick={handleAdd} disabled={!name.trim()}>Add</Button>
             </div>
+            
+            {/* Max Faculty Count for Lab Subjects */}
+            {type === 'lab' && (
+              <div className="mt-3">
+                <div className="flex items-center space-x-3">
+                  <label className="text-sm font-medium">Maximum Faculty Members:</label>
+                  <Select value={maxFacultyCount.toString()} onValueChange={(v: string) => setMaxFacultyCount(parseInt(v))}>
+                    <SelectTrigger className="w-24">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1</SelectItem>
+                      <SelectItem value="2">2</SelectItem>
+                      <SelectItem value="3">3</SelectItem>
+                      <SelectItem value="4">4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    Maximum number of faculty members that can be assigned to this lab subject
+                  </span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -251,6 +297,7 @@ const YearSubjects = () => {
                   <TableHead>Type</TableHead>
                   <TableHead>Hours/week</TableHead>
                   <TableHead>Code</TableHead>
+                  <TableHead>Max Faculty</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -258,7 +305,7 @@ const YearSubjects = () => {
                 {loading ? (
                   Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={`skeleton-${i}`}>
-                      <TableCell colSpan={5}>
+                      <TableCell colSpan={6}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
@@ -272,6 +319,7 @@ const YearSubjects = () => {
                         <TableCell className="capitalize">{s.type}</TableCell>
                         <TableCell>{s.hours_per_week}</TableCell>
                         <TableCell>{s.code || '-'}</TableCell>
+                        <TableCell>{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</TableCell>
                         <TableCell className="text-right space-x-2">
                           <Button size="sm" variant="outline" onClick={() => startEdit(s)}>Edit</Button>
                           <AlertDialog>
@@ -318,13 +366,35 @@ const YearSubjects = () => {
               <SelectContent>
                 <SelectItem value="theory">Theory</SelectItem>
                 <SelectItem value="lab">Lab</SelectItem>
-                <SelectItem value="special">Special</SelectItem>
                 <SelectItem value="elective">Elective</SelectItem>
               </SelectContent>
             </Select>
             <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
             <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
           </div>
+          
+          {/* Max Faculty Count for Lab Subjects in Edit */}
+          {type === 'lab' && (
+            <div className="mt-3">
+              <div className="flex items-center space-x-3">
+                <label className="text-sm font-medium">Maximum Faculty Members:</label>
+                <Select value={maxFacultyCount.toString()} onValueChange={(v: string) => setMaxFacultyCount(parseInt(v))}>
+                  <SelectTrigger className="w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1</SelectItem>
+                    <SelectItem value="2">2</SelectItem>
+                    <SelectItem value="3">3</SelectItem>
+                    <SelectItem value="4">4</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  Maximum number of faculty members that can be assigned to this lab subject
+                </span>
+              </div>
+            </div>
+          )}
           <div className="mt-4 flex items-center gap-2 justify-end">
             <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={handleUpdate}>Save</Button>
