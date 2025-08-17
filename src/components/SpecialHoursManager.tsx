@@ -175,6 +175,11 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: Spec
       setIsDialogOpen(false);
       setEditingConfig(null);
       setIsCreating(false);
+      
+      // Trigger timetable regeneration after configuration change
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('specialHoursChanged'));
+      }, 100);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -198,7 +203,13 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: Spec
         description: "Special hours configuration deleted successfully",
       });
 
+      // Trigger immediate reallocation by reloading configurations
       loadConfigurations();
+      
+      // Notify parent component to trigger timetable regeneration
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('specialHoursChanged'));
+      }, 100);
     } catch (error: any) {
       toast({
         title: "Error",

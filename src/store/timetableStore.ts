@@ -258,4 +258,7 @@ export const subjectTotals = (subjects: Subject[]) => {
 export const specialHours = (flags: SpecialFlags) =>
   (flags.seminar ? 2 : 0) + (flags.library ? 1 : 0) + (flags.counselling ? 2 : 0);
 
+export const configuredSpecialHrs = (configs: SpecialHoursConfig[]) =>
+  configs.filter(c => c.is_active).reduce((total, config) => total + config.total_hours, 0);
+
 export const SUBJECT_HOUR_LIMIT = 42;

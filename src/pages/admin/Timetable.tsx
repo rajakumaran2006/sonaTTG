@@ -133,6 +133,18 @@ function Timetable() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Listen for special hours changes and regenerate timetable
+  useEffect(() => {
+    const handleSpecialHoursChange = () => {
+      regenerate();
+    };
+
+    window.addEventListener('specialHoursChanged', handleSpecialHoursChange);
+    return () => {
+      window.removeEventListener('specialHoursChanged', handleSpecialHoursChange);
+    };
+  }, [regenerate]);
+
   // Load mapping from subject id -> faculty names for current selection
   useEffect(() => {
     (async () => {

@@ -73,17 +73,27 @@ const placeSpecialHours = async (
       }
     }
 
-    // Place weekdays hours
-    for (const period of config.weekdays_periods) {
-      const periodIndex = period - 1; // Convert to 0-based index
-      if (periodIndex >= 0 && periodIndex < 7) {
-        // Distribute across Monday to Friday
-        for (let day = 0; day < 5; day++) {
-          if (grid[day][periodIndex] === null) {
-            grid[day][periodIndex] = label;
-            break; // Only place once per period
+    // Place weekdays hours - distributed proportionally across weekdays
+    const weekdaysHours = config.weekdays_hours;
+    const weekdaysPeriods = config.weekdays_periods;
+    
+    if (weekdaysHours > 0 && weekdaysPeriods.length > 0) {
+      let hoursPlaced = 0;
+      let dayIndex = 0;
+      
+      while (hoursPlaced < weekdaysHours && dayIndex < 5) {
+        for (const period of weekdaysPeriods) {
+          if (hoursPlaced >= weekdaysHours) break;
+          
+          const periodIndex = period - 1; // Convert to 0-based index
+          if (periodIndex >= 0 && periodIndex < 7) {
+            if (grid[dayIndex][periodIndex] === null) {
+              grid[dayIndex][periodIndex] = label;
+              hoursPlaced++;
+            }
           }
         }
+        dayIndex++;
       }
     }
   }
@@ -108,6 +118,78 @@ const placeSpecialHours = async (
       : "Student Counselling";
     if (grid[sat][5] === null) grid[sat][5] = counsellingLabel; // P6
     if (grid[sat][6] === null) grid[sat][6] = counsellingLabel; // P7
+  }
+};
+
+/**
+ * Calculates remaining available periods after special hours allocation
+ */
+const calculateAvailablePeriods = (
+  grid: Grid,
+  specialHoursConfigs: SpecialHoursConfig[] = []
+): { totalAvailable: number; dayCapacities: number[] } => {
+  const dayCapacities = Array.from({ length: 6 }, (_, d) => 
+    grid[d].filter((c) => c == null).length
+  );
+  
+  const totalAvailable = dayCapacities.reduce((sum, cap) => sum + cap, 0);
+  
+  return { totalAvailable, dayCapacities };
+};
+
+/**
+ * Reallocates subjects to fill gaps left by removed special hours
+ */
+const reallocateSubjects = (
+  grid: Grid,
+  subjects: Subject[],
+  remaining: Map<string, number>,
+  facultyMap: Map<string, FacultyAllocation>
+): void => {
+  // Find all empty periods
+  const emptySlots: { day: number; period: number }[] = [];
+  
+  for (let day = 0; day < 6; day++) {
+    for (let period = 0; period < PERIODS; period++) {
+      if (grid[day][period] === null) {
+        emptySlots.push({ day, period });
+      }
+    }
+  }
+  
+  // Sort subjects by remaining hours (highest first)
+  const subjectsToReallocate = subjects
+    .filter(s => (remaining.get(s.id) || 0) > 0)
+    .sort((a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0));
+  
+  // Try to fill empty slots with remaining subject hours
+  for (const subject of subjectsToReallocate) {
+    let subjectRemaining = remaining.get(subject.id) || 0;
+    const isSSASubject = (subject.tags || []).includes("SSA") || /\bSSA\b/i.test(subject.name);
+    
+    for (const slot of emptySlots) {
+      if (subjectRemaining <= 0) break;
+      
+      // Skip Saturday for SSA subjects
+      if (isSSASubject && slot.day === 5) continue;
+      
+      // Skip if slot is already filled
+      if (grid[slot.day][slot.period] !== null) continue;
+      
+      // Check faculty availability
+      const facultyResult = findAvailableFacultyForSlot(
+        subject.id, slot.day, slot.period, facultyMap, false
+      );
+      
+      if (facultyResult.success) {
+        grid[slot.day][slot.period] = subject.name;
+        if (facultyResult.facultyId) {
+          allocateFacultyToSlot(facultyResult.facultyId, slot.day, slot.period, facultyMap);
+        }
+        subjectRemaining--;
+        remaining.set(subject.id, subjectRemaining);
+      }
+    }
   }
 };
 
@@ -279,9 +361,12 @@ export async function generateTimetable({
     }
   }
 
+  // Calculate available periods after special hours placement
+  const { dayCapacities } = calculateAvailablePeriods(grid, specialHoursConfigs);
+  
   // Fill theory subjects greedily, balancing across days, SSA only Mon-Fri
   // Build day capacities (exclude locked cells and Saturday if specials enabled)
-  const dayCap = Array.from({ length: 6 }, (_, d) => grid[d].filter((c) => c == null).length);
+  const dayCap = [...dayCapacities];
 
   // Sort subjects by remaining descending to spread larger ones
   const orderedTheory = theory.sort((a, b) => (remaining.get(b.id)! - remaining.get(a.id)!));
@@ -325,6 +410,9 @@ export async function generateTimetable({
     }
     guard++;
   }
+
+  // Perform dynamic reallocation to fill gaps left by special hours changes
+  reallocateSubjects(grid, subjects, remaining, facultyMap);
 
   // Lightweight backtracking: if any subject has leftover hours, try allowing two in a day
   const unresolved = [...remaining.entries()].filter(([id, r]) => r > 0);
