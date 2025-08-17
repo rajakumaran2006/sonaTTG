@@ -57,7 +57,7 @@ const placeSpecialHours = async (
     }
   }
 
-  // Place special hours from configurations
+  // ONLY place special hours from active configurations - ignore legacy flags
   for (const config of specialHoursConfigs) {
     if (!config.is_active) continue;
 
@@ -65,59 +65,36 @@ const placeSpecialHours = async (
       ? `${config.special_type} (${classCounselorName})` 
       : config.special_type;
 
-    // Place Saturday hours
+    // Place exact Saturday hours as specified in config
+    let saturdayHoursPlaced = 0;
     for (const period of config.saturday_periods) {
+      if (saturdayHoursPlaced >= config.saturday_hours) break;
+      
       const periodIndex = period - 1; // Convert to 0-based index
-      if (periodIndex >= 0 && periodIndex < 7) {
+      if (periodIndex >= 0 && periodIndex < 7 && grid[sat][periodIndex] === null) {
         grid[sat][periodIndex] = label;
+        saturdayHoursPlaced++;
       }
     }
 
-    // Place weekdays hours - distributed proportionally across weekdays
-    const weekdaysHours = config.weekdays_hours;
-    const weekdaysPeriods = config.weekdays_periods;
+    // Place exact weekdays hours as specified in config
+    let weekdaysHoursPlaced = 0;
+    let dayIndex = 0;
     
-    if (weekdaysHours > 0 && weekdaysPeriods.length > 0) {
-      let hoursPlaced = 0;
-      let dayIndex = 0;
-      
-      while (hoursPlaced < weekdaysHours && dayIndex < 5) {
-        for (const period of weekdaysPeriods) {
-          if (hoursPlaced >= weekdaysHours) break;
-          
-          const periodIndex = period - 1; // Convert to 0-based index
-          if (periodIndex >= 0 && periodIndex < 7) {
-            if (grid[dayIndex][periodIndex] === null) {
-              grid[dayIndex][periodIndex] = label;
-              hoursPlaced++;
-            }
+    while (weekdaysHoursPlaced < config.weekdays_hours && dayIndex < 5) {
+      for (const period of config.weekdays_periods) {
+        if (weekdaysHoursPlaced >= config.weekdays_hours) break;
+        
+        const periodIndex = period - 1; // Convert to 0-based index
+        if (periodIndex >= 0 && periodIndex < 7) {
+          if (grid[dayIndex][periodIndex] === null) {
+            grid[dayIndex][periodIndex] = label;
+            weekdaysHoursPlaced++;
           }
         }
-        dayIndex++;
       }
+      dayIndex++;
     }
-  }
-
-  // Fallback to legacy special flags for backward compatibility
-  if (flags.seminar) {
-    const seminarLabel = classCounselorName 
-      ? `Seminar (${classCounselorName})` 
-      : "Seminar";
-    if (grid[sat][2] === null) grid[sat][2] = seminarLabel; // P3
-    if (grid[sat][3] === null) grid[sat][3] = seminarLabel; // P4
-  }
-  if (flags.library) {
-    const libraryLabel = classCounselorName 
-      ? `Library (${classCounselorName})` 
-      : "Library";
-    if (grid[sat][4] === null) grid[sat][4] = libraryLabel; // P5
-  }
-  if (flags.counselling) {
-    const counsellingLabel = classCounselorName 
-      ? `Student Counselling (${classCounselorName})` 
-      : "Student Counselling";
-    if (grid[sat][5] === null) grid[sat][5] = counsellingLabel; // P6
-    if (grid[sat][6] === null) grid[sat][6] = counsellingLabel; // P7
   }
 };
 
@@ -384,9 +361,8 @@ export async function generateTimetable({
       for (const d of dayOrder) {
         if (isSSA(s) && d > 4) continue; // SSA Mon-Fri only
         if (!grid[d].some((cell) => cell === s.name)) {
-          // find first empty slot (limit to P1-2 on Saturday)
-          const limit = d === 5 ? 2 : PERIODS;
-          const idx = grid[d].findIndex((c, i) => c == null && i < limit);
+          // find first empty slot - use ALL periods on Saturday for subject allocation
+          const idx = grid[d].findIndex((c) => c == null);
           if (idx !== -1) {
             // Check faculty availability for theory subject
             const facultyResult = findAvailableFacultyForSlot(
@@ -422,8 +398,7 @@ export async function generateTimetable({
       let left = r;
       for (let d = 0; d < 6 && left > 0; d++) {
         if (d === 5 && isSSA(subj)) continue; // SSA Mon-Fri only
-        const limit = d === 5 ? 2 : PERIODS;
-        const idx = grid[d].findIndex((c, i) => c == null && i < limit);
+        const idx = grid[d].findIndex((c) => c == null);
         if (idx !== -1) {
           // Try to allocate faculty for remaining subjects
           const facultyResult = findAvailableFacultyForSlot(
