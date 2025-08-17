@@ -21,6 +21,17 @@ export interface SpecialFlags {
   counselling: boolean; // Saturday 6-7
 }
 
+export interface SpecialHoursConfig {
+  id?: string;
+  special_type: string;
+  total_hours: number;
+  saturday_hours: number;
+  weekdays_hours: number;
+  saturday_periods: number[];
+  weekdays_periods: number[];
+  is_active: boolean;
+}
+
 export interface SelectionState {
   department?: string;
   year?: string;
@@ -34,6 +45,7 @@ export interface TimetableState {
   availableSubjects: Subject[];
   selectedSubjects: Subject[];
   special: SpecialFlags;
+  specialHoursConfigs: SpecialHoursConfig[];
   // Generated timetable as [day][period] -> subject name or empty string
   timetable: string[][];
   setSelection: (s: Partial<SelectionState>) => void;
@@ -42,6 +54,7 @@ export interface TimetableState {
   moveToSelected: (id: string) => void;
   moveToAvailable: (id: string) => void;
   setSpecial: (flags: Partial<SpecialFlags>) => void;
+  setSpecialHoursConfigs: (configs: SpecialHoursConfig[]) => void;
   setSelectedSubjects: (subs: Subject[]) => void;
   setTimetable: (grid: string[][]) => void;
   // Lab preferences for the current selection
@@ -61,6 +74,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   availableSubjects: [],
   selectedSubjects: [],
   special: { seminar: true, library: true, counselling: true },
+  specialHoursConfigs: [],
   timetable: Array.from({ length: DAYS }, () => Array.from({ length: PERIODS }, () => "")),
   labPreferences: {},
   setSelection: (s) => set((state) => {
@@ -187,6 +201,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
     return { datasets, selectedSubjects: selected };
   }),
   setSpecial: (flags) => set((state) => ({ special: { ...state.special, ...flags } })),
+  setSpecialHoursConfigs: (configs) => set(() => ({ specialHoursConfigs: configs })),
   setSelectedSubjects: (subs) => set((state) => {
     const datasetKey = (sel: SelectionState) => {
       const dep = sel.department || "";

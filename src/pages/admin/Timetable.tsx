@@ -43,6 +43,7 @@ function Timetable() {
   const { toast } = useToast();
   const selected = useTimetableStore((s) => s.selectedSubjects);
   const special = useTimetableStore((s) => s.special);
+  const specialHoursConfigs = useTimetableStore((s) => s.specialHoursConfigs);
   const timetable = useTimetableStore((s) => s.timetable);
   const setTimetable = useTimetableStore((s) => s.setTimetable);
   const selection = useTimetableStore((s) => s.selection);
@@ -93,6 +94,7 @@ function Timetable() {
       const grid = await generateTimetable({ 
         subjects: selected, 
         special, 
+        specialHoursConfigs,
         labPreferences,
         departmentName: selection.department,
         year: selection.year,

@@ -1,4 +1,4 @@
-import { Subject, SubjectType, SpecialFlags } from "@/store/timetableStore";
+import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
 import { getClassCounselor, getFacultyById, getDepartmentByName } from "./supabaseService";
 import { 
@@ -17,6 +17,7 @@ export const PERIODS = 7;
 interface GenerateOptions {
   subjects: Subject[];
   special: SpecialFlags;
+  specialHoursConfigs?: SpecialHoursConfig[];
   labPreferences?: LabPrefsMap;
   departmentName?: string;
   year?: string;
@@ -27,9 +28,10 @@ const emptyGrid = (): Grid => Array.from({ length: 6 }, () => Array.from({ lengt
 
 const isSSA = (s: Subject) => (s.tags || []).includes("SSA") || /\bSSA\b/i.test(s.name);
 
-const placeSaturdaySpecials = async (
+const placeSpecialHours = async (
   grid: Grid, 
   flags: SpecialFlags,
+  specialHoursConfigs: SpecialHoursConfig[] = [],
   departmentName?: string,
   year?: string,
   section?: string
@@ -55,25 +57,57 @@ const placeSaturdaySpecials = async (
     }
   }
 
+  // Place special hours from configurations
+  for (const config of specialHoursConfigs) {
+    if (!config.is_active) continue;
+
+    const label = classCounselorName 
+      ? `${config.special_type} (${classCounselorName})` 
+      : config.special_type;
+
+    // Place Saturday hours
+    for (const period of config.saturday_periods) {
+      const periodIndex = period - 1; // Convert to 0-based index
+      if (periodIndex >= 0 && periodIndex < 7) {
+        grid[sat][periodIndex] = label;
+      }
+    }
+
+    // Place weekdays hours
+    for (const period of config.weekdays_periods) {
+      const periodIndex = period - 1; // Convert to 0-based index
+      if (periodIndex >= 0 && periodIndex < 7) {
+        // Distribute across Monday to Friday
+        for (let day = 0; day < 5; day++) {
+          if (grid[day][periodIndex] === null) {
+            grid[day][periodIndex] = label;
+            break; // Only place once per period
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback to legacy special flags for backward compatibility
   if (flags.seminar) {
     const seminarLabel = classCounselorName 
       ? `Seminar (${classCounselorName})` 
       : "Seminar";
-    grid[sat][2] = seminarLabel; // P3
-    grid[sat][3] = seminarLabel; // P4
+    if (grid[sat][2] === null) grid[sat][2] = seminarLabel; // P3
+    if (grid[sat][3] === null) grid[sat][3] = seminarLabel; // P4
   }
   if (flags.library) {
     const libraryLabel = classCounselorName 
       ? `Library (${classCounselorName})` 
       : "Library";
-    grid[sat][4] = libraryLabel; // P5
+    if (grid[sat][4] === null) grid[sat][4] = libraryLabel; // P5
   }
   if (flags.counselling) {
     const counsellingLabel = classCounselorName 
       ? `Student Counselling (${classCounselorName})` 
       : "Student Counselling";
-    grid[sat][5] = counsellingLabel; // P6
-    grid[sat][6] = counsellingLabel; // P7
+    if (grid[sat][5] === null) grid[sat][5] = counsellingLabel; // P6
+    if (grid[sat][6] === null) grid[sat][6] = counsellingLabel; // P7
   }
 };
 
@@ -82,14 +116,15 @@ function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)); }
 export async function generateTimetable({ 
   subjects, 
   special, 
+  specialHoursConfigs, 
   labPreferences, 
   departmentName, 
   year, 
   section 
 }: GenerateOptions): Promise<Grid> {
   const grid = emptyGrid();
-  // Pre-lock Saturday specials
-  await placeSaturdaySpecials(grid, special, departmentName, year, section);
+  // Pre-lock special hours (both configured and legacy)
+  await placeSpecialHours(grid, special, specialHoursConfigs, departmentName, year, section);
 
   // Initialize faculty allocation tracking
   let facultyMap: Map<string, FacultyAllocation> = new Map();

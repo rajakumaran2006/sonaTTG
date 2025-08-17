@@ -15,8 +15,9 @@ import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
-import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap } from "@/lib/supabaseService";
+import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import { SpecialHoursManager } from "@/components/SpecialHoursManager";
 //sample
 const SubjectManagement = () => {
   const navigate = useNavigate();
@@ -28,9 +29,15 @@ const SubjectManagement = () => {
   const addAvailable = useTimetableStore((s) => s.addAvailable);
   const special = useTimetableStore((s) => s.special);
   const setSpecial = useTimetableStore((s) => s.setSpecial);
+  const specialHoursConfigs = useTimetableStore((s) => s.specialHoursConfigs);
+  const setSpecialHoursConfigs = useTimetableStore((s) => s.setSpecialHoursConfigs);
 
   const totals = useMemo(() => subjectTotals(selected), [selected]);
   const specialHrs = useMemo(() => specialHours(special), [special]);
+  const configuredSpecialHrs = useMemo(() => 
+    specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
+    [specialHoursConfigs]
+  );
   const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "" });
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const setLabPreferences = useTimetableStore((s) => s.setLabPreferences);
@@ -54,6 +61,7 @@ const SubjectManagement = () => {
   const [facultyAssignmentOpen, setFacultyAssignmentOpen] = useState(false);
   const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] = useState<Subject | null>(null);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
+  const [departmentId, setDepartmentId] = useState<string>("");
 
   // Load subjects for current selection from Supabase
   useEffect(() => {
@@ -90,6 +98,7 @@ const SubjectManagement = () => {
           subs = await getSubjectsForYear(dep.id, selection.year!);
         }
         seedYearDataset(subs);
+        setDepartmentId(dep.id);
       } catch (e: any) {
         toast({ title: "Failed to load subjects", description: e?.message || String(e) });
       }
@@ -403,24 +412,36 @@ const SubjectManagement = () => {
 
               <Separator className="my-4" />
 
+              {/* Enhanced Special Hours Configuration */}
+              {departmentId && selection.year && (
+                <div className="mb-4">
+                  <SpecialHoursManager
+                    departmentId={departmentId}
+                    year={selection.year}
+                    onConfigUpdate={setSpecialHoursConfigs}
+                  />
+                </div>
+              )}
+
+              {/* Legacy Special Hours */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium">Seminar</div>
+                    <div className="font-medium">Seminar (Legacy)</div>
                     <div className="text-xs text-muted-foreground">Sat 3rd–4th periods</div>
                   </div>
                   <Switch checked={special.seminar} onCheckedChange={(v) => setSpecial({ seminar: v })} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium">Library</div>
+                    <div className="font-medium">Library (Legacy)</div>
                     <div className="text-xs text-muted-foreground">Sat 5th period</div>
                   </div>
                   <Switch checked={special.library} onCheckedChange={(v) => setSpecial({ library: v })} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-medium">Counselling</div>
+                    <div className="font-medium">Counselling (Legacy)</div>
                     <div className="text-xs text-muted-foreground">Sat 6th–7th periods</div>
                   </div>
                   <Switch checked={special.counselling} onCheckedChange={(v) => setSpecial({ counselling: v })} />
@@ -523,7 +544,7 @@ const SubjectManagement = () => {
                   </DialogContent>
                 </Dialog>
 
-                <Button variant="hero" onClick={next} disabled={totals.total + specialHrs > SUBJECT_HOUR_LIMIT}>Generate Timetable</Button>
+                <Button variant="hero" onClick={next} disabled={totals.total + specialHrs + configuredSpecialHrs > SUBJECT_HOUR_LIMIT}>Generate Timetable</Button>
               </div>
             </CardContent>
           </Card>

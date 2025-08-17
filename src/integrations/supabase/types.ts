@@ -422,6 +422,51 @@ export type Database = {
           },
         ]
       }
+      special_hours_config: {
+        Row: {
+          created_at: string
+          department_id: string
+          id: string
+          is_active: boolean
+          saturday_hours: number
+          saturday_periods: Json
+          special_type: string
+          total_hours: number
+          updated_at: string
+          weekdays_hours: number
+          weekdays_periods: Json
+          year: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          id?: string
+          is_active?: boolean
+          saturday_hours?: number
+          saturday_periods?: Json
+          special_type: string
+          total_hours?: number
+          updated_at?: string
+          weekdays_hours?: number
+          weekdays_periods?: Json
+          year: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          saturday_hours?: number
+          saturday_periods?: Json
+          special_type?: string
+          total_hours?: number
+          updated_at?: string
+          weekdays_hours?: number
+          weekdays_periods?: Json
+          year?: string
+        }
+        Relationships: []
+      }
       special_subjects: {
         Row: {
           allocation_type: string
