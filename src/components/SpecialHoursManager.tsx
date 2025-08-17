@@ -34,9 +34,10 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: Spec
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Load existing configurations
+  // Load existing configurations and ensure defaults exist
   useEffect(() => {
     loadConfigurations();
+    ensureDefaultConfigs();
   }, [departmentId, year]);
 
   const loadConfigurations = async () => {
@@ -66,6 +67,65 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: Spec
       onConfigUpdate(configsData);
     } catch (error) {
       console.error('Error loading special hours configurations:', error);
+    }
+  };
+
+  const ensureDefaultConfigs = async () => {
+    try {
+      const defaultConfigs = [
+        {
+          special_type: 'seminar',
+          total_hours: 2,
+          saturday_hours: 2,
+          weekdays_hours: 0,
+          saturday_periods: [3, 4],
+          weekdays_periods: []
+        },
+        {
+          special_type: 'library',
+          total_hours: 1,
+          saturday_hours: 1,
+          weekdays_hours: 0,
+          saturday_periods: [5],
+          weekdays_periods: []
+        },
+        {
+          special_type: 'counselling',
+          total_hours: 2,
+          saturday_hours: 2,
+          weekdays_hours: 0,
+          saturday_periods: [6, 7],
+          weekdays_periods: []
+        }
+      ];
+
+      // Check which defaults don't exist yet
+      const { data: existing } = await supabase
+        .from('special_hours_config')
+        .select('special_type')
+        .eq('department_id', departmentId)
+        .eq('year', year)
+        .eq('is_active', true);
+
+      const existingTypes = new Set((existing || []).map(e => e.special_type));
+      const toCreate = defaultConfigs.filter(config => !existingTypes.has(config.special_type));
+
+      if (toCreate.length > 0) {
+        const { error } = await supabase
+          .from('special_hours_config')
+          .insert(toCreate.map(config => ({
+            ...config,
+            department_id: departmentId,
+            year,
+            is_active: true
+          })));
+
+        if (error) throw error;
+        // Reload after creating defaults
+        loadConfigurations();
+      }
+    } catch (error) {
+      console.error('Error ensuring default configurations:', error);
     }
   };
 

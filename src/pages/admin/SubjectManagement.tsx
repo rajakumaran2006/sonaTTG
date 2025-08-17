@@ -251,8 +251,17 @@ const SubjectManagement = () => {
   };
 
   const next = () => {
-    if (totals.total + specialHrs > SUBJECT_HOUR_LIMIT) {
-      toast({ title: "Too many hours", description: `Assigned ${totals.total + specialHrs}/42. Reduce to continue.` });
+    const totalHours = totals.total + configuredSpecialHrs;
+    if (totalHours > SUBJECT_HOUR_LIMIT) {
+      toast({ title: "Too many hours", description: `Assigned ${totalHours}/42. Reduce to continue.` });
+      return;
+    }
+    if (!selection.department || !selection.year || !selection.section) {
+      toast({ title: "Missing selection", description: "Please select department, year, and section." });
+      return;
+    }
+    if (selected.length === 0) {
+      toast({ title: "No subjects selected", description: "Please select at least one subject." });
       return;
     }
     navigate("/timetable");
@@ -276,7 +285,7 @@ const SubjectManagement = () => {
             <CardContent className="grid grid-cols-2 gap-3">
               <div className="p-4 rounded-lg bg-secondary">
                 <div className="text-sm text-muted-foreground">Total Hours</div>
-                <div className="text-2xl font-semibold">{totals.total + specialHrs}</div>
+                <div className="text-2xl font-semibold">{totals.total + configuredSpecialHrs}</div>
               </div>
               <div className="p-4 rounded-lg bg-secondary">
                 <div className="text-sm text-muted-foreground">Theory</div>
@@ -287,8 +296,8 @@ const SubjectManagement = () => {
                 <div className="text-2xl font-semibold">{totals.lab}</div>
               </div>
               <div className="p-4 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Specials</div>
-                <div className="text-2xl font-semibold">{specialHrs}</div>
+                  <div className="text-sm text-muted-foreground">Specials</div>
+                  <div className="text-2xl font-semibold">{configuredSpecialHrs}</div>
               </div>
             </CardContent>
           </Card>
@@ -423,30 +432,6 @@ const SubjectManagement = () => {
                 </div>
               )}
 
-              {/* Legacy Special Hours */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">Seminar (Legacy)</div>
-                    <div className="text-xs text-muted-foreground">Sat 3rd–4th periods</div>
-                  </div>
-                  <Switch checked={special.seminar} onCheckedChange={(v) => setSpecial({ seminar: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">Library (Legacy)</div>
-                    <div className="text-xs text-muted-foreground">Sat 5th period</div>
-                  </div>
-                  <Switch checked={special.library} onCheckedChange={(v) => setSpecial({ library: v })} />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium">Counselling (Legacy)</div>
-                    <div className="text-xs text-muted-foreground">Sat 6th–7th periods</div>
-                  </div>
-                  <Switch checked={special.counselling} onCheckedChange={(v) => setSpecial({ counselling: v })} />
-                </div>
-              </div>
 
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-4">
                 <Dialog open={labSettingsOpen} onOpenChange={setLabSettingsOpen}>
@@ -544,7 +529,15 @@ const SubjectManagement = () => {
                   </DialogContent>
                 </Dialog>
 
-                <Button variant="hero" onClick={next} disabled={totals.total + specialHrs + configuredSpecialHrs > SUBJECT_HOUR_LIMIT}>Generate Timetable</Button>
+                <Button 
+                  variant="hero" 
+                  onClick={next} 
+                  disabled={totals.total + configuredSpecialHrs > SUBJECT_HOUR_LIMIT || 
+                           !selection.department || !selection.year || !selection.section ||
+                           selected.length === 0}
+                >
+                  Generate Timetable
+                </Button>
               </div>
             </CardContent>
           </Card>
