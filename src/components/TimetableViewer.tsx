@@ -237,7 +237,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
     const subjectType = subjectTypes[subjectName];
     
     if (subjectType === 'open elective') {
-      return 'OE';
+      return 'Open Elective';
     }
     
     return subjectName;
@@ -316,6 +316,8 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                             h-14 rounded-lg px-3 flex items-center justify-center text-center font-medium transition-all
                             ${isBreak 
                               ? 'bg-orange-100 text-orange-800 border-2 border-orange-200' 
+                              : hasSubject && subjectTypes[cell?.trim() || ''] === 'open elective'
+                                ? 'bg-purple-50 text-purple-900 border-2 border-purple-200 hover:bg-purple-100' 
                               : hasSubject 
                                 ? 'bg-blue-50 text-blue-900 border-2 border-blue-200 hover:bg-blue-100' 
                                 : 'bg-gray-50 text-gray-500 border-2 border-gray-200'
@@ -359,38 +361,52 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
             </div>
           ) : (
             <div className="space-y-4">
-              {facultyAssignments.map((assignment, index) => (
-                <div key={index} className="border rounded-lg p-4 hover:bg-muted/20 transition-colors">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-semibold text-lg text-blue-900">{assignment.subject_name}</h4>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <User className="h-4 w-4" />
-                        <span className="font-medium">{assignment.faculty_name}</span>
+              {facultyAssignments.map((assignment, index) => {
+                const isOpenElective = subjectTypes[assignment.subject_name] === 'open elective';
+                return (
+                  <div key={index} className={`border rounded-lg p-4 hover:bg-muted/20 transition-colors ${
+                    isOpenElective ? 'border-purple-200 bg-purple-50/50' : ''
+                  }`}>
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h4 className={`font-semibold text-lg ${
+                          isOpenElective ? 'text-purple-900' : 'text-blue-900'
+                        }`}>
+                          {isOpenElective ? 'Open Elective' : assignment.subject_name}
+                        </h4>
+                        {isOpenElective && (
+                          <p className="text-sm text-purple-700 mt-1">
+                            Student choice from available electives
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <User className="h-4 w-4" />
+                          <span className="font-medium">{assignment.faculty_name}</span>
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {assignment.total_hours} {assignment.total_hours === 1 ? 'hour' : 'hours'}
+                      </Badge>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h5 className="text-sm font-medium text-muted-foreground">Schedule:</h5>
+                      <div className="flex flex-wrap gap-2">
+                        {assignment.periods.map((period, periodIndex) => (
+                          <Badge 
+                            key={periodIndex} 
+                            variant="outline" 
+                            className="text-xs bg-blue-50 border-blue-200 text-blue-800"
+                          >
+                            {period.day} - {period.period}
+                          </Badge>
+                        ))}
                       </div>
                     </div>
-                    <Badge variant="secondary" className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {assignment.total_hours} {assignment.total_hours === 1 ? 'hour' : 'hours'}
-                    </Badge>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <h5 className="text-sm font-medium text-muted-foreground">Schedule:</h5>
-                    <div className="flex flex-wrap gap-2">
-                      {assignment.periods.map((period, periodIndex) => (
-                        <Badge 
-                          key={periodIndex} 
-                          variant="outline" 
-                          className="text-xs bg-blue-50 border-blue-200 text-blue-800"
-                        >
-                          {period.day} - {period.period}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               
               {/* Summary Stats */}
               <div className="mt-6 p-4 bg-muted/30 rounded-lg">
@@ -435,6 +451,10 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-blue-50 border-2 border-blue-200 rounded"></div>
               <span>Regular Subject</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-purple-50 border-2 border-purple-200 rounded"></div>
+              <span>Open Elective</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-orange-100 border-2 border-orange-200 rounded"></div>

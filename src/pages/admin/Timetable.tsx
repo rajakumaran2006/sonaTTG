@@ -83,7 +83,7 @@ function Timetable() {
     const subject = selected.find(s => s.name === subjectName);
     
     if (subject?.type === 'open elective') {
-      return 'OE';
+      return 'Open Elective';
     }
     
     return subjectName;
@@ -418,9 +418,14 @@ function Timetable() {
                         staff = classCounselorName;
                       }
                       
+                      const isOpenElective = subj?.type === 'open elective';
                       return (
                         <td key={i} className="p-2">
-                          <div className={`h-12 rounded-md flex flex-col items-center justify-center text-center text-sm ${cell ? cellClass(type) : 'bg-muted'}`} title={`${cell || ''}${staff ? ' — ' + staff : ''}`}>
+                          <div className={`h-12 rounded-md flex flex-col items-center justify-center text-center text-sm ${
+                            cell ? 
+                              isOpenElective ? 'bg-purple-100 text-purple-900 ring-1 ring-purple-300' : cellClass(type) 
+                              : 'bg-muted'
+                          }`} title={`${cell || ''}${staff ? ' — ' + staff : ''}`}>
                             <span>{formatCellContent(cell)}</span>
                             {staff && <span className="text-[10px] text-muted-foreground leading-none mt-0.5">{staff}</span>}
                           </div>
