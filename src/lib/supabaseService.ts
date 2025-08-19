@@ -120,6 +120,54 @@ export async function addSubjectsBulk(subjects: (Omit<Subject, 'id'> & { departm
   return (data || []).map(dbSubjectToSubject);
 }
 
+ // Upsert Open Elective hours for a given department + year.
+// If hours > 0: ensure a single 'open elective' subject exists with the specified hours.
+// If hours === 0: remove any existing 'open elective' subjects for that selection.
+// Open Elective settings per department-year
+export async function getOpenElectiveHours(departmentId: string, year: string): Promise<number> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('open_elective_settings')
+      .select('hours')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .maybeSingle();
+    if (error && error.code !== 'PGRST116') throw error;
+    if (data && typeof data.hours === 'number') return data.hours;
+  } catch (e: any) {
+    // Fallback to local storage if table doesn't exist or DB call fails
+  }
+  try {
+    const key = `oe_hours:${departmentId}:${year}`;
+    const v = localStorage.getItem(key);
+    return v ? Number(v) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function setOpenElectiveHours(
+  departmentId: string,
+  year: string,
+  hours: number,
+): Promise<void> {
+  try {
+    // Upsert hours into open_elective_settings
+    const { error } = await (supabase as any)
+      .from('open_elective_settings')
+      .upsert({ department_id: departmentId, year, hours })
+      .select('hours')
+      .maybeSingle();
+    if (error) throw error;
+  } catch (e: any) {
+    // Fallback to local storage if table not found or DB call fails
+    try {
+      const key = `oe_hours:${departmentId}:${year}`;
+      localStorage.setItem(key, String(Math.max(0, Math.min(42, Number(hours) || 0))));
+    } catch {}
+  }
+}
+
 export async function deleteSubject(id: string): Promise<void> {
   const { error } = await (supabase as any)
     .from('subjects')

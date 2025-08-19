@@ -15,7 +15,7 @@ import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
-import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName } from "@/lib/supabaseService";
+import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName, setOpenElectiveHours, getOpenElectiveHours } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import { SpecialHoursManager } from "@/components/SpecialHoursManager";
 //sample
@@ -62,6 +62,10 @@ const SubjectManagement = () => {
   const [selectedSubjectForAssignment, setSelectedSubjectForAssignment] = useState<Subject | null>(null);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [departmentId, setDepartmentId] = useState<string>("");
+  const isFourthYear = useMemo(() => selection.year === "IV" || selection.year === "4", [selection.year]);
+  const currentOpenElectiveHours = useMemo(() => selected.filter(s => s.type === 'open elective').reduce((a, s) => a + (s.hoursPerWeek || 0), 0), [selected]);
+  const [openElectiveHours, setOpenElectiveHoursState] = useState<number>(0);
+  const [savingOpenElective, setSavingOpenElective] = useState(false);
 
   // Load subjects for current selection from Supabase
   useEffect(() => {
@@ -127,6 +131,60 @@ const SubjectManagement = () => {
       }
     })();
   }, [selection.department, selection.year, selection.section, available.length]); // Re-load when subjects change
+
+  // Sync input with current data when selection or subjects change
+  useEffect(() => {
+    (async () => {
+      if (!isFourthYear || !selection.department || !selection.year) {
+        setOpenElectiveHoursState(0);
+        return;
+      }
+      try {
+        let depId = departmentId;
+        if (!depId) {
+          const dep = await ensureDepartment(selection.department);
+          depId = dep.id;
+          setDepartmentId(depId);
+        }
+        const hours = await getOpenElectiveHours(depId, selection.year);
+        setOpenElectiveHoursState(hours || 0);
+      } catch (_) {
+        setOpenElectiveHoursState(0);
+      }
+    })();
+  }, [isFourthYear, selection.department, selection.year]);
+
+  const handleSaveOpenElectiveHours = async () => {
+    try {
+      if (!selection.year || !selection.department) {
+        toast({ title: "Missing selection", description: "Please select department and year." });
+        return;
+      }
+      // For totals, we should not sum individual open elective subjects; instead user-configured OE hours override display total
+      // However, currentSelected contains individual OE subjects as part of year subjects list; we compute delta accordingly
+      const proposed = (totals.total - currentOpenElectiveHours) + Number(openElectiveHours) + configuredSpecialHrs;
+      if (proposed > SUBJECT_HOUR_LIMIT) {
+        toast({ title: "Too many hours", description: `Proposed ${proposed}/42 exceeds the limit.` });
+        return;
+      }
+      setSavingOpenElective(true);
+      let depId = departmentId;
+      if (!depId) {
+        const dep = await ensureDepartment(selection.department);
+        depId = dep.id;
+        setDepartmentId(depId);
+      }
+      await setOpenElectiveHours(depId, selection.year, Number(openElectiveHours));
+      // Do not alter subjects; open elective hours are now a setting. Still refresh to keep UI consistent
+      const subs = await getSubjectsForYear(depId, selection.year);
+      seedYearDataset(subs);
+      toast({ title: "Saved", description: "Open Elective hours updated." });
+    } catch (e: any) {
+      toast({ title: "Failed to save", description: e?.message || String(e) });
+    } finally {
+      setSavingOpenElective(false);
+    }
+  };
 
   const handleAdd = async () => {
     try {
@@ -285,7 +343,7 @@ const SubjectManagement = () => {
             <CardContent className="grid grid-cols-2 gap-3">
               <div className="p-4 rounded-lg bg-secondary">
                 <div className="text-sm text-muted-foreground">Total Hours</div>
-                <div className="text-2xl font-semibold">{totals.total + configuredSpecialHrs}</div>
+                <div className="text-2xl font-semibold">{(totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs}</div>
               </div>
               <div className="p-4 rounded-lg bg-secondary">
                 <div className="text-sm text-muted-foreground">Theory</div>
@@ -301,6 +359,35 @@ const SubjectManagement = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Fourth Year: Open Elective Hours */}
+          {isFourthYear && (
+            <Card className="rounded-2xl">
+              <CardHeader>
+                <CardTitle>Open Elective Hours</CardTitle>
+                <CardDescription>Only for Year IV</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <Label className="text-sm">Hours per week</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={42}
+                    value={openElectiveHours}
+                    onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
+                    className="mt-1 w-32"
+                  />
+                  <div className="text-xs text-muted-foreground mt-1">Configured: {openElectiveHours} h/w • Subjects total: {currentOpenElectiveHours} h/w</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective}>
+                    {savingOpenElective ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Faculty Overview */}
           <Card className="rounded-2xl">
@@ -388,7 +475,7 @@ const SubjectManagement = () => {
                       <div className="flex-1">
                         <div className="font-medium">{s.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {s.hoursPerWeek} h/w {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
+                          {s.type === 'open elective' ? '-' : `${s.hoursPerWeek} h/w`} {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
                         </div>
                         <div className="text-xs flex items-center gap-1 mt-1">
                           <UserCheck className="h-3 w-3" />
@@ -532,7 +619,7 @@ const SubjectManagement = () => {
                 <Button 
                   variant="hero" 
                   onClick={next} 
-                  disabled={totals.total + configuredSpecialHrs > SUBJECT_HOUR_LIMIT || 
+                  disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
                            !selection.department || !selection.year || !selection.section ||
                            selected.length === 0}
                 >

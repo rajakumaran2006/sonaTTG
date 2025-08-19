@@ -236,7 +236,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
     const subjectName = cell.trim();
     const subjectType = subjectTypes[subjectName];
     
-    if (subjectType === 'open elective') {
+    if (subjectType === 'open elective' || subjectName === 'Open Elective') {
       return 'Open Elective';
     }
     
@@ -316,7 +316,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                             h-14 rounded-lg px-3 flex items-center justify-center text-center font-medium transition-all
                             ${isBreak 
                               ? 'bg-orange-100 text-orange-800 border-2 border-orange-200' 
-                              : hasSubject && subjectTypes[cell?.trim() || ''] === 'open elective'
+                              : hasSubject && (subjectTypes[cell?.trim() || ''] === 'open elective' || cell?.trim() === 'Open Elective')
                                 ? 'bg-purple-50 text-purple-900 border-2 border-purple-200 hover:bg-purple-100' 
                               : hasSubject 
                                 ? 'bg-blue-50 text-blue-900 border-2 border-blue-200 hover:bg-blue-100' 

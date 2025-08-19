@@ -82,7 +82,7 @@ function Timetable() {
     const subjectName = cell.trim();
     const subject = selected.find(s => s.name === subjectName);
     
-    if (subject?.type === 'open elective') {
+    if (subject?.type === 'open elective' || subjectName === 'Open Elective') {
       return 'Open Elective';
     }
     
@@ -456,16 +456,43 @@ function Timetable() {
                 </tr>
               </thead>
               <tbody>
-                {selected.map((s, idx) => (
-                  <tr key={s.id || idx} className="border-b">
-                    <td className="p-2">{s.code || '-'}</td>
-                    <td className="p-2">{s.abbreviation || s.id}</td>
-                    <td className="p-2">{s.name}</td>
-                    <td className="p-2">{s.hoursPerWeek}</td>
-                    <td className="p-2 capitalize">{s.type}</td>
-                    <td className="p-2">{subjectToFaculty[s.id] || s.staff || '-'}</td>
-                  </tr>
-                ))}
+                {(() => {
+                  const openElectives = selected.filter((s) => s.type === 'open elective');
+                  const otherSubjects = selected.filter((s) => s.type !== 'open elective');
+                  return (
+                    <>
+                      {otherSubjects.map((s, idx) => (
+                        <tr key={s.id || idx} className="border-b">
+                          <td className="p-2">{s.code || '-'}</td>
+                          <td className="p-2">{s.abbreviation || s.id}</td>
+                          <td className="p-2">{s.name}</td>
+                          <td className="p-2">{s.type === 'open elective' ? '-' : s.hoursPerWeek}</td>
+                          <td className="p-2 capitalize">{s.type}</td>
+                          <td className="p-2">{subjectToFaculty[s.id] || s.staff || '-'}</td>
+                        </tr>
+                      ))}
+                      {openElectives.length > 0 && (
+                        <tr className="border-b bg-purple-50/40">
+                          <td className="p-2" colSpan={6}>
+                            <div className="font-semibold text-purple-900">Open Elective</div>
+                            <div className="mt-2 space-y-2">
+                              {openElectives.map((s) => (
+                                <div key={s.id} className="flex flex-wrap items-center gap-3">
+                                  <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200">{s.code || '-'}</span>
+                                  <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
+                                  <span className="font-medium">{s.name}</span>
+                                  <span className="text-xs text-muted-foreground">-</span>
+                                  <span className="text-xs text-muted-foreground">•</span>
+                                  <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })()}
                 {(special.seminar || special.library || special.counselling) && (
                   <tr className="border-b">
                     <td className="p-2">-</td>

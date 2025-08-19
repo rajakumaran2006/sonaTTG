@@ -249,9 +249,11 @@ export type LabPrefsMap = Record<string, LabPreference>;
 
 // Helpers
 export const subjectTotals = (subjects: Subject[]) => {
-  const total = subjects.reduce((a, s) => a + s.hoursPerWeek, 0);
-  const theory = subjects.filter((s) => s.type === "theory").reduce((a, s) => a + s.hoursPerWeek, 0);
-  const lab = subjects.filter((s) => s.type === "lab").reduce((a, s) => a + s.hoursPerWeek, 0);
+  // Exclude open elective subjects' individual hours from totals; those are configured separately
+  const filtered = subjects.filter((s) => s.type !== 'open elective');
+  const total = filtered.reduce((a, s) => a + s.hoursPerWeek, 0);
+  const theory = filtered.filter((s) => s.type === "theory").reduce((a, s) => a + s.hoursPerWeek, 0);
+  const lab = filtered.filter((s) => s.type === "lab").reduce((a, s) => a + s.hoursPerWeek, 0);
   return { total, theory, lab };
 };
 

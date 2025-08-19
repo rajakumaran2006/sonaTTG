@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours } from "./supabaseService";
 import { 
   buildFacultyAllocationMap, 
   findAvailableFacultyForSlot, 
@@ -203,7 +203,8 @@ export async function generateTimetable({
 
   // Separate labs and theory-like subjects (theory, elective, open elective)
   const labs = subjects.filter((s) => s.type === "lab");
-  const theory = subjects.filter((s) => s.type === "theory" || s.type === "elective" || s.type === "open elective");
+  const openElectiveSubjects = subjects.filter((s) => s.type === "open elective");
+  const theory = subjects.filter((s) => s.type === "theory" || s.type === "elective");
 
   // Remaining hours tracker
   const remaining = new Map<string, number>();
@@ -341,6 +342,25 @@ export async function generateTimetable({
   // Calculate available periods after special hours placement
   const { dayCapacities } = calculateAvailablePeriods(grid, specialHoursConfigs);
   
+  // If we have department/year, fetch configured Open Elective hours and reserve them as 'Open Elective' placeholder periods
+  let openElectiveHours = 0;
+  if (departmentName && year) {
+    try {
+      const dept = await getDepartmentByName(departmentName);
+      if (dept) {
+        openElectiveHours = await getOpenElectiveHours(dept.id, year);
+      }
+    } catch (e) {
+      openElectiveHours = 0;
+    }
+  }
+
+  // Ensure individual Open Elective subjects are NOT scheduled directly
+  // Their hours should not be placed; they are listed only in details
+  openElectiveSubjects.forEach((s) => {
+    remaining.set(s.id, 0);
+  });
+
   // Fill theory subjects greedily, balancing across days, SSA only Mon-Fri
   // Build day capacities (exclude locked cells and Saturday if specials enabled)
   const dayCap = [...dayCapacities];
@@ -352,6 +372,25 @@ export async function generateTimetable({
   let guard = 0;
   while (placedSomething && guard < 1000) {
     placedSomething = false;
+    // First place Open Elective placeholder periods
+    if (openElectiveHours > 0) {
+      const dayOrder = [...Array(6).keys()].sort((a, b) => dayCap[b] - dayCap[a]);
+      for (const d of dayOrder) {
+        if (openElectiveHours <= 0) break;
+        // Do not place more than TWO OE slots per day
+        const oeCountForDay = grid[d].filter((cell) => cell === 'Open Elective').length;
+        if (oeCountForDay < 2) {
+          const idx = grid[d].findIndex((c) => c == null);
+          if (idx !== -1) {
+            grid[d][idx] = 'Open Elective';
+            dayCap[d] -= 1;
+            openElectiveHours -= 1;
+            placedSomething = true;
+          }
+        }
+      }
+    }
+
     for (const s of orderedTheory) {
       let left = remaining.get(s.id) || 0;
       if (left <= 0) continue;
