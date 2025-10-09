@@ -9,6 +9,8 @@ import SubjectManagement from "./pages/admin/SubjectManagement";
 import Timetable from "./pages/admin/Timetable";
 import YearSubjects from "./pages/admin/YearSubjects";
 import SectionManagement from "./pages/admin/SectionManagement";
+import CSVUpload from "./pages/admin/CSVUpload";
+import FacultyCSVUpload from "./pages/faculty/FacultyCSVUpload";
 
 // Faculty Pages
 import Faculty from "./pages/faculty/Faculty";
@@ -47,6 +49,8 @@ const App = () => (
             <Route path="/super-admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/subjects" element={<SubjectManagement />} />
             <Route path="/timetable" element={<Timetable />} />
+            <Route path="/csv-upload" element={<CSVUpload />} />
+            <Route path="/faculty/csv-upload" element={<FacultyCSVUpload />} />
             <Route path="/pull-requests" element={<PullRequests />} />
             <Route path="/pull-requests/:id" element={<PullRequestDetail />} />
             <Route path="/current-timetables" element={<CurrentTimetables />} />

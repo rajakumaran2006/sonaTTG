@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck } from "lucide-react";
+import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload } from "lucide-react";
 import { Breadcrumbs, Crumb } from "@/components/Breadcrumbs";
 import { useTimetableStore } from "@/store/timetableStore";
 
@@ -26,6 +26,7 @@ const AdminNavbar = () => {
     { label: "Home", href: "/admin", icon: <Home className="h-4 w-4" /> },
     { label: "Subjects", href: "/subjects", icon: <BookOpen className="h-4 w-4" /> },
     { label: "Timetable", href: "/timetable", icon: <Calendar className="h-4 w-4" /> },
+    { label: "import", href: "/csv-upload", icon: <Upload className="h-4 w-4" /> },
   ];
 
   useEffect(() => {
@@ -89,6 +90,9 @@ const AdminNavbar = () => {
     } else if (path === "/current-timetables") {
       breadcrumbs.push({ label: "Home", href: "/admin" });
       breadcrumbs.push({ label: "Current Timetables" });
+    } else if (path === "/csv-upload") {
+      breadcrumbs.push({ label: "Home", href: "/admin" });
+      breadcrumbs.push({ label: "import" });
     }
 
     return breadcrumbs;

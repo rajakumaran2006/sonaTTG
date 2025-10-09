@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Navbar from "@/components/navbar/facultyadmin";  
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,8 @@ import {
   X, 
   GraduationCap, 
   BarChart3, 
-  Building2 
+  Building2,
+  Upload
 } from "lucide-react";
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -61,6 +63,7 @@ interface SubjectAssignment {
 
 const FacultyDashboard = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [faculty, setFaculty] = useState<FacultyMember | null>(null);
   const [schedule, setSchedule] = useState<FacultyScheduleItem[]>([]);
@@ -405,8 +408,20 @@ const FacultyDashboard = () => {
       <Navbar/>
       <section className="container py-8">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold">Faculty Dashboard</h1>
-          <p className="text-muted-foreground">Your personal timetable and information</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Faculty Dashboard</h1>
+              <p className="text-muted-foreground">Your personal timetable and information</p>
+            </div>
+            <Button 
+              onClick={() => navigate("/faculty/csv-upload")}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              CSV Upload
+            </Button>
+          </div>
         </header>
 
         {/* Faculty Information - Rectangular Card at Top */}
