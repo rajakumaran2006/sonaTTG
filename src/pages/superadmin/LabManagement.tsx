@@ -332,15 +332,21 @@ const LabManagement = () => {
     ).sort((a, b) => a.slot_number - b.slot_number);
   };
 
-  const generateTimeSlots = () => {
-    const slots = [];
-    for (let hour = 8; hour <= 18; hour++) {
-      for (let minute = 0; minute < 60; minute += 60) {
-        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-        slots.push(timeString);
-      }
-    }
-    return slots;
+  const periods = [
+    { id: 'P1', time: '9:00-9:55', startTime: '09:00', endTime: '09:55' },
+    { id: 'P2', time: '9:55-10:50', startTime: '09:55', endTime: '10:50' },
+    { id: 'P3', time: '11:05-12:00', startTime: '11:05', endTime: '12:00' },
+    { id: 'P4', time: '12:00-12:55', startTime: '12:00', endTime: '12:55' },
+    { id: 'P5', time: '1:55-2:50', startTime: '13:55', endTime: '14:50' },
+    { id: 'P6', time: '2:50-3:45', startTime: '14:50', endTime: '15:45' },
+    { id: 'P7', time: '3:55-4:50', startTime: '15:55', endTime: '16:50' }
+  ];
+
+  const getScheduleForPeriod = (dayOfWeek: number, periodStartTime: string) => {
+    return labSchedules.find(schedule =>
+      schedule.day_of_week === dayOfWeek &&
+      schedule.start_time === periodStartTime
+    );
   };
 
   if (loading) {
@@ -782,47 +788,64 @@ const LabManagement = () => {
               </div>
 
               {/* Schedule Table */}
-              <div className="border rounded-lg">
+              <div className="border rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-20">Time</TableHead>
-                      <TableHead>Monday</TableHead>
-                      <TableHead>Tuesday</TableHead>
-                      <TableHead>Wednesday</TableHead>
-                      <TableHead>Thursday</TableHead>
-                      <TableHead>Friday</TableHead>
-                      <TableHead>Saturday</TableHead>
-                      <TableHead>Sunday</TableHead>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-24 font-bold text-center border-r">Day / Period</TableHead>
+                      {periods.map((period) => (
+                        <TableHead key={period.id} className="text-center border-r min-w-[100px]">
+                          <div className="space-y-1">
+                            <div className="font-bold text-sm">{period.id}</div>
+                            <div className="text-xs text-muted-foreground">{period.time}</div>
+                          </div>
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {generateTimeSlots().map((timeSlot) => (
-                      <TableRow key={timeSlot}>
-                        <TableCell className="font-medium text-sm">{timeSlot}</TableCell>
-                        {[1, 2, 3, 4, 5, 6, 7].map((day) => {
-                          const scheduleForSlot = getScheduleForDay(day).find(
-                            schedule => schedule.start_time <= timeSlot && schedule.end_time > timeSlot
-                          );
+                    {[
+                      { name: 'Monday', value: 1 },
+                      { name: 'Tuesday', value: 2 },
+                      { name: 'Wednesday', value: 3 },
+                      { name: 'Thursday', value: 4 },
+                      { name: 'Friday', value: 5 },
+                      { name: 'Saturday', value: 6 }
+                    ].map((day) => (
+                      <TableRow key={day.name} className="hover:bg-muted/20">
+                        <TableCell className="font-medium text-center border-r bg-muted/30">
+                          {day.name}
+                        </TableCell>
+                        {periods.map((period) => {
+                          const scheduleForPeriod = getScheduleForPeriod(day.value, period.startTime);
 
                           return (
-                            <TableCell key={day} className="text-center">
-                              {scheduleForSlot ? (
-                                <div className="space-y-1">
-                                  <Badge variant={scheduleForSlot.is_available ? "default" : "secondary"}>
-                                    Slot {scheduleForSlot.slot_number}
-                                  </Badge>
-                                  <p className="text-xs text-muted-foreground">
-                                    {scheduleForSlot.max_capacity} students
-                                  </p>
-                                  {scheduleForSlot.semester && (
+                            <TableCell key={period.id} className="text-center p-3 border-r">
+                              {scheduleForPeriod ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-center">
+                                    <Badge
+                                      variant={scheduleForPeriod.is_available ? "default" : "secondary"}
+                                      className="text-xs"
+                                    >
+                                      {scheduleForPeriod.is_available ? "Available" : "Booked"}
+                                    </Badge>
+                                  </div>
+                                  {scheduleForPeriod.max_capacity && (
                                     <p className="text-xs text-muted-foreground">
-                                      {scheduleForSlot.semester}
+                                      {scheduleForPeriod.max_capacity} students
+                                    </p>
+                                  )}
+                                  {scheduleForPeriod.semester && (
+                                    <p className="text-xs font-medium text-blue-600">
+                                      {scheduleForPeriod.semester}
                                     </p>
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-muted-foreground text-sm">—</span>
+                                <div className="flex items-center justify-center h-12">
+                                  <span className="text-muted-foreground text-sm font-medium">Free</span>
+                                </div>
                               )}
                             </TableCell>
                           );
@@ -834,14 +857,18 @@ const LabManagement = () => {
               </div>
 
               {/* Legend */}
-              <div className="flex gap-4 text-sm">
+              <div className="flex gap-6 text-sm justify-center">
                 <div className="flex items-center gap-2">
-                  <Badge variant="default">Available</Badge>
-                  <span>Available Slot</span>
+                  <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                  <span>Regular Classes</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary">Unavailable</Badge>
-                  <span>Unavailable Slot</span>
+                  <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                  <span>Special Activities</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Free</span>
+                  <span>Free Periods</span>
                 </div>
               </div>
             </div>
