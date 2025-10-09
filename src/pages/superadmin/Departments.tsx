@@ -210,38 +210,14 @@ const Departments = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Departments</h1>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Button variant={view === 'grid' ? 'default' : 'outline'} onClick={() => setView('grid')}>Grid</Button>
-              <Button variant={view === 'list' ? 'default' : 'outline'} onClick={() => setView('list')}>List</Button>
-            </div>
-            {deleteMode && (
-              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                <span>{selectedDepartments.size} selected</span>
-                <Button 
-                  size="sm" 
-                  variant="destructive" 
-                  onClick={() => setBulkDeleteOpen(true)}
-                  disabled={selectedDepartments.size === 0}
-                >
-                  Delete Selected ({selectedDepartments.size})
-                </Button>
-              </div>
-            )}
-            <Button 
-              variant={deleteMode ? "outline" : "destructive"}
-              onClick={() => {
-                setDeleteMode(!deleteMode);
-                if (!deleteMode) {
-                  setSelectedDepartments(new Set()); // Clear selection when entering delete mode
-                }
-              }}
-            >
-              {deleteMode ? "Cancel Delete" : "Delete Mode"}
-            </Button>
+          <div>
+            <h1 className="text-3xl font-bold">Departments</h1>
+            <p className="text-sm text-muted-foreground">Manage all departments</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setOpenAdd(true)}>Add Department</Button>
           </div>
         </header>
 

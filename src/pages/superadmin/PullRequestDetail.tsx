@@ -196,8 +196,12 @@ const PullRequestDetail = () => {
   return (
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
-      <section className="container py-10 max-w-6xl">
+      <section className="container py-10 md:pl-72 md:pt-16">
         {/* Header */}
+        <header className="mb-6 flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Pull Request Details</h1>
+          <div className="text-sm text-muted-foreground">ID: {id}</div>
+        </header>
         <header className="mb-8">
           <div className="flex items-center justify-between">
             <div>

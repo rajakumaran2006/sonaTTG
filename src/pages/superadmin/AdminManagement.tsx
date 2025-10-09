@@ -389,7 +389,7 @@ const AdminManagement = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Admin Management</h1>
