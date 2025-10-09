@@ -22,6 +22,7 @@ import DepartmentDetails from "./pages/superadmin/DepartmentDetails";
 import PullRequests from "./pages/superadmin/PullRequests";
 import CurrentTimetables from "./pages/superadmin/CurrentTimetables";
 import PullRequestDetail from "./pages/superadmin/PullRequestDetail";
+import LabManagement from "./pages/superadmin/LabManagement";
 
 // Shared Pages
 import NotFound from "./pages/NotFound";
@@ -51,6 +52,7 @@ const App = () => (
             <Route path="/pull-requests/:id" element={<PullRequestDetail />} />
             <Route path="/current-timetables" element={<CurrentTimetables />} />
             <Route path="/super-admin/faculty" element={<Faculty />} />
+            <Route path="/super-admin/labs" element={<LabManagement />} />
             <Route path="/faculty" element={<FacultyDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
