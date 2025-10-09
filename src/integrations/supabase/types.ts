@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_users: {
+        Row: {
+          id: string
+          name: string
+          email: string
+          password_hash: string
+          department_id: string
+          is_active: boolean
+          created_at: string
+          updated_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          email: string
+          password_hash: string
+          department_id: string
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          email?: string
+          password_hash?: string
+          department_id?: string
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_users_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_users_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       class_counselors: {
         Row: {
           batch: string | null

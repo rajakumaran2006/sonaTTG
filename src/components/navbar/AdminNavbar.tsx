@@ -16,8 +16,17 @@ export interface AdminNavItem {
   icon?: React.ReactNode;
 }
 
+interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  department_id: string;
+  is_active: boolean;
+}
+
 const AdminNavbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const selection = useTimetableStore((s) => s.selection);
@@ -27,6 +36,22 @@ const AdminNavbar = () => {
     { label: "Subjects", href: "/subjects", icon: <BookOpen className="h-4 w-4" /> },
     { label: "Timetable", href: "/timetable", icon: <Calendar className="h-4 w-4" /> },
   ];
+
+  useEffect(() => {
+    // Load admin user data from localStorage
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        setAdminUser(JSON.parse(adminData));
+      } catch (error) {
+        console.error('Error parsing admin data:', error);
+        localStorage.removeItem("adminUser");
+        navigate("/admin-login", { replace: true });
+      }
+    } else {
+      navigate("/admin-login", { replace: true });
+    }
+  }, [navigate]);
 
   useEffect(() => {
     let mounted = true;
@@ -63,6 +88,11 @@ const AdminNavbar = () => {
 
   const handleBackToHome = () => {
     navigate("/");
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("adminUser");
+    navigate("/admin-login", { replace: true });
   };
 
   // Generate breadcrumbs based on current route
@@ -136,15 +166,22 @@ const AdminNavbar = () => {
             <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
               Admin
             </Badge>
-            
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="flex items-center space-x-2">
                   <User className="h-4 w-4" />
-                  <span>Profile</span>
+                  <span className="max-w-[120px] truncate">
+                    {adminUser?.name || 'Profile'}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <div className="px-2 py-1.5 text-sm">
+                  <div className="font-medium">{adminUser?.name}</div>
+                  <div className="text-muted-foreground">{adminUser?.email}</div>
+                </div>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSuperAdminLogin} className="flex items-center space-x-2">
                   <Settings className="h-4 w-4" />
                   <span className="font-medium">Super Admin Console</span>
@@ -154,9 +191,9 @@ const AdminNavbar = () => {
                   <span className="font-medium">Faculty Console</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleBackToHome} className="flex items-center space-x-2">
+                <DropdownMenuItem onClick={handleLogout} className="flex items-center space-x-2">
                   <LogOut className="h-4 w-4" />
-                  <span className="font-medium">Back to Home</span>
+                  <span className="font-medium">Logout</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

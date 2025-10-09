@@ -6,13 +6,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTimetableStore } from "@/store/timetableStore";
 import { getDepartmentByName, getTimetable } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import { supabase } from "@/integrations/supabase/client";
 
-const departments = [
-  "Information Technology",
-  "Artificial Intelligence and Data Science",
-];
 const years = ["I", "II", "III", "IV"];
 const sections = ["A", "B", "C", "D"];
+
+interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  department_id: string;
+  is_active: boolean;
+}
 
 const Index = () => {
   const navigate = useNavigate();
@@ -20,8 +25,51 @@ const Index = () => {
   const setSelection = useTimetableStore((s) => s.setSelection);
   const [existingTimetable, setExistingTimetable] = useState<boolean>(false);
   const [checking, setChecking] = useState<boolean>(false);
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const ready = selection.department && selection.year && selection.section;
+
+  useEffect(() => {
+    const adminData = localStorage.getItem("adminUser");
+    if (!adminData) {
+      navigate("/admin-login", { replace: true });
+      return;
+    }
+
+    try {
+      const parsedAdmin = JSON.parse(adminData);
+      setAdminUser(parsedAdmin);
+
+      // Load departments for this admin's department only
+      (async () => {
+        const { data, error } = await (supabase as any)
+          .from('departments')
+          .select('*')
+          .eq('id', parsedAdmin.department_id);
+
+        if (!error && data) {
+          setDepartments(data);
+        }
+        setLoading(false);
+      })();
+    } catch (error) {
+      console.error('Error parsing admin data:', error);
+      navigate("/admin-login", { replace: true });
+    }
+  }, [navigate]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-background">
+        <AdminNavbar />
+        <section className="container py-14">
+          <div className="text-center">Loading...</div>
+        </section>
+      </main>
+    );
+  }
 
   useEffect(() => {
     (async () => {
@@ -66,7 +114,7 @@ const Index = () => {
                   </SelectTrigger>
                   <SelectContent className="z-50 bg-popover">
                     {departments.map((d) => (
-                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                      <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

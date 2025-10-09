@@ -57,7 +57,7 @@ const Navbar = () => {
     navigate("/");
   };
   const handleSuperAdminLogin = () => {
-    navigate("/admin");
+    navigate("/super-admin-login");
   };
 
   const handleFacultyLogin = () => {
