@@ -55,10 +55,10 @@ const Navbar = () => {
 
 
   const handleSuperAdminLogin = () => {
-    navigate("/super-admin");
+    navigate("/super-admin-login");
   };
-  const AdminLogin = () => {
-    navigate("/admin");
+  const handleAdminLogin = () => {
+    navigate("/admin-login");
   };
 
 
@@ -98,7 +98,7 @@ const Navbar = () => {
                   <Settings className="h-4 w-4" />
                   <span className="font-medium">Super Admin Console</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={AdminLogin} className="flex items-center space-x-2">
+                <DropdownMenuItem onClick={handleAdminLogin} className="flex items-center space-x-2">
                   <UserCheck className="h-4 w-4" />
                   <span className="font-medium">Admin Console</span>
                 </DropdownMenuItem>
@@ -107,7 +107,7 @@ const Navbar = () => {
                   <LogOut className="h-4 w-4" />
                   <span className="font-medium">Back to Home</span>
                 </DropdownMenuItem>
- 
+
               </DropdownMenuContent>
             </DropdownMenu>
         </div>

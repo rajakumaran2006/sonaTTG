@@ -62,7 +62,7 @@ const Navbar = () => {
   };
 
   const handleAdminConsole = () => {
-    navigate("/admin");
+    navigate("/admin-login");
   };
 
   const handleFacultyLogin = () => {
