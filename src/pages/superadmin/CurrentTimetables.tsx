@@ -77,9 +77,9 @@ const CurrentTimetables = () => {
       <section className="container py-10">
         {/* Header */}
         <header className="mb-8">
-          <div className="mb-6">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold">Current Timetables</h1>
+              <h1 className="text-3xl font-bold">Current Timetables</h1>
               <p className="text-muted-foreground mt-1">View and manage existing timetables</p>
             </div>
           </div>
@@ -93,7 +93,7 @@ const CurrentTimetables = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 <div className="text-center">
                   <div className="text-3xl font-bold text-blue-600">{summaryStats.totalTimetables}</div>
                   <div className="text-sm text-muted-foreground">Total Timetables</div>
@@ -113,13 +113,13 @@ const CurrentTimetables = () => {
               </div>
               
               {/* Filter Section */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4" />
                   <span className="text-sm font-medium">Filter by Department:</span>
                 </div>
                 <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                  <SelectTrigger className="w-full sm:w-[200px] border-2 border-black">
+                  <SelectTrigger className="w-[200px] border-2 border-black">
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent className="border-2 border-black">
@@ -144,8 +144,8 @@ const CurrentTimetables = () => {
           {filteredRows.map((r, idx) => (
             <Card key={`${r.department_id}-${r.year}-${r.section}-${idx}`} className="rounded-xl hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <span className="truncate">
+                <CardTitle className="text-lg flex items-center justify-between">
+                  <span>
                     {deptNames[r.department_id] || r.department_id} • Year {r.year} • Section {r.section}
                   </span>
                   <div className="text-sm font-normal text-muted-foreground">
@@ -154,30 +154,30 @@ const CurrentTimetables = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center justify-between">
                   <div className="text-sm text-muted-foreground">
                     <span>Last modified: {new Date(r.updated_at).toLocaleString()}</span>
                   </div>
-                  <div className="flex gap-2 w-full sm:w-auto">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setViewing({
-                          departmentId: r.department_id,
-                          year: r.year,
-                          section: r.section
-                        });
-                        setViewOpen(true);
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => { 
+                        setViewing({ 
+                          departmentId: r.department_id, 
+                          year: r.year, 
+                          section: r.section 
+                        }); 
+                        setViewOpen(true); 
                       }}
-                      className="flex items-center justify-center gap-2 flex-1 sm:flex-none"
+                      className="flex items-center gap-2"
                     >
                       <Eye className="h-4 w-4" />
                       View
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="destructive" className="flex items-center justify-center gap-2 flex-1 sm:flex-none">
+                        <Button size="sm" variant="destructive" className="flex items-center gap-2">
                           <Trash2 className="h-4 w-4" />
                           Delete
                         </Button>
@@ -194,7 +194,7 @@ const CurrentTimetables = () => {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
+                          <AlertDialogAction 
                             onClick={async () => {
                               try {
                                 const { error } = await (supabase as any)
@@ -207,8 +207,8 @@ const CurrentTimetables = () => {
                                 if (error) throw error;
 
                                 setRows((rows) => rows.filter((x) => !(
-                                  x.department_id === r.department_id &&
-                                  x.year === r.year &&
+                                  x.department_id === r.department_id && 
+                                  x.year === r.year && 
                                   x.section === r.section
                                 )));
 
@@ -231,7 +231,7 @@ const CurrentTimetables = () => {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

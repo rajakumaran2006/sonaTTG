@@ -211,50 +211,46 @@ const Departments = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10">
-        <header className="mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <h1 className="text-xl sm:text-2xl font-bold">Departments</h1>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <div className="flex items-center space-x-2">
-                <Button variant={view === 'grid' ? 'default' : 'outline'} onClick={() => setView('grid')} className="flex-1 sm:flex-none">Grid</Button>
-                <Button variant={view === 'list' ? 'default' : 'outline'} onClick={() => setView('list')} className="flex-1 sm:flex-none">List</Button>
-              </div>
-              {deleteMode && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-sm text-muted-foreground">
-                  <span className="sm:mr-2">{selectedDepartments.size} selected</span>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setBulkDeleteOpen(true)}
-                    disabled={selectedDepartments.size === 0}
-                    className="w-full sm:w-auto"
-                  >
-                    Delete Selected ({selectedDepartments.size})
-                  </Button>
-                </div>
-              )}
-              <Button
-                variant={deleteMode ? "outline" : "destructive"}
-                onClick={() => {
-                  setDeleteMode(!deleteMode);
-                  if (!deleteMode) {
-                    setSelectedDepartments(new Set()); // Clear selection when entering delete mode
-                  }
-                }}
-                className="w-full sm:w-auto"
-              >
-                {deleteMode ? "Cancel Delete" : "Delete Mode"}
-              </Button>
+        <header className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Departments</h1>
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Button variant={view === 'grid' ? 'default' : 'outline'} onClick={() => setView('grid')}>Grid</Button>
+              <Button variant={view === 'list' ? 'default' : 'outline'} onClick={() => setView('list')}>List</Button>
             </div>
+            {deleteMode && (
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <span>{selectedDepartments.size} selected</span>
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  onClick={() => setBulkDeleteOpen(true)}
+                  disabled={selectedDepartments.size === 0}
+                >
+                  Delete Selected ({selectedDepartments.size})
+                </Button>
+              </div>
+            )}
+            <Button 
+              variant={deleteMode ? "outline" : "destructive"}
+              onClick={() => {
+                setDeleteMode(!deleteMode);
+                if (!deleteMode) {
+                  setSelectedDepartments(new Set()); // Clear selection when entering delete mode
+                }
+              }}
+            >
+              {deleteMode ? "Cancel Delete" : "Delete Mode"}
+            </Button>
           </div>
         </header>
 
-        <div className="mb-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-4">
             <Input className="max-w-xs" placeholder="Search departments..." value={search} onChange={(e) => setSearch(e.target.value)} />
             {deleteMode && (
-              <div className="flex items-center justify-center sm:justify-start">
-                <Button size="sm" variant="outline" onClick={selectAllFiltered} className="w-full sm:w-auto">
+              <div className="flex items-center space-x-2">
+                <Button size="sm" variant="outline" onClick={selectAllFiltered}>
                   Select All Filtered
                 </Button>
               </div>
@@ -262,7 +258,7 @@ const Departments = () => {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto">Bulk actions</Button>
+              <Button variant="outline">Bulk actions</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={exportFiltered}>Export (JSON)</DropdownMenuItem>
@@ -271,27 +267,27 @@ const Departments = () => {
           </DropdownMenu>
         </div>
 
-        <div className={view === 'grid' ? 'grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid gap-2 grid-cols-1 sm:grid-cols-2'}>
+        <div className={view === 'grid' ? 'grid gap-4 md:grid-cols-3' : 'grid gap-2'}>
           {filtered.map((d) => (
             <Card key={d.id} className="rounded-xl">
               <CardHeader>
                 <CardTitle className="text-base">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
                       {deleteMode && (
                         <input
                           type="checkbox"
                           checked={selectedDepartments.has(d.id)}
                           onChange={(e) => handleDepartmentSelect(d.id, e.target.checked)}
-                          className="h-4 w-4 rounded border-gray-300 flex-shrink-0"
+                          className="h-4 w-4 rounded border-gray-300"
                         />
                       )}
                       {editingId === d.id ? (
-                        <div className="flex items-center space-x-2 w-full">
+                        <div className="flex items-center space-x-2">
                           <Input
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
-                            className="h-8 flex-1 min-w-0"
+                            className="h-8 w-32"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -301,16 +297,16 @@ const Departments = () => {
                               }
                             }}
                           />
-                          <Button size="sm" onClick={() => handleSaveEdit(d.id)} className="flex-shrink-0">Save</Button>
-                          <Button size="sm" variant="outline" onClick={handleCancelEdit} className="flex-shrink-0">Cancel</Button>
+                          <Button size="sm" onClick={() => handleSaveEdit(d.id)}>Save</Button>
+                          <Button size="sm" variant="outline" onClick={handleCancelEdit}>Cancel</Button>
                         </div>
                       ) : (
-                        <span className="truncate">{d.name}</span>
+                        <span>{d.name}</span>
                       )}
                     </div>
-                    <div className="flex items-center space-x-2 flex-shrink-0">
-                      <Button size="sm" onClick={() => navigate(`/super-admin/departments/${d.id}`)} className="w-full sm:w-auto">View</Button>
-                      <Button size="sm" variant="outline" onClick={() => handleInlineEdit(d.id, d.name)} className="w-full sm:w-auto">Edit</Button>
+                    <div className="flex items-center space-x-2">
+                      <Button size="sm" onClick={() => navigate(`/super-admin/departments/${d.id}`)}>View</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleInlineEdit(d.id, d.name)}>Edit</Button>
                     </div>
                   </div>
                 </CardTitle>
