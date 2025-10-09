@@ -13,6 +13,7 @@ export interface Subject {
   abbreviation?: string; // e.g., CN
   staff?: string; // e.g., Mr. D. Jayaprakash
   maxFacultyCount?: number; // Maximum faculty members for lab subjects
+  credits?: number; // Academic credits (1-6)
 }
 
 export interface SpecialFlags {

@@ -14,6 +14,7 @@ type DbSubject = {
   abbreviation: string | null;
   staff: string | null;
   max_faculty_count?: number;
+  credits?: number;
 };
 
 type DbDepartment = { id: string; name: string };
@@ -90,6 +91,7 @@ export async function addSubject(subject: Omit<Subject, 'id'> & { departmentId: 
       department_id: subject.departmentId,
       year: subject.year,
       max_faculty_count: subject.maxFacultyCount,
+      credits: subject.credits || 3,
     })
     .select()
     .single();
@@ -111,6 +113,7 @@ export async function addSubjectsBulk(subjects: (Omit<Subject, 'id'> & { departm
     department_id: s.departmentId,
     year: s.year,
     max_faculty_count: s.maxFacultyCount,
+    credits: s.credits || 3,
   }));
   const { data, error } = await (supabase as any)
     .from('subjects')
@@ -298,6 +301,7 @@ function dbSubjectToSubject(dbSubject: DbSubject): Subject {
     abbreviation: dbSubject.abbreviation || undefined,
     staff: dbSubject.staff || undefined,
     maxFacultyCount: dbSubject.max_faculty_count,
+    credits: dbSubject.credits || 3,
   };
 }
 

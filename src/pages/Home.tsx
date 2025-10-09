@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Building2, School, ShieldCheck } from "lucide-react";
 
 const RoleSelect = () => {
   const navigate = useNavigate();
@@ -10,16 +11,16 @@ const RoleSelect = () => {
   useEffect(() => {
     document.title = "Select Role - Timetable";
     const meta = document.querySelector('meta[name="description"]');
-    if (meta) meta.setAttribute("content", "Choose Admin or Super Admin to manage timetables and departments.");
+    if (meta) meta.setAttribute("content", "Choose Admin, Faculty, or Super Admin to manage and view timetables.");
   }, []);
 
   const roles = [
     {
       title: "Admin",
-      description: "Manage timetable generation and subjects",
+      description: "Manage timetable generation, subjects, and faculty",
       action: "Continue",
       route: "/admin",
-      icon: "",
+      icon: <Building2 className="w-8 h-8 text-primary" aria-hidden />,
       badge: "Department",
       variant: "default" as const,
       features: ["Create timetables", "Manage subjects", "Assign faculty", "Monitor schedules"]
@@ -27,9 +28,9 @@ const RoleSelect = () => {
     {
       title: "Faculty",
       description: "View your schedule and assigned classes",
-      action: "Login",
+      action: "Log in",
       route: "/faculty",
-      icon: "",
+      icon: <School className="w-8 h-8 text-primary" aria-hidden />,
       badge: "Teacher",
       variant: "outline" as const,
       features: ["View schedule", "Check assignments", "Track classes", "Update availability"]
@@ -37,9 +38,9 @@ const RoleSelect = () => {
     {
       title: "Super Admin",
       description: "Full control over departments, years, and subjects",
-      action: "Login",
+      action: "Log in",
       route: "/super-admin-login",
-      icon: "",
+      icon: <ShieldCheck className="w-8 h-8 text-primary" aria-hidden />,
       badge: "Master Control",
       variant: "secondary" as const,
       features: ["Manage departments", "Control users", "System settings", "Full access"]
@@ -57,10 +58,10 @@ const RoleSelect = () => {
               🎓 Timetable Management System
             </Badge>
             <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-              Choose Your Role
+              Choose your role
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Access the comprehensive timetable management platform designed for educational institutions
+              Access the comprehensive timetable management platform designed for educational institutions.
             </p>
           </div>
 

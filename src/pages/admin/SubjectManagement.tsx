@@ -38,7 +38,7 @@ const SubjectManagement = () => {
     specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
     [specialHoursConfigs]
   );
-  const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "" });
+  const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; credits?: number; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const setLabPreferences = useTimetableStore((s) => s.setLabPreferences);
   const selection = useTimetableStore((s) => s.selection);
@@ -202,12 +202,13 @@ const SubjectManagement = () => {
         code: form.code?.trim() || undefined,
         abbreviation: form.abbreviation?.trim() || undefined,
         staff: form.staff?.trim() || undefined,
+        credits: form.credits || 3,
         departmentId: dep.id,
         year: selection.year,
       });
       addAvailable(created);
       moveToSelected(created.id);
-      setForm({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "" });
+      setForm({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
       toast({ title: "Subject added", description: `${created.name} saved to Supabase.` });
     } catch (e: any) {
       toast({ title: "Failed to add subject", description: e?.message || String(e) });

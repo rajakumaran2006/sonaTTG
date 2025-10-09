@@ -22,6 +22,7 @@ interface SubjectRow {
   year: string;
   code: string | null;
   max_faculty_count?: number;
+  credits?: number;
 }
 
 const YearSubjects = () => {
@@ -39,6 +40,7 @@ const YearSubjects = () => {
   const [hours, setHours] = useState<number>(1);
   const [code, setCode] = useState("");
   const [maxFacultyCount, setMaxFacultyCount] = useState<number>(1);
+  const [credits, setCredits] = useState<number>(3);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [search, setSearch] = useState("");
@@ -93,7 +95,7 @@ const YearSubjects = () => {
     })();
   }, [isLoggedIn, id, year]);
 
-  const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setMaxFacultyCount(1); setEditingId(null); };
+  const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setMaxFacultyCount(1); setCredits(3); setEditingId(null); };
 
   const handleAdd = async () => {
     if (!name.trim()) { toast.error("Subject name is required"); return; }
@@ -109,6 +111,7 @@ const YearSubjects = () => {
         type,
         hours_per_week: hours,
         code: code.trim() || null,
+        credits: credits,
       };
       
       // Add max_faculty_count for lab subjects
@@ -145,6 +148,7 @@ const YearSubjects = () => {
     setHours(s.hours_per_week);
     setCode(s.code || "");
     setMaxFacultyCount(s.max_faculty_count || 1);
+    setCredits(s.credits || 3);
     setEditOpen(true);
   };
 
@@ -159,7 +163,8 @@ const YearSubjects = () => {
         name, 
         type, 
         hours_per_week: hours, 
-        code: code || null 
+        code: code || null,
+        credits: credits
       };
       
       // Update max_faculty_count for lab subjects
@@ -175,7 +180,7 @@ const YearSubjects = () => {
       if (error) throw error;
 
       setSubjects((list) => list.map((x) =>
-        x.id === editingId ? { ...x, name, type, hours_per_week: hours, code: code || null, max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count } : x
+        x.id === editingId ? { ...x, name, type, hours_per_week: hours, code: code || null, credits: credits, max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count } : x
       ));
       toast.success("Subject updated successfully");
       setEditOpen(false);
@@ -238,6 +243,7 @@ const YearSubjects = () => {
                 </SelectContent>
               </Select>
               <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
+              <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
               <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
               <Button onClick={handleAdd} disabled={!name.trim()}>Add</Button>
             </div>
@@ -326,6 +332,7 @@ const YearSubjects = () => {
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Hours/week</TableHead>
+                  <TableHead>Credits</TableHead>
                   <TableHead>Code</TableHead>
                   <TableHead>Max Faculty</TableHead>
                   <TableHead></TableHead>
@@ -348,6 +355,7 @@ const YearSubjects = () => {
                         <TableCell>{s.name}</TableCell>
                         <TableCell className="capitalize">{s.type}</TableCell>
                         <TableCell>{s.hours_per_week}</TableCell>
+                        <TableCell>{s.credits || 3}</TableCell>
                         <TableCell>{s.code || '-'}</TableCell>
                         <TableCell>{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</TableCell>
                         <TableCell className="text-right space-x-2">
@@ -401,6 +409,7 @@ const YearSubjects = () => {
               </SelectContent>
             </Select>
             <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
+            <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
             <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
           </div>
           

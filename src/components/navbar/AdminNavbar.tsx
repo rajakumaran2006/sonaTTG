@@ -103,7 +103,7 @@ const AdminNavbar = () => {
         <nav className="container h-14 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link to="/admin" className="font-semibold">
-              Sona-TTG
+              OptiTime
             </Link>
             <ul className="hidden md:flex items-center gap-1">
               {navItems.map((item) => (
@@ -132,6 +132,11 @@ const AdminNavbar = () => {
               </div>
             )}
             
+            {/* Role Pill */}
+            <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+              Admin
+            </Badge>
+            
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="flex items-center space-x-2">
@@ -142,16 +147,16 @@ const AdminNavbar = () => {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleSuperAdminLogin} className="flex items-center space-x-2">
                   <Settings className="h-4 w-4" />
-                  <span>Super Admin</span>
+                  <span className="font-medium">Super Admin Console</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleFacultyLogin} className="flex items-center space-x-2">
                   <UserCheck className="h-4 w-4" />
-                  <span>Faculty</span>
+                  <span className="font-medium">Faculty Console</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleBackToHome} className="flex items-center space-x-2">
                   <LogOut className="h-4 w-4" />
-                  <span>Back to Home</span>
+                  <span className="font-medium">Back to Home</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
