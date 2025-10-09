@@ -329,7 +329,7 @@ function Timetable() {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72">
+      <main className="md:pl-72 relative z-10">
         <section className="container py-8">
           <div className="flex items-start justify-between mb-6">
             <div>
