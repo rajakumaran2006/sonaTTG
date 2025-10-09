@@ -18,6 +18,10 @@ export default {
 			}
 		},
 		extend: {
+			screens: {
+				'tablet': '900px',
+				'laptop': '1200px',
+			},
 			fontFamily: {
 				sans: ['Inter','system-ui','-apple-system','Segoe UI','Roboto','Helvetica Neue','Arial','Noto Sans','sans-serif'],
 				poppins: ['Poppins','sans-serif'],

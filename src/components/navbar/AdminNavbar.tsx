@@ -247,7 +247,7 @@ const AdminNavbar = () => {
 
           <div className="flex items-center gap-2">
             {/* Role Pill */}
-            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1 hidden sm:inline-flex">
               Admin
             </Badge>
 
@@ -289,14 +289,14 @@ const AdminNavbar = () => {
         )}
       </header>
 
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 md:flex-col md:border-r md:bg-background">
+      {/* Desktop Sidebar - Responsive width */}
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 lg:w-80 xl:w-72 2xl:w-80 md:flex-col md:border-r md:bg-background">
         <SidebarContent />
       </aside>
 
-      {/* Desktop Breadcrumbs */}
+      {/* Desktop Breadcrumbs - Responsive positioning */}
       {breadcrumbs.length > 0 && (
-        <div className="hidden md:block md:fixed md:top-0 md:left-72 md:right-0 md:z-20 md:border-b md:bg-muted/30 md:px-6 md:py-3">
+        <div className="hidden md:block md:fixed md:top-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 md:right-0 md:z-20 md:border-b md:bg-muted/30 md:px-6 md:py-3">
           <Breadcrumbs segments={breadcrumbs} />
         </div>
       )}

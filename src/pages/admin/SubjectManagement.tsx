@@ -329,7 +329,7 @@ const SubjectManagement = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
         <section className="container py-10 md:pt-16">
           <header className="mb-6">
             <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>

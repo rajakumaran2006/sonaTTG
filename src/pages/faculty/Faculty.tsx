@@ -668,7 +668,7 @@ const FacultyPage = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Faculty</h1>

@@ -25,6 +25,7 @@ const Navbar = () => {
   const navItems: NavItem[] = [
     { label: "Dashboard", href: "/super-admin" },
     { label: "Departments", href: "/super-admin/departments" },
+    { label: "Faculty", href: "/super-admin/faculty" },
     { label: "Admin Management", href: "/super-admin/admin-management" },
     { label: "Labs", href: "/super-admin/labs" },
     { label: "Pull Requests", href: "/pull-requests", badge: pendingCount },
@@ -132,7 +133,7 @@ const Navbar = () => {
           </Link>
 
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1 hidden sm:inline-flex">
               Super Admin
             </Badge>
             <DropdownMenu>
@@ -158,13 +159,13 @@ const Navbar = () => {
         </div>
       </header>
 
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 md:flex-col md:border-r md:bg-background">
+      {/* Desktop Sidebar - Responsive width */}
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 lg:w-80 xl:w-72 2xl:w-80 md:flex-col md:border-r md:bg-background">
         <SidebarContent />
       </aside>
 
-      {/* Desktop top bar with profile on the right */}
-      <div className="hidden md:flex md:fixed md:top-0 md:left-72 md:right-0 md:z-20 md:border-b md:bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6 md:py-3">
+      {/* Desktop top bar with profile on the right - Responsive positioning */}
+      <div className="hidden md:flex md:fixed md:top-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 md:right-0 md:z-20 md:border-b md:bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6 md:py-3">
         <div className="ml-auto flex items-center gap-3">
           <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
             Super Admin

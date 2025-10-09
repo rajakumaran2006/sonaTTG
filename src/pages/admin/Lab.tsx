@@ -185,7 +185,7 @@ const Lab = () => {
     return (
       <div className="min-h-screen bg-background">
         <AdminNavbar />
-        <main className="md:pl-72">
+        <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
           <section className="container py-8 md:pt-16">
             <div className="text-center">Loading...</div>
           </section>
@@ -197,8 +197,8 @@ const Lab = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72">
-        <section className="container py-8 md:pt-16">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <section className="container py-8">
           <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">

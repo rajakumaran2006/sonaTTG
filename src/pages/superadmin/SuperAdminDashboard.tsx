@@ -158,13 +158,13 @@ const SuperAdminDashboard = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 md:pt-16">
+      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Super Admin Dashboard</h1>
             <p className="text-sm text-muted-foreground">System overview and quick actions</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
             <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')}>Manage Admins</Button>
             <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
@@ -182,7 +182,7 @@ const SuperAdminDashboard = () => {
 
           <TabsContent value="overview" className="space-y-6">
             <section className="mb-8">
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="rounded-xl cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/super-admin/departments')}>
                   <CardHeader>
                     <CardTitle className="text-base">Total Departments</CardTitle>
@@ -228,7 +228,7 @@ const SuperAdminDashboard = () => {
                 <p className="text-sm text-muted-foreground">Overview of all active timetables across departments</p>
               </header>
 
-              <div className="grid gap-4 md:grid-cols-4 mb-6">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
                 <Card className="rounded-xl">
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">

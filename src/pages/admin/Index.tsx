@@ -143,7 +143,7 @@ const Index = () => {
       <div className="min-h-screen bg-background">
         <AdminNavbar />
         <main className="md:pl-72">
-          <section className="container py-8">
+          <section className="container py-8 md:pt-16">
             <div className="text-center">Loading...</div>
           </section>
         </main>
@@ -154,7 +154,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
         <section className="container py-8 md:pt-16">
           <div className="mx-auto max-w-3xl">
             <header className="mb-8 text-center">
