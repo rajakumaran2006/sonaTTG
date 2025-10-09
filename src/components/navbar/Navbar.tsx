@@ -61,6 +61,10 @@ const Navbar = () => {
     navigate("/super-admin-login");
   };
 
+  const handleAdminConsole = () => {
+    navigate("/admin");
+  };
+
   const handleFacultyLogin = () => {
     navigate("/faculty");
   };
@@ -109,7 +113,7 @@ const Navbar = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleSuperAdminLogin} className="flex items-center space-x-2">
+                <DropdownMenuItem onClick={handleAdminConsole} className="flex items-center space-x-2">
                   <Settings className="h-4 w-4" />
                   <span className="font-medium">Admin Console</span>
                 </DropdownMenuItem>
