@@ -329,8 +329,13 @@ function Timetable() {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
+<<<<<<< HEAD
       <main className="md:pl-72">
         <section className="container py-8 md:pt-16">
+=======
+      <main className="md:pl-72 relative z-10">
+        <section className="container py-8">
+>>>>>>> f78de5b23980c43f27123df2631538e651b0120c
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Generated Timetable</h1>
