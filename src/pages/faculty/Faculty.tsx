@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/navbar/Navbar";
+import UploadCSV from "@/components/UploadCSV";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +97,33 @@ const FacultyPage = () => {
       // default to All departments in view
       if (!deptFilterId) setDeptFilterId("ALL");
     })();
+
+    // Listen for import completion to refresh list
+    const onImported = async (_e: any) => {
+      // Re-trigger the current department filter to reload data
+      if (deptFilterId === "ALL") {
+        const { data, error } = await (supabase as any)
+          .from('faculty_members')
+          .select('id, name, email, designation, department_id');
+        if (!error) {
+          const list = (data || []).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            email: f.email ?? null,
+            designation: f.designation ?? null,
+            departmentId: f.department_id,
+          })) as any[];
+          setFaculty(list);
+          await loadFacultyYears(list.map(f => f.id));
+        }
+      } else if (deptFilterId) {
+        const list = await getFacultyByDepartment(deptFilterId);
+        setFaculty(list);
+        await loadFacultyYears(list.map(f => f.id));
+      }
+    };
+    window.addEventListener('faculty-import:inserted', onImported as any);
+    return () => window.removeEventListener('faculty-import:inserted', onImported as any);
   }, [isLoggedIn]);
 
   useEffect(() => {
@@ -674,7 +702,8 @@ const FacultyPage = () => {
             <h1 className="text-2xl font-bold">Faculty</h1>
             <p className="text-sm text-muted-foreground">List of faculty and add new</p>
           </div>
-          <div className="space-x-2">
+          <div className="flex items-center gap-2">
+            <UploadCSV />
             <Button onClick={() => { setAddOpen(true); }}>Add Faculty</Button>
           </div>
         </header>
