@@ -171,9 +171,6 @@ const SuperAdminDashboard = () => {
             <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
             <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
           </div>
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
-          <p className="text-sm text-muted-foreground">System overview and management</p>
         </header>
 
         <Tabs defaultValue="overview" className="space-y-6">
