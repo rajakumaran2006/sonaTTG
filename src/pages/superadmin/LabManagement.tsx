@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +15,11 @@ import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
 import { Plus, Edit, Trash2, Calendar, Settings, Eye } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+interface Department {
+  id: string;
+  name: string;
+}
 
 interface Lab {
   id: string;
@@ -31,7 +37,7 @@ interface Lab {
   operating_hours: any;
   is_active: boolean;
   maintenance_status: string;
-  department_id: string;
+  departments: string[]; // Array of department IDs
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +63,8 @@ const LabManagement = () => {
   const navigate = useNavigate();
   const [labs, setLabs] = useState<Lab[]>([]);
   const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -81,7 +89,7 @@ const LabManagement = () => {
     equipment_list: [] as string[],
     safety_equipment: [] as string[],
     operating_hours: {} as any,
-    department_id: ""
+    departments: [] as string[] // Array of department IDs
   });
 
 
@@ -104,10 +112,11 @@ const LabManagement = () => {
 
   useEffect(() => {
     if (isLoggedIn) {
+      loadDepartments();
       loadLabs();
       loadLabSchedules();
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, selectedDepartment]);
 
   const checkAuth = () => {
     const loggedIn = localStorage.getItem("superAdmin") === "true";
@@ -117,12 +126,36 @@ const LabManagement = () => {
     }
   };
 
-  const loadLabs = async () => {
+  const loadDepartments = async () => {
     try {
       const { data, error } = await (supabase as any)
+        .from('departments')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      setDepartments(data || []);
+    } catch (error) {
+      console.error('Error loading departments:', error);
+      toast.error('Failed to load departments');
+    }
+  };
+
+  const loadLabs = async () => {
+    try {
+      let query = (supabase as any)
         .from('labs')
         .select('*')
+        .eq('is_active', true)
         .order('name');
+
+      // Note: departments field may not exist in current schema
+      // Filter by department if selected (skip if "all-departments")
+      if (selectedDepartment && selectedDepartment !== "all-departments") {
+        query = query.contains('departments', [selectedDepartment]);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setLabs(data || []);
@@ -167,7 +200,7 @@ const LabManagement = () => {
       equipment_list: [],
       safety_equipment: [],
       operating_hours: {},
-      department_id: ""
+      departments: []
     });
     setEditingLab(null);
   };
@@ -188,6 +221,16 @@ const LabManagement = () => {
 
   const handleCreateLab = async () => {
     try {
+      if (!labForm.name || !labForm.building || !labForm.floor || !labForm.room_number) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+
+      if (labForm.departments.length === 0) {
+        toast.error('Please select at least one department for this lab');
+        return;
+      }
+
       // Prepare the data for insertion
       const labData = {
         name: labForm.name,
@@ -202,8 +245,8 @@ const LabManagement = () => {
         equipment_list: labForm.equipment_list,
         safety_equipment: labForm.safety_equipment,
         operating_hours: labForm.operating_hours,
-        department_id: labForm.department_id,
-        created_by: (await supabase.auth.getUser()).data.user?.id
+        // Note: departments field may not exist in current schema yet
+        ...(labForm.departments.length > 0 && { departments: labForm.departments })
       };
 
       const { error } = await (supabase as any)
@@ -226,6 +269,16 @@ const LabManagement = () => {
     if (!editingLab) return;
 
     try {
+      if (!labForm.name || !labForm.building || !labForm.floor || !labForm.room_number) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+
+      if (labForm.departments.length === 0) {
+        toast.error('Please select at least one department for this lab');
+        return;
+      }
+
       // Prepare the data for update
       const labData = {
         name: labForm.name,
@@ -240,7 +293,8 @@ const LabManagement = () => {
         equipment_list: labForm.equipment_list,
         safety_equipment: labForm.safety_equipment,
         operating_hours: labForm.operating_hours,
-        department_id: labForm.department_id
+        // Note: departments field may not exist in current schema yet
+        ...(labForm.departments.length > 0 && { departments: labForm.departments })
       };
 
       const { error } = await (supabase as any)
@@ -316,7 +370,7 @@ const LabManagement = () => {
       equipment_list: Array.isArray(lab.equipment_list) ? lab.equipment_list : [],
       safety_equipment: Array.isArray(lab.safety_equipment) ? lab.safety_equipment : [],
       operating_hours: lab.operating_hours || {},
-      department_id: lab.department_id || ""
+      departments: Array.isArray(lab.departments) ? lab.departments : [] // Note: departments field may not exist in current schema
     });
     setLabDialog(true);
   };
@@ -371,9 +425,26 @@ const LabManagement = () => {
             <h1 className="text-2xl font-bold">Lab Management</h1>
             <p className="text-sm text-muted-foreground">Manage lab facilities, schedules, and admin assignments</p>
           </div>
-          <Button onClick={() => navigate('/super-admin')}>
-            Back to Dashboard
-          </Button>
+          <div className="flex items-center gap-4">
+            <div className="w-48">
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-departments">All Departments</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={() => navigate('/super-admin')}>
+              Back to Dashboard
+            </Button>
+          </div>
         </header>
 
         <Tabs defaultValue="labs" className="space-y-6">
@@ -511,19 +582,40 @@ const LabManagement = () => {
                     </div>
 
                     <div className="grid gap-2">
-                      <Label htmlFor="department">Department *</Label>
-                      <Select value={labForm.department_id} onValueChange={(value) => setLabForm({ ...labForm, department_id: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="computer-science">Computer Science</SelectItem>
-                          <SelectItem value="electronics-engineering">Electronics Engineering</SelectItem>
-                          <SelectItem value="physics">Physics</SelectItem>
-                          <SelectItem value="chemistry">Chemistry</SelectItem>
-                          <SelectItem value="mechanical-engineering">Mechanical Engineering</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label>Departments *</Label>
+                      <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-3">
+                        {departments.map((dept) => (
+                          <div key={dept.id} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={`dept-${dept.id}`}
+                              checked={labForm.departments.includes(dept.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setLabForm({
+                                    ...labForm,
+                                    departments: [...labForm.departments, dept.id]
+                                  });
+                                } else {
+                                  setLabForm({
+                                    ...labForm,
+                                    // Note: departments field may not exist in current schema yet
+        ...(labForm.departments.length > 0 && { departments: labForm.departments }).filter(id => id !== dept.id)
+                                  });
+                                }
+                              }}
+                            />
+                            <Label
+                              htmlFor={`dept-${dept.id}`}
+                              className="text-sm font-normal cursor-pointer"
+                            >
+                              {dept.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Select one or more departments that can use this lab.
+                      </p>
                     </div>
                   </div>
                   <DialogFooter>
@@ -578,6 +670,25 @@ const LabManagement = () => {
                       <Badge variant={lab.maintenance_status === 'operational' ? 'default' : 'destructive'}>
                         {lab.maintenance_status}
                       </Badge>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-sm text-muted-foreground">Available Departments:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {lab.departments && lab.departments.length > 0 ? (
+                          lab.departments.map((deptId) => {
+                            const dept = departments.find(d => d.id === deptId);
+                            return (
+                              <Badge key={deptId} variant="outline" className="text-xs">
+                                {dept?.name || 'Unknown'}
+                              </Badge>
+                            );
+                          })
+                        ) : (
+                          <Badge variant="outline" className="text-xs">
+                            No departments (field may not exist in current schema)
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {lab.description}

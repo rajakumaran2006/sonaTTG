@@ -327,18 +327,19 @@ function Timetable() {
   };
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <section className="container py-10">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Generated Timetable</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {selection.department ? `${selection.department}` : 'Department not selected'}
-              {selection.year ? ` • Year: ${selection.year}` : ''}
-              {selection.section ? ` • Section: ${selection.section}` : ''}
-            </p>
-          </div>
+      <main className="md:pl-72">
+        <section className="container py-8">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Generated Timetable</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {selection.department ? `${selection.department}` : 'Department not selected'}
+                {selection.year ? ` • Year: ${selection.year}` : ''}
+                {selection.section ? ` • Section: ${selection.section}` : ''}
+              </p>
+            </div>
           <div className="flex gap-2">
             <Button variant="soft" onClick={regenerate}>Regenerate</Button>
             <Button variant="outline" onClick={exportPDF}>Export PDF</Button>
@@ -528,6 +529,7 @@ function Timetable() {
         </Dialog>
       </section>
     </main>
+  </div>
   );
 }
 
