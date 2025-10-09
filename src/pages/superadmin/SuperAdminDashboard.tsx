@@ -160,6 +160,17 @@ const SuperAdminDashboard = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10">
+        <header className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
+            <p className="text-sm text-muted-foreground">System overview and quick actions</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
+            <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')}>Manage Admins</Button>
+            <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
+            <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
+          </div>
         <header className="mb-6">
           <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
           <p className="text-sm text-muted-foreground">System overview and management</p>
