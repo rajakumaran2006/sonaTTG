@@ -8,6 +8,7 @@ import Index from "./pages/admin/Index";
 import AdminLogin from "./pages/admin/AdminLogin";
 import SubjectManagement from "./pages/admin/SubjectManagement";
 import Timetable from "./pages/admin/Timetable";
+import Lab from "./pages/admin/Lab";
 import YearSubjects from "./pages/admin/YearSubjects";
 import SectionManagement from "./pages/admin/SectionManagement";
 
@@ -52,6 +53,7 @@ const App = () => (
             <Route path="/super-admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/subjects" element={<SubjectManagement />} />
             <Route path="/timetable" element={<Timetable />} />
+            <Route path="/lab" element={<Lab />} />
             <Route path="/pull-requests" element={<PullRequests />} />
             <Route path="/pull-requests/:id" element={<PullRequestDetail />} />
             <Route path="/current-timetables" element={<CurrentTimetables />} />

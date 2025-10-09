@@ -327,13 +327,14 @@ const SubjectManagement = () => {
   };
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <section className="container py-10">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>
-          <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>
-        </header>
+      <main className="md:pl-72">
+        <section className="container py-8">
+          <header className="mb-6">
+            <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>
+            <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>
+          </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <Card className="rounded-2xl">
@@ -742,7 +743,8 @@ const SubjectManagement = () => {
         </Dialog>
       </section>
     </main>
-  );
+  </div>
+);
 };
 
 export default SubjectManagement;

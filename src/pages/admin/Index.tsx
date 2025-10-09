@@ -140,88 +140,92 @@ const Index = () => {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-background">
+      <div className="min-h-screen bg-background">
         <AdminNavbar />
-        <section className="container py-14">
-          <div className="text-center">Loading...</div>
-        </section>
-      </main>
+        <main className="md:pl-72">
+          <section className="container py-8">
+            <div className="text-center">Loading...</div>
+          </section>
+        </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <section className="container py-14">
-        <div className="mx-auto max-w-3xl">
-          <header className="mb-8 text-center">
-            <h1 className="text-4xl font-bold tracking-tight mb-2" style={{fontFamily: 'Poppins'}}>Fast, Rule‑Based Timetable Generator</h1>
-            <p className="text-muted-foreground">Greedy engine with smart constraints. Export to PDF & Excel.</p>
-          </header>
+      <main className="md:pl-72">
+        <section className="container py-8">
+          <div className="mx-auto max-w-3xl">
+            <header className="mb-8 text-center">
+              <h1 className="text-4xl font-bold tracking-tight mb-2" style={{fontFamily: 'Poppins'}}>Fast, Rule‑Based Timetable Generator</h1>
+              <p className="text-muted-foreground">Greedy engine with smart constraints. Export to PDF & Excel.</p>
+            </header>
 
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle>Choose Department, Year & Section</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-6 md:grid-cols-3">
-              <div>
-                <label className="mb-2 block text-sm text-muted-foreground">Department</label>
-                <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
-                  <SelectTrigger className="bg-card">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent className="z-50 bg-popover">
-                    {departments.map((d) => (
-                      <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm text-muted-foreground">Year</label>
-                <Select onValueChange={(v) => setSelection({ year: v })} value={selection.year}>
-                  <SelectTrigger className="bg-card">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent className="z-50 bg-popover">
-                    {years.map((y) => (
-                      <SelectItem key={y} value={y}>{y}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm text-muted-foreground">Section</label>
-                <Select onValueChange={(v) => setSelection({ section: v })} value={selection.section}>
-                  <SelectTrigger className="bg-card">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent className="z-50 bg-popover">
-                    {sections.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {ready && existingTimetable && (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    A timetable already exists for this Department • Year • Section. Please delete it from
-                    {" "}
-                    <Link className="underline" to="/current-timetables">Current Timetables</Link>
-                    {" "}before proceeding.
-                  </div>
-                )}
-              </div>
+            <Card className="rounded-2xl shadow-sm">
+              <CardHeader>
+                <CardTitle>Choose Department, Year & Section</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-6 md:grid-cols-3">
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Department</label>
+                  <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
+                    <SelectTrigger className="bg-card">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent className="z-50 bg-popover">
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Year</label>
+                  <Select onValueChange={(v) => setSelection({ year: v })} value={selection.year}>
+                    <SelectTrigger className="bg-card">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent className="z-50 bg-popover">
+                      {years.map((y) => (
+                        <SelectItem key={y} value={y}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Section</label>
+                  <Select onValueChange={(v) => setSelection({ section: v })} value={selection.section}>
+                    <SelectTrigger className="bg-card">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent className="z-50 bg-popover">
+                      {sections.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {ready && existingTimetable && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      A timetable already exists for this Department • Year • Section. Please delete it from
+                      {" "}
+                      <Link className="underline" to="/current-timetables">Current Timetables</Link>
+                      {" "}before proceeding.
+                    </div>
+                  )}
+                </div>
 
-              <div className="md:col-span-3 flex justify-end">
-                <Button variant="hero" disabled={!ready || existingTimetable || checking} onClick={() => navigate('/subjects')}>
-                  {checking ? 'Checking…' : 'Continue'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-    </main>
+                <div className="md:col-span-3 flex justify-end">
+                  <Button variant="hero" disabled={!ready || existingTimetable || checking} onClick={() => navigate('/subjects')}>
+                    {checking ? 'Checking…' : 'Continue'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      </main>
+    </div>
   );
 };
 

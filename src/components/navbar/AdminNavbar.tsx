@@ -3,9 +3,10 @@ import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck } from "lucide-react";
+import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Menu, Beaker } from "lucide-react";
 import { Breadcrumbs, Crumb } from "@/components/Breadcrumbs";
 import { useTimetableStore } from "@/store/timetableStore";
 
@@ -27,6 +28,7 @@ interface AdminUser {
 const AdminNavbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const selection = useTimetableStore((s) => s.selection);
@@ -35,6 +37,7 @@ const AdminNavbar = () => {
     { label: "Home", href: "/admin", icon: <Home className="h-4 w-4" /> },
     { label: "Subjects", href: "/subjects", icon: <BookOpen className="h-4 w-4" /> },
     { label: "Timetable", href: "/timetable", icon: <Calendar className="h-4 w-4" /> },
+    { label: "Lab", href: "/lab", icon: <Beaker className="h-4 w-4" /> },
   ];
 
   useEffect(() => {
@@ -109,6 +112,9 @@ const AdminNavbar = () => {
       breadcrumbs.push({ label: "Home", href: "/admin" });
       breadcrumbs.push({ label: "Subjects", href: "/subjects" });
       breadcrumbs.push({ label: "Timetable" });
+    } else if (path === "/lab") {
+      breadcrumbs.push({ label: "Home", href: "/admin" });
+      breadcrumbs.push({ label: "Lab" });
     } else if (path === "/pull-requests") {
       breadcrumbs.push({ label: "Home", href: "/admin" });
       breadcrumbs.push({ label: "Pull Requests" });
@@ -125,55 +131,129 @@ const AdminNavbar = () => {
   };
 
   const breadcrumbs = generateBreadcrumbs();
-  const linkBase = "inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-muted";
+  const linkBase = "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors hover:bg-muted w-full";
+
+  const SidebarContent = () => (
+    <div className="flex h-full flex-col">
+      {/* Logo */}
+      <div className="flex h-14 items-center border-b px-6">
+        <Link to="/admin" className="font-semibold text-lg">
+          OptiTime
+        </Link>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex-1 px-3 py-4">
+        <nav className="space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={({ isActive }) => isActive ? `${linkBase} bg-muted text-primary` : linkBase}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+              {typeof item.badge === 'number' && item.badge > 0 && (
+                <Badge variant="secondary" className="ml-auto">{item.badge}</Badge>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+
+      {/* Current Selection Info */}
+      {(selection.department || selection.year || selection.section) && (
+        <div className="border-t px-3 py-3">
+          <div className="text-xs text-muted-foreground mb-2 font-medium">Current Selection</div>
+          <div className="text-sm space-y-1">
+            {selection.department && <div className="font-medium">{selection.department}</div>}
+            {selection.year && <div>Year {selection.year}</div>}
+            {selection.section && <div>Section {selection.section}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Role Badge */}
+      <div className="border-t px-3 py-3">
+        <Badge variant="outline" className="w-full justify-center uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+          Admin
+        </Badge>
+      </div>
+
+      {/* User Profile */}
+      <div className="border-t p-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="w-full justify-start h-auto p-2">
+              <div className="flex items-center space-x-2 w-full">
+                <User className="h-4 w-4" />
+                <div className="flex-1 text-left">
+                  <div className="text-sm font-medium truncate">
+                    {adminUser?.name || 'Profile'}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {adminUser?.email}
+                  </div>
+                </div>
+              </div>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <div className="px-2 py-1.5 text-sm">
+              <div className="font-medium">{adminUser?.name}</div>
+              <div className="text-muted-foreground">{adminUser?.email}</div>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSuperAdminLogin} className="flex items-center space-x-2">
+              <Settings className="h-4 w-4" />
+              <span className="font-medium">Super Admin Console</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleFacultyLogin} className="flex items-center space-x-2">
+              <UserCheck className="h-4 w-4" />
+              <span className="font-medium">Faculty Console</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleLogout} className="flex items-center space-x-2">
+              <LogOut className="h-4 w-4" />
+              <span className="font-medium">Logout</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
 
   return (
     <>
-      <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <nav className="container h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/admin" className="font-semibold">
-              OptiTime
-            </Link>
-            <ul className="hidden md:flex items-center gap-1">
-              {navItems.map((item) => (
-                <li key={item.href}>
-                  <NavLink
-                    to={item.href}
-                    className={({ isActive }) => isActive ? `${linkBase} bg-muted text-primary` : linkBase}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                    {typeof item.badge === 'number' && item.badge > 0 && (
-                      <Badge variant="secondary" className="ml-1">{item.badge}</Badge>
-                    )}
-                  </NavLink>
-                </li>
-              ))}
-            </ul>
-          </div>
+      {/* Mobile Navbar */}
+      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:hidden">
+        <div className="flex h-14 items-center justify-between px-4">
+          <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-72 p-0">
+              <SidebarContent />
+            </SheetContent>
+          </Sheet>
+
+          <Link to="/admin" className="font-semibold">
+            OptiTime
+          </Link>
+
           <div className="flex items-center gap-2">
-            {/* Current Selection Info */}
-            {(selection.department || selection.year || selection.section) && (
-              <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground border-l pl-4">
-                {selection.department && <span>{selection.department}</span>}
-                {selection.year && <span>• Year {selection.year}</span>}
-                {selection.section && <span>• Section {selection.section}</span>}
-              </div>
-            )}
-            
             {/* Role Pill */}
-            <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
               Admin
             </Badge>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center space-x-2">
+                <Button variant="ghost" size="sm">
                   <User className="h-4 w-4" />
-                  <span className="max-w-[120px] truncate">
-                    {adminUser?.name || 'Profile'}
-                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -182,31 +262,41 @@ const AdminNavbar = () => {
                   <div className="text-muted-foreground">{adminUser?.email}</div>
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSuperAdminLogin} className="flex items-center space-x-2">
-                  <Settings className="h-4 w-4" />
-                  <span className="font-medium">Super Admin Console</span>
+                <DropdownMenuItem onClick={handleSuperAdminLogin}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Super Admin Console
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleFacultyLogin} className="flex items-center space-x-2">
-                  <UserCheck className="h-4 w-4" />
-                  <span className="font-medium">Faculty Console</span>
+                <DropdownMenuItem onClick={handleFacultyLogin}>
+                  <UserCheck className="h-4 w-4 mr-2" />
+                  Faculty Console
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="flex items-center space-x-2">
-                  <LogOut className="h-4 w-4" />
-                  <span className="font-medium">Logout</span>
+                <DropdownMenuItem onClick={handleLogout}>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </nav>
-      </header>
-      
-      {/* Breadcrumbs */}
-      {breadcrumbs.length > 0 && (
-        <div className="border-b bg-muted/30">
-          <div className="container py-3">
+        </div>
+
+        {/* Mobile Breadcrumbs */}
+        {breadcrumbs.length > 0 && (
+          <div className="border-t bg-muted/30 px-4 py-2">
             <Breadcrumbs segments={breadcrumbs} />
           </div>
+        )}
+      </header>
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 md:flex-col md:border-r md:bg-background">
+        <SidebarContent />
+      </aside>
+
+      {/* Desktop Breadcrumbs */}
+      {breadcrumbs.length > 0 && (
+        <div className="hidden md:block md:fixed md:top-0 md:left-72 md:right-0 md:z-20 md:border-b md:bg-muted/30 md:px-6 md:py-3">
+          <Breadcrumbs segments={breadcrumbs} />
         </div>
       )}
     </>
