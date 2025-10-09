@@ -55,26 +55,43 @@ const AdminLogin = () => {
 
       const admin = adminUsers[0];
 
-      // For now, we'll use a simple password check since we don't have proper hashing set up
-      // In production, you should use proper password hashing and verification
-      if (password === admin.password_hash) { // Check against stored password
-        console.log('Password match, logging in admin:', admin.email);
-        // Store admin info in localStorage
-        const adminData = {
-          id: admin.id,
-          name: admin.name,
-          email: admin.email,
-          department_id: admin.department_id
-        };
+      // Verify password using the database function
+      if (admin.password_hash) {
+        const { data: isValid, error: verifyError } = await (supabase as any)
+          .rpc('verify_password', {
+            password: password,
+            hashed_password: admin.password_hash
+          });
 
-        localStorage.setItem("adminUser", JSON.stringify(adminData));
-        console.log('Admin data stored in localStorage:', adminData);
+        if (verifyError) {
+          console.error('Password verification error:', verifyError);
+          toast.error('Password verification failed');
+          return;
+        }
 
-        toast.success("Login successful");
-        navigate("/admin", { replace: true });
+        if (isValid) {
+          console.log('Password verified, logging in admin:', admin.email);
+          // Store admin info in localStorage
+          const adminData = {
+            id: admin.id,
+            name: admin.name,
+            email: admin.email,
+            department_id: admin.department_id,
+            is_active: admin.is_active
+          };
+
+          localStorage.setItem("adminUser", JSON.stringify(adminData));
+          console.log('Admin data stored in localStorage:', adminData);
+
+          toast.success("Login successful");
+          navigate("/admin", { replace: true });
+        } else {
+          console.log('Password verification failed for admin:', admin.email);
+          toast.error("Invalid password");
+        }
       } else {
-        console.log('Password mismatch for admin:', admin.email);
-        toast.error("Invalid password");
+        console.log('No password hash found for admin:', admin.email);
+        toast.error("Account setup incomplete");
       }
     } catch (error) {
       console.error('Login error:', error);

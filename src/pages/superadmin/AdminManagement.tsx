@@ -45,28 +45,80 @@ const AdminManagement = () => {
     password: ""
   });
 
-  const isLoggedIn = localStorage.getItem("superAdmin") === "true";
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    try {
+      return localStorage.getItem("superAdmin") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
-    if (!isLoggedIn) {
+    const checkAuth = () => {
+      try {
+        const loggedIn = localStorage.getItem("superAdmin") === "true";
+        setIsLoggedIn(loggedIn);
+        return loggedIn;
+      } catch {
+        return false;
+      }
+    };
+
+    if (!checkAuth()) {
       navigate("/super-admin-login", { replace: true });
       return;
     }
 
     document.title = "Admin Management - Super Admin";
     loadData();
-  }, [isLoggedIn]);
+
+    // Listen for storage changes (in case user logs in/out in another tab)
+    const handleStorageChange = () => {
+      if (!checkAuth()) {
+        navigate("/super-admin-login", { replace: true });
+      } else {
+        loadData();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [navigate]);
 
   const loadData = async () => {
     setLoading(true);
     try {
+      console.log('Starting to load admin data...');
+      console.log('Current auth state - isLoggedIn:', isLoggedIn);
+      console.log('localStorage superAdmin value:', localStorage.getItem("superAdmin"));
+
+      // Check if user is authenticated
+      if (!isLoggedIn) {
+        console.log('User not authenticated, redirecting to login');
+        navigate("/super-admin-login", { replace: true });
+        return;
+      }
+
+      // Test database connection
+      console.log('Testing database connection...');
+      const { data: testData, error: testError } = await (supabase as any)
+        .from('departments')
+        .select('count')
+        .limit(1);
+
+      if (testError) {
+        console.error('Database connection test failed:', testError);
+        toast.error('Database connection failed. Please check your connection.');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Database connection test successful');
+
       const [adminsRes, deptsRes] = await Promise.all([
         (supabase as any)
           .from('admin_users')
-          .select(`
-            *,
-            department:departments(name)
-          `)
+          .select('*')
           .order('created_at', { ascending: false }),
         (supabase as any)
           .from('departments')
@@ -74,11 +126,69 @@ const AdminManagement = () => {
           .order('name')
       ]);
 
-      setAdmins(adminsRes.data || []);
-      setDepartments(deptsRes.data || []);
+      console.log('Raw admins response:', adminsRes);
+      console.log('Raw departments response:', deptsRes);
 
-      console.log('Loaded departments:', deptsRes.data);
-      console.log('Loaded admins:', adminsRes.data);
+      // Check for connection issues
+      if (adminsRes.error?.message?.includes('relation') && adminsRes.error?.message?.includes('does not exist')) {
+        console.error('admin_users table does not exist');
+        toast.error('Database setup incomplete. Please ensure migrations are applied.');
+        setLoading(false);
+        return;
+      }
+
+      if (deptsRes.error?.message?.includes('relation') && deptsRes.error?.message?.includes('does not exist')) {
+        console.error('departments table does not exist');
+        toast.error('Database setup incomplete. Please ensure migrations are applied.');
+        setLoading(false);
+        return;
+      }
+
+      const adminsData = adminsRes.data || [];
+      const deptsData = deptsRes.data || [];
+
+      console.log('Processed admins data:', adminsData);
+      console.log('Processed departments data:', deptsData);
+
+      // Additional debugging
+      if (adminsRes.data) {
+        console.log('Admin data structure:', Object.keys(adminsRes.data[0] || {}));
+      }
+      if (deptsRes.data) {
+        console.log('Department data structure:', Object.keys(deptsRes.data[0] || {}));
+      }
+
+      // Check if we have departments but no admins
+      if (deptsData.length > 0 && adminsData.length === 0) {
+        console.log('Departments exist but no admins found');
+      }
+
+      // Check for potential schema issues
+      if (adminsRes.error) {
+        console.error('Admin query error:', adminsRes.error);
+        console.error('Admin query error details:', adminsRes.error.details, adminsRes.error.message, adminsRes.error.hint);
+      }
+      if (deptsRes.error) {
+        console.error('Department query error:', deptsRes.error);
+        console.error('Department query error details:', deptsRes.error.details, deptsRes.error.message, deptsRes.error.hint);
+      }
+
+      // Check if tables exist
+      if (adminsRes.status === 404 || deptsRes.status === 404) {
+        console.error('One or more tables do not exist');
+        toast.error('Database tables not found. Please ensure migrations are applied.');
+      }
+
+      setAdmins(adminsData);
+      setDepartments(deptsData);
+
+      console.log('Final loaded departments:', deptsData);
+      console.log('Final loaded admins:', adminsData);
+
+      // Additional debugging for admin data
+      if (adminsData.length === 0 && deptsData.length > 0) {
+        console.warn('No admins found but departments exist - this might indicate admin creation issues');
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error(`Failed to load admin data: ${error.message || error}`);
@@ -94,26 +204,85 @@ const AdminManagement = () => {
     }
 
     try {
+      // Hash the password using the database function
+      const { data: hashResult, error: hashError } = await (supabase as any)
+        .rpc('hash_password', { password: formData.password });
+
+      if (hashError) {
+        console.error('Error hashing password:', hashError);
+        toast.error('Failed to hash password');
+        return;
+      }
+
+      console.log('Creating admin with data:', {
+        name: formData.name,
+        email: formData.email,
+        department_id: formData.department_id,
+        password_hash: hashResult ? '[HASHED]' : '[NO HASH]'
+      });
+
+      // First check if department exists
+      console.log('Checking if department exists:', formData.department_id);
+      const { data: deptCheck, error: deptError } = await (supabase as any)
+        .from('departments')
+        .select('id, name')
+        .eq('id', formData.department_id)
+        .single();
+
+      if (deptError || !deptCheck) {
+        console.error('Department not found:', formData.department_id, deptError);
+        toast.error(`Selected department does not exist: ${formData.department_id}`);
+        return;
+      }
+
+      console.log('Department verified:', deptCheck);
+
       const { error } = await (supabase as any)
         .from('admin_users')
         .insert({
           name: formData.name,
           email: formData.email,
           department_id: formData.department_id,
-          password_hash: formData.password, // In production, hash this properly
+          password_hash: hashResult,
           is_active: true
         });
 
       if (error) {
         console.error('Supabase error creating admin:', error);
+        console.error('Error details:', error.details, error.message, error.hint);
         toast.error(`Failed to create admin: ${error.message || error.details || 'Unknown error'}`);
         return;
       }
 
+      console.log('Admin created successfully');
+
+      // Wait a moment before reloading to ensure database commit
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      console.log('Admin created successfully, reloading data...');
       toast.success('Admin created successfully');
       setOpenCreate(false);
       resetForm();
-      loadData();
+
+      console.log('About to reload data after admin creation...');
+      await loadData(); // Ensure data is reloaded
+      console.log('Data reloaded after admin creation');
+
+      // Verify the admin exists in the loaded data
+      console.log('Checking if admin exists in current admins array...');
+      console.log('Current admins count:', admins.length);
+      console.log('Looking for email:', formData.email);
+
+      const createdAdmin = admins.find(a => a.email === formData.email);
+      if (createdAdmin) {
+        console.log('Admin creation verified in loaded data:', createdAdmin);
+        toast.success(`Admin ${createdAdmin.name} created and verified`);
+      } else {
+        console.warn('Admin creation may have failed - admin not found in loaded data');
+        console.log('Current admins in state:', admins);
+        console.log('Available admin emails:', admins.map(a => a.email));
+        toast.error('Admin created but not found in list. Please refresh the page.');
+      }
     } catch (error) {
       console.error('Error creating admin:', error);
       toast.error('Failed to create admin');
@@ -221,27 +390,26 @@ const AdminManagement = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10">
-        <header className="mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold">Admin Management</h1>
-              <p className="text-sm text-muted-foreground">Manage department administrators</p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={() => navigate('/admin-login')} className="w-full sm:w-auto">
-                Admin Console
-              </Button>
-              <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-                <DialogTrigger asChild>
-                  <Button className="w-full sm:w-auto">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Admin
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create New Admin</DialogTitle>
-                  </DialogHeader>
+        <header className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Admin Management</h1>
+            <p className="text-sm text-muted-foreground">Manage department administrators</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/admin-login')}>
+              Admin Console
+            </Button>
+            <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Admin
+                </Button>
+              </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Admin</DialogTitle>
+              </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
                   <Label htmlFor="name">Name</Label>
@@ -297,7 +465,7 @@ const AdminManagement = () => {
             </DialogContent>
           </Dialog>
             </div>
-          </div>
+  
         </header>
 
         <Card className="rounded-xl">
@@ -336,7 +504,10 @@ const AdminManagement = () => {
                       </div>
                       <p className="text-sm text-muted-foreground mb-1">{admin.email}</p>
                       <p className="text-sm text-muted-foreground">
-                        Department: {admin.department?.name || 'Unknown'}
+                        Department: {(() => {
+                          const dept = departments.find(d => d.id === admin.department_id);
+                          return dept?.name || 'Unknown';
+                        })()}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Created: {new Date(admin.created_at).toLocaleDateString()}
