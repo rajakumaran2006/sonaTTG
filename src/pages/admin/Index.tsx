@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const years = ["I", "II", "III", "IV"];
-const sections = ["A", "B", "C", "D"];
+const sections = ["A", "B", "C"];
 
 interface AdminUser {
   id: string;
@@ -154,7 +154,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72">
+      <main className="md:pl-72 relative z-10">
         <section className="container py-8">
           <div className="mx-auto max-w-3xl">
             <header className="mb-8 text-center">

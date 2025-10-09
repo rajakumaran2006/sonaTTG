@@ -3,10 +3,10 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
 import { Settings, User, UserCheck, Menu } from "lucide-react";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export interface NavItem {
   label: string;
@@ -16,15 +16,16 @@ export interface NavItem {
 
 const Navbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const isLoggedIn = useMemo(() => {
     try { return localStorage.getItem("superAdmin") === "true"; } catch { return false; }
   }, []);
 
   const navItems: NavItem[] = [
+    { label: "Dashboard", href: "/super-admin" },
     { label: "Departments", href: "/super-admin/departments" },
-    { label: "Faculty", href: "/super-admin/faculty" },
+    { label: "Admin Management", href: "/super-admin/admin-management" },
     { label: "Labs", href: "/super-admin/labs" },
     { label: "Pull Requests", href: "/pull-requests", badge: pendingCount },
     { label: "Current Timetables", href: "/current-timetables" }
@@ -71,121 +72,126 @@ const Navbar = () => {
     navigate("/faculty");
   };
 
-
-
   if (!isLoggedIn) return null;
 
-  const linkBase = "inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors hover:bg-muted";
+  const linkBase = "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors hover:bg-muted w-full";
+
+  const SidebarContent = () => (
+    <div className="flex h-full flex-col">
+      <div className="flex h-14 items-center border-b px-6">
+        <Link to="/super-admin" className="font-semibold text-lg">
+          OptiTime
+        </Link>
+      </div>
+      <div className="flex-1 px-3 py-4">
+        <nav className="space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={({ isActive }) => isActive ? `${linkBase} bg-muted text-primary` : linkBase}
+            >
+              <span>{item.label}</span>
+              {typeof item.badge === 'number' && item.badge > 0 && (
+                <Badge variant="secondary" className="ml-auto">{item.badge}</Badge>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+
+      <div className="border-t px-3 py-3">
+        <Badge variant="outline" className="w-full justify-center uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+          Super Admin
+        </Badge>
+      </div>
+
+      {/* Profile dropdown moved to top-right bar on desktop */}
+    </div>
+  );
 
   return (
-    <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <nav className="container h-14 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link to="/super-admin" className="font-semibold">
-            OptiTime
-          </Link>
-          <ul className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => (
-              <li key={item.href}>
-                <NavLink
-                  to={item.href}
-                  className={({ isActive }) => isActive ? `${linkBase} bg-muted text-primary` : linkBase}
-                >
-                  <span>{item.label}</span>
-                  {typeof item.badge === 'number' && item.badge > 0 && (
-                    <Badge variant="secondary" className="ml-1">{item.badge}</Badge>
-                  )}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Mobile Menu Button */}
-          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+    <>
+      {/* Mobile Navbar */}
+      <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:hidden">
+        <div className="flex h-14 items-center justify-between px-4">
+          <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="sm" className="md:hidden">
-                <Menu className="h-4 w-4" />
+              <Button variant="ghost" size="sm">
+                <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-64">
-              <div className="flex flex-col gap-4 mt-8">
-                <div className="text-lg font-semibold mb-4">Navigation</div>
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    to={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                        isActive ? 'bg-muted text-primary' : 'hover:bg-muted'
-                      }`
-                    }
-                  >
-                    <span>{item.label}</span>
-                    {typeof item.badge === 'number' && item.badge > 0 && (
-                      <Badge variant="secondary" className="ml-auto">{item.badge}</Badge>
-                    )}
-                  </NavLink>
-                ))}
-                <div className="border-t pt-4 mt-4">
-                  <div className="text-sm font-medium text-muted-foreground mb-2">Console Access</div>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        handleAdminConsole();
-                        setMobileMenuOpen(false);
-                      }}
-                      className="w-full justify-start"
-                    >
-                      <Settings className="h-4 w-4 mr-2" />
-                      Admin Console
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        handleFacultyLogin();
-                        setMobileMenuOpen(false);
-                      }}
-                      className="w-full justify-start"
-                    >
-                      <UserCheck className="h-4 w-4 mr-2" />
-                      Faculty Console
-                    </Button>
-                  </div>
-                </div>
-              </div>
+            <SheetContent side="left" className="w-72 p-0">
+              <SidebarContent />
             </SheetContent>
           </Sheet>
 
-          {/* Role Pill */}
-          <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
-            Super Admin
-          </Badge>
+          <Link to="/super-admin" className="font-semibold">
+            OptiTime
+          </Link>
 
-          <DropdownMenu>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+              Super Admin
+            </Badge>
+            <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center space-x-2">
+                <Button variant="ghost" size="sm">
                   <User className="h-4 w-4" />
-                  <span className="hidden sm:inline">Profile</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleAdminConsole} className="flex items-center space-x-2">
-                  <Settings className="h-4 w-4" />
-                  <span className="font-medium">Admin Console</span>
+                <DropdownMenuItem onClick={handleAdminConsole}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Admin Console
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleFacultyLogin} className="flex items-center space-x-2">
-                  <UserCheck className="h-4 w-4" />
-                  <span className="font-medium">Faculty Console</span>
+                <DropdownMenuItem onClick={handleFacultyLogin}>
+                  <UserCheck className="h-4 w-4 mr-2" />
+                  Faculty Console
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
         </div>
-      </nav>
-    </header>
+      </header>
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 md:flex-col md:border-r md:bg-background">
+        <SidebarContent />
+      </aside>
+
+      {/* Desktop top bar with profile on the right */}
+      <div className="hidden md:flex md:fixed md:top-0 md:left-72 md:right-0 md:z-20 md:border-b md:bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6 md:py-3">
+        <div className="ml-auto flex items-center gap-3">
+          <Badge variant="outline" className="uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
+            Super Admin
+          </Badge>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="flex items-center space-x-2">
+                <User className="h-4 w-4" />
+                <span>Profile</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleAdminConsole} className="flex items-center space-x-2">
+                <Settings className="h-4 w-4" />
+                <span className="font-medium">Admin Console</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleFacultyLogin} className="flex items-center space-x-2">
+                <UserCheck className="h-4 w-4" />
+                <span className="font-medium">Faculty Console</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </>
   );
 };
 

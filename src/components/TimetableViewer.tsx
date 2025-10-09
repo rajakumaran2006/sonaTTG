@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Clock, Calendar, Users, BookOpen, User } from "lucide-react";
 
-const colHeaders = ['P1', 'P2', 'BR', 'P3', 'P4', 'LU', 'P5', 'BR', 'P6', 'P7'];
+const colHeaders = ['P1', 'P2', 'BR', 'P3', 'P4', 'LU', 'P5', 'P6', 'BR', 'P7'];
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface TimetableViewerProps {
@@ -305,7 +305,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                     {[
                       row[0], row[1], 'BREAK', 
                       row[2], row[3], 'LUNCH', 
-                      row[4], 'BREAK', row[5], row[6]
+                      row[4], row[5], 'BREAK', row[6]
                     ].map((cell, periodIndex) => {
                       const isBreak = cell === 'BREAK' || cell === 'LUNCH';
                       const hasSubject = cell && cell.trim() && !isBreak;

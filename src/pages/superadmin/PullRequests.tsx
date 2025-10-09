@@ -78,30 +78,19 @@ const PullRequests = () => {
   return (
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 md:pt-16">
         <header className="mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold">Pull Requests</h1>
-              <p className="text-muted-foreground">
-                Showing {prs.length} {status.toLowerCase()} pull request{prs.length !== 1 ? 's' : ''}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(['All','Pending','Approved','Rejected'] as const).map((s) => (
-                <Button key={s} variant={status===s ? 'default' : 'outline'} size="sm" onClick={() => setStatus(s)} className="flex-1 sm:flex-none">{s}</Button>
-              ))}
-            </div>
-          </div>
+          <h1 className="text-3xl font-bold">Pull Requests</h1>
+          <p className="text-sm text-muted-foreground">Review timetable change requests</p>
         </header>
 
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
           {prs.map((pr) => (
             <Card key={pr.id} className="rounded-xl">
               <CardHeader>
-                <CardTitle className="text-base flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <span className="truncate">{pr.title}</span>
-                  <Badge variant={badgeVariant(pr.status)} className="w-fit">
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>{pr.title}</span>
+                  <Badge variant={badgeVariant(pr.status)}>
                     {pr.status.charAt(0).toUpperCase() + pr.status.slice(1)}
                   </Badge>
                 </CardTitle>
@@ -111,9 +100,9 @@ const PullRequests = () => {
                   {deptNames[pr.department_id] || pr.department_id} • Year {pr.year} • Section {pr.section}
                 </div>
                 <p className="text-sm mb-3">{pr.description || 'No description provided.'}</p>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center justify-between">
                   <div className="text-xs text-muted-foreground">Created by {pr.created_by} • {new Date(pr.created_at).toLocaleString()}</div>
-                  <Button asChild size="sm" className="w-full sm:w-auto"><Link to={`/pull-requests/${pr.id}`}>View</Link></Button>
+                  <Button asChild size="sm"><Link to={`/pull-requests/${pr.id}`}>View</Link></Button>
                 </div>
               </CardContent>
             </Card>
