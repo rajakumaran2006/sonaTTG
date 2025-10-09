@@ -74,7 +74,7 @@ const CurrentTimetables = () => {
   return (
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 md:pt-16">
         {/* Header */}
         <header className="mb-8">
           <div className="flex items-center justify-between mb-6">

@@ -329,14 +329,14 @@ const SubjectManagement = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 relative z-10">
-        <section className="container py-8">
+      <main className="md:pl-72">
+        <section className="container py-6">
           <header className="mb-6">
             <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>
             <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>
           </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
           <Card className="rounded-2xl">
             <CardHeader>
               <CardTitle>Summary</CardTitle>
@@ -471,9 +471,22 @@ const SubjectManagement = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
           <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle>Selected for Generation</CardTitle>
-              <CardDescription>Used by the algorithm</CardDescription>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <CardTitle>Selected for Generation</CardTitle>
+                <CardDescription>Used by the algorithm</CardDescription>
+              </div>
+              <Button 
+                size="sm"
+                variant="hero"
+                onClick={next}
+                className="w-full sm:w-auto"
+                disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
+                         !selection.department || !selection.year || !selection.section ||
+                         selected.length === 0}
+              >
+                Generate Timetable
+              </Button>
             </CardHeader>
             <CardContent className="space-y-2">
               {selected.map((s) => {
@@ -520,7 +533,8 @@ const SubjectManagement = () => {
 
               <Separator className="my-4" />
 
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-4">
+              {/* Lab Settings trigger and controls remain below */}
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-2">
                 <Dialog open={labSettingsOpen} onOpenChange={setLabSettingsOpen}>
                   <DialogTrigger asChild>
                     <Button variant="soft">Open Lab Settings</Button>
@@ -616,15 +630,7 @@ const SubjectManagement = () => {
                   </DialogContent>
                 </Dialog>
 
-                <Button 
-                  variant="hero" 
-                  onClick={next} 
-                  disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
-                           !selection.department || !selection.year || !selection.section ||
-                           selected.length === 0}
-                >
-                  Generate Timetable
-                </Button>
+                {/* Generate button moved to header; removed here */}
               </div>
             </CardContent>
           </Card>

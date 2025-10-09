@@ -419,31 +419,33 @@ const LabManagement = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Lab Management</h1>
-            <p className="text-sm text-muted-foreground">Manage lab facilities, schedules, and admin assignments</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="w-48">
-              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Departments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-departments">All Departments</SelectItem>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <section className="container py-10 md:pl-72 md:pt-16">
+        <header className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold">Lab Management</h1>
+              <p className="text-muted-foreground mt-1">Configure lab schedules and availability</p>
             </div>
-            <Button onClick={() => navigate('/super-admin')}>
-              Back to Dashboard
-            </Button>
+            <div className="flex items-center gap-4">
+              <div className="w-48">
+                <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Departments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all-departments">All Departments</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={() => navigate('/super-admin')}>
+                Back to Dashboard
+              </Button>
+            </div>
           </div>
         </header>
 

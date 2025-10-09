@@ -78,19 +78,10 @@ const PullRequests = () => {
   return (
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
-      <section className="container py-10">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Pull Requests</h1>
-            <p className="text-muted-foreground">
-              Showing {prs.length} {status.toLowerCase()} pull request{prs.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="space-x-2">
-            {(['All','Pending','Approved','Rejected'] as const).map((s) => (
-              <Button key={s} variant={status===s ? 'default' : 'outline'} size="sm" onClick={() => setStatus(s)}>{s}</Button>
-            ))}
-          </div>
+      <section className="container py-10 md:pl-72 md:pt-16">
+        <header className="mb-6">
+          <h1 className="text-3xl font-bold">Pull Requests</h1>
+          <p className="text-sm text-muted-foreground">Review timetable change requests</p>
         </header>
 
         <div className="grid gap-4 md:grid-cols-2">
