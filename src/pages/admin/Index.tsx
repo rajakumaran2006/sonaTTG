@@ -154,8 +154,8 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 relative z-10">
-        <section className="container py-8">
+      <main className="md:pl-72">
+        <section className="container py-8 md:pt-16">
           <div className="mx-auto max-w-3xl">
             <header className="mb-8 text-center">
               <h1 className="text-4xl font-bold tracking-tight mb-2" style={{fontFamily: 'Poppins'}}>Fast, Rule‑Based Timetable Generator</h1>

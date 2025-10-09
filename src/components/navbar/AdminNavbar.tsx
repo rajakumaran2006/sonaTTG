@@ -104,7 +104,8 @@ const AdminNavbar = () => {
     const breadcrumbs: Crumb[] = [];
 
     if (path === "/admin") {
-      breadcrumbs.push({ label: "Home" });
+      // No breadcrumbs on admin landing page
+      return [];
     } else if (path === "/subjects") {
       breadcrumbs.push({ label: "Home", href: "/admin" });
       breadcrumbs.push({ label: "Subjects" });

@@ -171,7 +171,7 @@ const DepartmentDetails = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10">
+      <section className="container py-10 md:pl-72 md:pt-16">
         <Breadcrumbs
           segments={[
             { label: 'Super Admin', href: '/super-admin' },
