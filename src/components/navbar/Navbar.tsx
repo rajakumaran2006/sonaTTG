@@ -3,9 +3,10 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, UserCheck } from "lucide-react";
+import { Settings, User, UserCheck, Menu } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -15,6 +16,7 @@ export interface NavItem {
 
 const Navbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const isLoggedIn = useMemo(() => {
     try { return localStorage.getItem("superAdmin") === "true"; } catch { return false; }
@@ -99,17 +101,74 @@ const Navbar = () => {
           </ul>
         </div>
         <div className="flex items-center gap-2">
-          
+          {/* Mobile Menu Button */}
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="sm" className="md:hidden">
+                <Menu className="h-4 w-4" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64">
+              <div className="flex flex-col gap-4 mt-8">
+                <div className="text-lg font-semibold mb-4">Navigation</div>
+                {navItems.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    to={item.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                        isActive ? 'bg-muted text-primary' : 'hover:bg-muted'
+                      }`
+                    }
+                  >
+                    <span>{item.label}</span>
+                    {typeof item.badge === 'number' && item.badge > 0 && (
+                      <Badge variant="secondary" className="ml-auto">{item.badge}</Badge>
+                    )}
+                  </NavLink>
+                ))}
+                <div className="border-t pt-4 mt-4">
+                  <div className="text-sm font-medium text-muted-foreground mb-2">Console Access</div>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleAdminConsole();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full justify-start"
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Admin Console
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleFacultyLogin();
+                        setMobileMenuOpen(false);
+                      }}
+                      className="w-full justify-start"
+                    >
+                      <UserCheck className="h-4 w-4 mr-2" />
+                      Faculty Console
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+
           {/* Role Pill */}
           <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[10px] font-medium px-2.5 py-1">
             Super Admin
           </Badge>
-          
+
           <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="flex items-center space-x-2">
                   <User className="h-4 w-4" />
-                  <span>Profile</span>
+                  <span className="hidden sm:inline">Profile</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

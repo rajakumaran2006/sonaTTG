@@ -221,26 +221,27 @@ const AdminManagement = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Admin Management</h1>
-            <p className="text-sm text-muted-foreground">Manage department administrators</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/admin-login')}>
-              Admin Console
-            </Button>
-            <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Admin
-                </Button>
-              </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Admin</DialogTitle>
-              </DialogHeader>
+        <header className="mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold">Admin Management</h1>
+              <p className="text-sm text-muted-foreground">Manage department administrators</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => navigate('/admin-login')} className="w-full sm:w-auto">
+                Admin Console
+              </Button>
+              <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+                <DialogTrigger asChild>
+                  <Button className="w-full sm:w-auto">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Admin
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create New Admin</DialogTitle>
+                  </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
                   <Label htmlFor="name">Name</Label>
@@ -295,6 +296,7 @@ const AdminManagement = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+            </div>
           </div>
         </header>
 
