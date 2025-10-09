@@ -8,9 +8,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
-import { Calendar, GitPullRequest, Clock, Users, BookOpen, BarChart3, Settings } from "lucide-react";
+import { Calendar, GitPullRequest, Clock, Users, BookOpen, BarChart3 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import LabManagement from "./LabManagement";
 
 type Department = { id: string; name: string };
 
@@ -174,14 +173,10 @@ const SuperAdminDashboard = () => {
         </header>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-1">
             <TabsTrigger value="overview" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               Overview
-            </TabsTrigger>
-            <TabsTrigger value="labs" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Lab Management
             </TabsTrigger>
           </TabsList>
 
@@ -390,9 +385,6 @@ const SuperAdminDashboard = () => {
             </section>
           </TabsContent>
 
-          <TabsContent value="labs">
-            <LabManagement />
-          </TabsContent>
         </Tabs>
       </section>
 

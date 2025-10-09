@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
-import { Plus, Edit, Trash2, Calendar, Settings } from "lucide-react";
+import { Plus, Edit, Trash2, Calendar, Settings, Eye } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Lab {
@@ -35,9 +36,7 @@ interface Lab {
   updated_at: string;
 }
 
-// Note: Lab admin management removed for simplicity - can be added back later if needed
-
-interface LabSchedule {
+interface LabScheduleDetail {
   id: string;
   lab_id: string;
   day_of_week: number;
@@ -48,18 +47,24 @@ interface LabSchedule {
   is_available: boolean;
   semester?: string;
   academic_year?: string;
+  labs?: { name: string };
 }
+
+// Note: Lab admin management removed for simplicity - can be added back later if needed
+
 
 const LabManagement = () => {
   const navigate = useNavigate();
   const [labs, setLabs] = useState<Lab[]>([]);
-  const [labSchedules, setLabSchedules] = useState<LabSchedule[]>([]);
+  const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // Form states for dialogs
   const [labDialog, setLabDialog] = useState(false);
   const [scheduleDialog, setScheduleDialog] = useState(false);
+  const [scheduleViewDialog, setScheduleViewDialog] = useState(false);
+  const [selectedLabForSchedule, setSelectedLabForSchedule] = useState<Lab | null>(null);
   const [editingLab, setEditingLab] = useState<Lab | null>(null);
 
   // Form data
@@ -316,6 +321,28 @@ const LabManagement = () => {
     setLabDialog(true);
   };
 
+  const openScheduleViewDialog = (lab: Lab) => {
+    setSelectedLabForSchedule(lab);
+    setScheduleViewDialog(true);
+  };
+
+  const getScheduleForDay = (dayOfWeek: number) => {
+    return labSchedules.filter(schedule =>
+      schedule.lab_id === selectedLabForSchedule?.id && schedule.day_of_week === dayOfWeek
+    ).sort((a, b) => a.slot_number - b.slot_number);
+  };
+
+  const generateTimeSlots = () => {
+    const slots = [];
+    for (let hour = 8; hour <= 18; hour++) {
+      for (let minute = 0; minute < 60; minute += 60) {
+        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        slots.push(timeString);
+      }
+    }
+    return slots;
+  };
+
   if (loading) {
     return (
       <main className="min-h-screen bg-background">
@@ -549,26 +576,35 @@ const LabManagement = () => {
                     <p className="text-sm text-muted-foreground line-clamp-2">
                       {lab.description}
                     </p>
-                    <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditLabDialog(lab)}
-                        className="flex-1"
-                      >
-                        <Edit className="h-3 w-3 mr-1" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => handleDeleteLab(lab.id)}
-                        className="flex-1"
-                      >
-                        <Trash2 className="h-3 w-3 mr-1" />
-                        Delete
-                      </Button>
-                    </div>
+                     <div className="flex gap-2 pt-2">
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => openScheduleViewDialog(lab)}
+                         className="flex-1"
+                       >
+                         <Eye className="h-3 w-3 mr-1" />
+                         View Schedule
+                       </Button>
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => openEditLabDialog(lab)}
+                         className="flex-1"
+                       >
+                         <Edit className="h-3 w-3 mr-1" />
+                         Edit
+                       </Button>
+                       <Button
+                         variant="destructive"
+                         size="sm"
+                         onClick={() => handleDeleteLab(lab.id)}
+                         className="flex-1"
+                       >
+                         <Trash2 className="h-3 w-3 mr-1" />
+                         Delete
+                       </Button>
+                     </div>
                   </CardContent>
                 </Card>
               ))}
@@ -713,6 +749,111 @@ const LabManagement = () => {
           </TabsContent>
         </Tabs>
       </section>
+
+      {/* Schedule View Modal */}
+      <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedLabForSchedule && (
+            <div className="space-y-4">
+              {/* Lab Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/20 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Building</p>
+                  <p className="font-semibold">{selectedLabForSchedule.building}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Floor</p>
+                  <p className="font-semibold">{selectedLabForSchedule.floor}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Room</p>
+                  <p className="font-semibold">{selectedLabForSchedule.room_number}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Capacity</p>
+                  <p className="font-semibold">{selectedLabForSchedule.capacity} students</p>
+                </div>
+              </div>
+
+              {/* Schedule Table */}
+              <div className="border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-20">Time</TableHead>
+                      <TableHead>Monday</TableHead>
+                      <TableHead>Tuesday</TableHead>
+                      <TableHead>Wednesday</TableHead>
+                      <TableHead>Thursday</TableHead>
+                      <TableHead>Friday</TableHead>
+                      <TableHead>Saturday</TableHead>
+                      <TableHead>Sunday</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {generateTimeSlots().map((timeSlot) => (
+                      <TableRow key={timeSlot}>
+                        <TableCell className="font-medium text-sm">{timeSlot}</TableCell>
+                        {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+                          const scheduleForSlot = getScheduleForDay(day).find(
+                            schedule => schedule.start_time <= timeSlot && schedule.end_time > timeSlot
+                          );
+
+                          return (
+                            <TableCell key={day} className="text-center">
+                              {scheduleForSlot ? (
+                                <div className="space-y-1">
+                                  <Badge variant={scheduleForSlot.is_available ? "default" : "secondary"}>
+                                    Slot {scheduleForSlot.slot_number}
+                                  </Badge>
+                                  <p className="text-xs text-muted-foreground">
+                                    {scheduleForSlot.max_capacity} students
+                                  </p>
+                                  {scheduleForSlot.semester && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {scheduleForSlot.semester}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">—</span>
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Legend */}
+              <div className="flex gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <Badge variant="default">Available</Badge>
+                  <span>Available Slot</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">Unavailable</Badge>
+                  <span>Unavailable Slot</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setScheduleViewDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 };
