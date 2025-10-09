@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { useTimetableStore } from "@/store/timetableStore";
 import { getDepartmentByName, getTimetable } from "@/lib/supabaseService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const years = ["I", "II", "III", "IV"];
 const sections = ["A", "B", "C", "D"];
@@ -28,6 +29,12 @@ const Index = () => {
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadingRef = useRef(true);
+
+  // Update loadingRef when loading state changes
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   const ready = selection.department && selection.year && selection.section;
 
@@ -38,38 +45,78 @@ const Index = () => {
       return;
     }
 
+    let timeoutId: NodeJS.Timeout;
+
     try {
       const parsedAdmin = JSON.parse(adminData);
+      console.log('Admin user data:', parsedAdmin);
       setAdminUser(parsedAdmin);
 
-      // Load departments for this admin's department only
+      // Load departments for this admin's department only and set selection
       (async () => {
-        const { data, error } = await (supabase as any)
-          .from('departments')
-          .select('*')
-          .eq('id', parsedAdmin.department_id);
+        try {
+          console.log('Loading departments for department_id:', parsedAdmin.department_id);
+          const { data, error } = await (supabase as any)
+            .from('departments')
+            .select('*')
+            .eq('id', parsedAdmin.department_id);
 
-        if (!error && data) {
+          console.log('Departments query result:', { data, error });
+
+          if (error) {
+            console.error('Error loading departments:', error);
+            toast.error(`Failed to load departments: ${error.message || error}`);
+            setLoading(false);
+            loadingRef.current = false;
+            return;
+          }
+
+          if (!data || data.length === 0) {
+            console.warn('No departments found for admin');
+            toast.error('No departments found. Please contact your Super Admin.');
+            setLoading(false);
+            loadingRef.current = false;
+            return;
+          }
+
           setDepartments(data);
+          // Automatically set the department selection
+          console.log('Setting department selection to:', data[0].name);
+          setSelection({ department: data[0].name });
+          setLoading(false);
+          loadingRef.current = false;
+        } catch (error) {
+          console.error('Exception loading departments:', error);
+          toast.error('Failed to load departments. Please try again.');
+          setLoading(false);
+          loadingRef.current = false;
         }
-        setLoading(false);
       })();
+
+      // Fallback timeout to prevent infinite loading
+      timeoutId = setTimeout(() => {
+        if (loadingRef.current) {
+          console.warn('Loading timeout reached');
+          toast.error('Loading timeout. Please refresh the page.');
+          setLoading(false);
+          loadingRef.current = false;
+        }
+      }, 10000); // 10 second timeout
+
     } catch (error) {
       console.error('Error parsing admin data:', error);
+      toast.error('Invalid admin session. Please login again.');
+      localStorage.removeItem("adminUser");
       navigate("/admin-login", { replace: true });
     }
-  }, [navigate]);
 
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-background">
-        <AdminNavbar />
-        <section className="container py-14">
-          <div className="text-center">Loading...</div>
-        </section>
-      </main>
-    );
-  }
+    // Cleanup function
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [navigate, setSelection]);
 
   useEffect(() => {
     (async () => {
@@ -90,6 +137,17 @@ const Index = () => {
       }
     })();
   }, [selection.department, selection.year, selection.section]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-background">
+        <AdminNavbar />
+        <section className="container py-14">
+          <div className="text-center">Loading...</div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-background">

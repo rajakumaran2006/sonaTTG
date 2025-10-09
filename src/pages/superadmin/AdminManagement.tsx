@@ -76,9 +76,12 @@ const AdminManagement = () => {
 
       setAdmins(adminsRes.data || []);
       setDepartments(deptsRes.data || []);
+
+      console.log('Loaded departments:', deptsRes.data);
+      console.log('Loaded admins:', adminsRes.data);
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load admin data');
+      toast.error(`Failed to load admin data: ${error.message || error}`);
     } finally {
       setLoading(false);
     }
@@ -102,7 +105,8 @@ const AdminManagement = () => {
         });
 
       if (error) {
-        toast.error('Failed to create admin');
+        console.error('Supabase error creating admin:', error);
+        toast.error(`Failed to create admin: ${error.message || error.details || 'Unknown error'}`);
         return;
       }
 
@@ -222,13 +226,17 @@ const AdminManagement = () => {
             <h1 className="text-2xl font-bold">Admin Management</h1>
             <p className="text-sm text-muted-foreground">Manage department administrators</p>
           </div>
-          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Admin
-              </Button>
-            </DialogTrigger>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/admin-login')}>
+              Admin Console
+            </Button>
+            <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Admin
+                </Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Create New Admin</DialogTitle>
@@ -258,7 +266,7 @@ const AdminManagement = () => {
                     onValueChange={(value) => setFormData({...formData, department_id: value})}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
+                      <SelectValue placeholder={departments.length === 0 ? "No departments available" : "Select department"} />
                     </SelectTrigger>
                     <SelectContent>
                       {departments.map((dept) => (
@@ -287,6 +295,7 @@ const AdminManagement = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </header>
 
         <Card className="rounded-xl">
@@ -296,6 +305,18 @@ const AdminManagement = () => {
           <CardContent>
             {loading ? (
               <div className="text-center py-8">Loading...</div>
+            ) : departments.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">
+                  No departments found. You need to create departments first before creating admins.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate('/super-admin')}
+                >
+                  Go to Dashboard to Create Departments
+                </Button>
+              </div>
             ) : admins.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 No administrators found. Create your first admin to get started.

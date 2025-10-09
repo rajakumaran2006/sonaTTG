@@ -41,36 +41,49 @@ const AdminLogin = () => {
 
       if (queryError) {
         console.error('Query error:', queryError);
-        toast.error("Login failed. Please try again.");
+        toast.error(`Login failed: ${queryError.message || queryError.details || 'Database error'}`);
         return;
       }
 
       if (!adminUsers || adminUsers.length === 0) {
-        toast.error("Invalid credentials");
+        console.log('No admin users found for email:', email);
+        toast.error("Invalid credentials or account not found");
         return;
       }
+
+      console.log('Found admin user:', adminUsers[0]);
 
       const admin = adminUsers[0];
 
       // For now, we'll use a simple password check since we don't have proper hashing set up
       // In production, you should use proper password hashing and verification
-      if (password === "admin123") { // Temporary default password
+      if (password === admin.password_hash) { // Check against stored password
+        console.log('Password match, logging in admin:', admin.email);
         // Store admin info in localStorage
-        localStorage.setItem("adminUser", JSON.stringify({
+        const adminData = {
           id: admin.id,
           name: admin.name,
           email: admin.email,
           department_id: admin.department_id
-        }));
+        };
+
+        localStorage.setItem("adminUser", JSON.stringify(adminData));
+        console.log('Admin data stored in localStorage:', adminData);
 
         toast.success("Login successful");
         navigate("/admin", { replace: true });
       } else {
-        toast.error("Invalid credentials");
+        console.log('Password mismatch for admin:', admin.email);
+        toast.error("Invalid password");
       }
     } catch (error) {
       console.error('Login error:', error);
-      toast.error("Login failed. Please try again.");
+      if (error.message?.includes('relation "admin_users" does not exist') ||
+          error.message?.includes('admin_users')) {
+        toast.error("Database setup incomplete. Please contact your Super Admin to set up the system.");
+      } else {
+        toast.error("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -111,8 +124,8 @@ const AdminLogin = () => {
                 </Button>
               </form>
               <div className="mt-4 text-sm text-muted-foreground">
-                <p>Don't have an account? Contact your Super Admin.</p>
-                <p className="mt-1">Default password: admin123 (change after first login)</p>
+                <p>Don't have an account? Contact your Super Admin to get access.</p>
+                <p className="mt-1">Use the email and password provided by your Super Admin.</p>
               </div>
             </CardContent>
           </Card>
