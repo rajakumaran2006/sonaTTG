@@ -446,15 +446,25 @@ const SubjectManagement = () => {
 
           <Card className="rounded-2xl lg:col-span-2">
             <CardHeader>
-              <CardTitle>Selected Subjects</CardTitle>
-              <CardDescription>Subjects currently selected for timetable generation</CardDescription>
+              <CardTitle>Special Hours Configuration</CardTitle>
+              <CardDescription>Configure Seminar, Library, and Counselling hours for this class</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8 text-muted-foreground">
-                <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <div className="text-lg font-medium">No subjects selected</div>
-                <div className="text-sm">Subjects will be loaded from the database based on department and year selection</div>
-              </div>
+              {departmentId && selection.year ? (
+                <div className="w-full">
+                  <SpecialHoursManager
+                    departmentId={departmentId}
+                    year={selection.year}
+                    onConfigUpdate={setSpecialHoursConfigs}
+                  />
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <div className="text-lg font-medium">Select department and year</div>
+                  <div className="text-sm">Special hours can be configured once a class is selected</div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -509,18 +519,6 @@ const SubjectManagement = () => {
               })}
 
               <Separator className="my-4" />
-
-              {/* Enhanced Special Hours Configuration */}
-              {departmentId && selection.year && (
-                <div className="mb-4">
-                  <SpecialHoursManager
-                    departmentId={departmentId}
-                    year={selection.year}
-                    onConfigUpdate={setSpecialHoursConfigs}
-                  />
-                </div>
-              )}
-
 
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-4">
                 <Dialog open={labSettingsOpen} onOpenChange={setLabSettingsOpen}>

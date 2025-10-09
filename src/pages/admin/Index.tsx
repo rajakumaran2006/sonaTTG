@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const years = ["I", "II", "III", "IV"];
-const sections = ["A", "B", "C", "D"];
+const sections = ["A", "B", "C"];
 
 interface AdminUser {
   id: string;
