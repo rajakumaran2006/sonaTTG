@@ -159,16 +159,18 @@ const SuperAdminDashboard = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10">
-        <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">System overview and quick actions</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')}>Manage Admins</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
+        <header className="mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold">Super Admin Dashboard</h1>
+              <p className="text-sm text-muted-foreground">System overview and quick actions</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button variant="secondary" onClick={() => setOpenAdd(true)} className="w-full sm:w-auto">Add Department</Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')} className="w-full sm:w-auto">Manage Admins</Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')} className="w-full sm:w-auto">Bulk Import</Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/settings')} className="w-full sm:w-auto">System Settings</Button>
+            </div>
           </div>
         </header>
 
@@ -181,17 +183,8 @@ const SuperAdminDashboard = () => {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <header className="flex items-center justify-between">
-              <div></div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
-              </div>
-            </header>
-
             <section className="mb-8">
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="rounded-xl cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/super-admin/departments')}>
                   <CardHeader>
                     <CardTitle className="text-base">Total Departments</CardTitle>
@@ -237,7 +230,7 @@ const SuperAdminDashboard = () => {
                 <p className="text-sm text-muted-foreground">Overview of all active timetables across departments</p>
               </header>
 
-              <div className="grid gap-4 md:grid-cols-4 mb-6">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 mb-6">
                 <Card className="rounded-xl">
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
@@ -294,7 +287,7 @@ const SuperAdminDashboard = () => {
                     <CardTitle className="text-base">Department Breakdown</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                       {timetableSummary.departmentBreakdown.map((dept) => (
                         <div key={dept.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
                           <span className="font-medium">{dept.name}</span>
@@ -307,14 +300,16 @@ const SuperAdminDashboard = () => {
               )}
             </section>
 
-            <section className="grid gap-8 md:grid-cols-3">
+            <section className="grid gap-8 grid-cols-1 lg:grid-cols-3">
               <div className="md:col-span-2">
-                <header className="mb-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold">Department Summary</h2>
-                    <p className="text-sm text-muted-foreground">Overview of the selected department</p>
+                <header className="mb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-semibold">Department Summary</h2>
+                      <p className="text-sm text-muted-foreground">Overview of the selected department</p>
+                    </div>
+                    <Button variant="secondary" onClick={() => navigate('/super-admin/departments')} className="w-full sm:w-auto">Manage Departments</Button>
                   </div>
-                  <Button variant="secondary" onClick={() => navigate('/super-admin/departments')}>Manage Departments</Button>
                 </header>
 
                 <div className="max-w-xl mb-6">
@@ -330,7 +325,7 @@ const SuperAdminDashboard = () => {
                   </Select>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3 mb-6">
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-6">
                   {stats.map((s) => (
                     <Card key={s.label} className="rounded-xl">
                       <CardHeader>
@@ -344,11 +339,11 @@ const SuperAdminDashboard = () => {
                 </div>
 
                 {/* Quick Action Buttons */}
-                <div className="flex items-center gap-4 mb-4">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mb-4">
                   <Button
                     onClick={() => navigate('/current-timetables')}
                     variant="default"
-                    className="flex items-center gap-2"
+                    className="flex items-center justify-center gap-2 w-full sm:w-auto"
                   >
                     <Calendar className="h-4 w-4" />
                     View Current Timetables
@@ -356,7 +351,7 @@ const SuperAdminDashboard = () => {
                   <Button
                     onClick={() => navigate('/pull-requests')}
                     variant="outline"
-                    className="flex items-center gap-2 border-2 border-black"
+                    className="flex items-center justify-center gap-2 border-2 border-black w-full sm:w-auto"
                   >
                     <GitPullRequest className="h-4 w-4" />
                     Pull Requests
