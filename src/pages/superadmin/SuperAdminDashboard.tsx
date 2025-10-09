@@ -181,15 +181,6 @@ const SuperAdminDashboard = () => {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
-            <header className="flex items-center justify-between">
-              <div></div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
-              </div>
-            </header>
-
             <section className="mb-8">
               <div className="grid gap-4 md:grid-cols-4">
                 <Card className="rounded-xl cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/super-admin/departments')}>
