@@ -330,7 +330,7 @@ const SubjectManagement = () => {
     <div className="min-h-screen bg-background">
       <AdminNavbar />
       <main className="md:pl-72">
-        <section className="container py-6">
+        <section className="container py-10 md:pt-16">
           <header className="mb-6">
             <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>
             <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>

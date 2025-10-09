@@ -632,46 +632,45 @@ const LabManagement = () => {
               </Dialog>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
               {labs.map((lab) => (
                 <Card key={lab.id} className="relative">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2">
                       <div>
-                        <CardTitle className="text-lg">{lab.name}</CardTitle>
-                        <CardDescription>
+                        <CardTitle className="text-base font-semibold leading-tight">{lab.name}</CardTitle>
+                        <CardDescription className="text-xs">
                           {lab.building && `${lab.building}, `}
                           {lab.floor && `${lab.floor}, `}
                           {lab.room_number && `Room ${lab.room_number}`}
                         </CardDescription>
                       </div>
-                      <Badge variant={lab.is_active ? "default" : "secondary"}>
-                        {lab.is_active ? "Active" : "Inactive"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={lab.is_active ? "default" : "secondary"} className="text-[10px] py-0.5 px-2">
+                          {lab.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleDeleteLab(lab.id)}
+                          title="Delete lab"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Code:</span>
-                      <Badge variant="outline">{lab.lab_code}</Badge>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-xs">Capacity</span>
+                      <span className="font-medium text-sm">{lab.capacity} students</span>
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Capacity:</span>
-                      <span className="font-medium">{lab.capacity} students</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Type:</span>
-                      <span className="font-medium capitalize">{lab.lab_type}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Location:</span>
-                      <span className="font-medium">{lab.building}, {lab.floor}, Room {lab.room_number}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Status:</span>
-                      <Badge variant={lab.maintenance_status === 'operational' ? 'default' : 'destructive'}>
-                        {lab.maintenance_status}
-                      </Badge>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground text-xs">Location</span>
+                      <span className="font-medium text-right text-sm truncate max-w-[60%]">
+                        {lab.building}{lab.floor ? `, ${lab.floor}` : ''}{lab.room_number ? `, Room ${lab.room_number}` : ''}
+                      </span>
                     </div>
                     <div className="space-y-1">
                       <span className="text-sm text-muted-foreground">Available Departments:</span>
@@ -680,27 +679,27 @@ const LabManagement = () => {
                           lab.departments.map((deptId) => {
                             const dept = departments.find(d => d.id === deptId);
                             return (
-                              <Badge key={deptId} variant="outline" className="text-xs">
+                              <Badge key={deptId} variant="outline" className="text-[10px]">
                                 {dept?.name || 'Unknown'}
                               </Badge>
                             );
                           })
                         ) : (
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-[10px]">
                             No departments (field may not exist in current schema)
                           </Badge>
                         )}
                       </div>
                     </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
+                    <p className="text-xs text-muted-foreground line-clamp-2">
                       {lab.description}
                     </p>
-                     <div className="flex gap-2 pt-2">
+                     <div className="flex gap-2 pt-1">
                        <Button
                          variant="outline"
                          size="sm"
                          onClick={() => openScheduleViewDialog(lab)}
-                         className="flex-1"
+                         className="flex-1 h-8"
                        >
                          <Eye className="h-3 w-3 mr-1" />
                          View Schedule
@@ -709,19 +708,10 @@ const LabManagement = () => {
                          variant="outline"
                          size="sm"
                          onClick={() => openEditLabDialog(lab)}
-                         className="flex-1"
+                         className="flex-1 h-8"
                        >
                          <Edit className="h-3 w-3 mr-1" />
                          Edit
-                       </Button>
-                       <Button
-                         variant="destructive"
-                         size="sm"
-                         onClick={() => handleDeleteLab(lab.id)}
-                         className="flex-1"
-                       >
-                         <Trash2 className="h-3 w-3 mr-1" />
-                         Delete
                        </Button>
                      </div>
                   </CardContent>
