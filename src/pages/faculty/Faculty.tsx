@@ -9,9 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getDepartments, createFaculty, deleteFaculty, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
+import Papa from "papaparse";
+import { Upload, FileText, AlertTriangle, CheckCircle, X } from "lucide-react";
 
 type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
@@ -81,6 +84,13 @@ const FacultyPage = () => {
     electives: FacultyElective[];
   } | null>(null);
   const [viewSubjectMeta, setViewSubjectMeta] = useState<Record<string, { name: string; type?: string; hours?: number }>>({});
+
+  // CSV Upload state
+  const [uploadOpen, setUploadOpen] = useState<boolean>(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [duplicates, setDuplicates] = useState<any[]>([]);
+  const [parsedData, setParsedData] = useState<any[]>([]);
 
 
   useEffect(() => {
@@ -693,6 +703,142 @@ const FacultyPage = () => {
     });
   }, [faculty, search, yearFilter, facultyYears]);
 
+  // CSV Upload functions
+  const handleFileUpload = (file: File) => {
+    setCsvFile(file);
+    setUploading(true);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        const data = results.data as any[];
+        setParsedData(data);
+
+        // Check for duplicates based on email
+        const { data: existingFaculty } = await supabase
+          .from('faculty_members')
+          .select('email');
+
+        const existingEmails = new Set(existingFaculty?.map((f: any) => f.email) || []);
+        const duplicatesFound = data.filter((row) => existingEmails.has(row.email));
+
+        if (duplicatesFound.length > 0) {
+          setDuplicates(duplicatesFound);
+          toast.warning(`${duplicatesFound.length} duplicates found`);
+        } else {
+          await processFacultyData(data);
+        }
+
+        setUploading(false);
+      },
+      error: (error) => {
+        toast.error("Error parsing CSV: " + error.message);
+        setUploading(false);
+      }
+    });
+  };
+
+  const processFacultyData = async (data: any[]) => {
+    try {
+      // Get all departments to map names to IDs
+      const { data: departments } = await supabase
+        .from('departments')
+        .select('id, name');
+
+      const departmentMap = new Map();
+      departments?.forEach(dept => {
+        departmentMap.set(dept.name.toLowerCase(), dept.id);
+      });
+
+      // Process faculty data with proper department mapping
+      const facultyData = [];
+      const invalidDepartments = new Set();
+
+      for (const row of data) {
+        const departmentName = row.department_id || row.departmentId || row.department || row.Department || '';
+        const departmentId = departmentMap.get(departmentName.toLowerCase());
+        
+        if (!departmentId) {
+          invalidDepartments.add(departmentName);
+          continue; // Skip this faculty member
+        }
+
+        facultyData.push({
+          name: row.name || row.Name || '',
+          email: row.email || row.Email || '',
+          designation: row.designation || row.Designation || row.role || row.Role || '',
+          department_id: departmentId,
+          takes_electives: row.takes_electives || row.takesElectives || row.electives || row.Electives || false
+        });
+      }
+
+      if (invalidDepartments.size > 0) {
+        toast.warning(`Invalid departments found: ${Array.from(invalidDepartments).join(', ')}. These faculty members will be skipped.`);
+      }
+
+      if (facultyData.length === 0) {
+        toast.error("No valid faculty data to insert");
+        return;
+      }
+
+      // Insert faculty members
+      const { error } = await supabase
+        .from('faculty_members')
+        .insert(facultyData);
+
+      if (error) {
+        toast.error("Error inserting faculty: " + error.message);
+        return;
+      }
+
+      // Process year assignments if provided
+      for (const row of data) {
+        if (row.year || row.Year || row.assigned_year || row.assignedYear) {
+          const year = row.year || row.Year || row.assigned_year || row.assignedYear;
+          const sections = (row.sections || row.Sections || row.section || row.Section || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+          
+          if (sections.length > 0) {
+            // Get the faculty member ID
+            const { data: facultyMember } = await supabase
+              .from('faculty_members')
+              .select('id')
+              .eq('email', row.email || row.Email)
+              .single();
+
+            if (facultyMember) {
+              // Create year assignments for each section
+              for (const section of sections) {
+                // This would need to be implemented based on your year assignment logic
+                // For now, we'll just log it
+                console.log(`Assigning faculty ${facultyMember.id} to year ${year}, section ${section}`);
+              }
+            }
+          }
+        }
+      }
+
+      toast.success(`Successfully uploaded ${data.length} faculty members`);
+      setUploadOpen(false);
+      setCsvFile(null);
+      setParsedData([]);
+      
+      // Refresh faculty list
+      await loadFaculty();
+    } catch (error: any) {
+      toast.error("Error processing faculty data: " + error.message);
+    }
+  };
+
+  const handleDuplicateApproval = async () => {
+    const renamed = duplicates.map((d) => ({
+      ...d,
+      email: `${d.email.split("@")[0]}_copy@${d.email.split("@")[1]}`,
+    }));
+    await processFacultyData(renamed);
+    setDuplicates([]);
+  };
+
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
@@ -702,8 +848,15 @@ const FacultyPage = () => {
             <h1 className="text-2xl font-bold">Faculty</h1>
             <p className="text-sm text-muted-foreground">List of faculty and add new</p>
           </div>
-          <div className="flex items-center gap-2">
-            <UploadCSV />
+          <div className="space-x-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setUploadOpen(true)}
+              className="flex items-center gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Upload CSV
+            </Button>
             <Button onClick={() => { setAddOpen(true); }}>Add Faculty</Button>
           </div>
         </header>
@@ -1842,6 +1995,87 @@ const FacultyPage = () => {
           <div className="mt-4 flex items-center gap-2 justify-end">
             <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={handleUpdateFaculty}>Save</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* CSV Upload Dialog */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Upload Faculty CSV
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="csv-file">CSV File</Label>
+              <Input
+                id="csv-file"
+                type="file"
+                accept=".csv"
+                onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+                className="cursor-pointer"
+              />
+              <p className="text-sm text-muted-foreground">
+                Upload a CSV file with columns: name, email, designation, department, year, sections
+              </p>
+              <div className="text-xs text-muted-foreground mt-2">
+                <strong>Available departments:</strong> {departments.map(d => d.name).join(', ')}
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
+                <strong>Sample CSV format:</strong><br/>
+                name,email,designation,department,year,sections<br/>
+                John Doe,john@college.edu,Professor,Information Technology,I,"A,B"<br/>
+                Jane Smith,jane@college.edu,Assistant Professor,Artificial Intelligence and Data Science,II,"C"
+              </div>
+            </div>
+
+            {uploading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                Processing CSV...
+              </div>
+            )}
+
+            {parsedData.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  {parsedData.length} records parsed successfully
+                </div>
+              </div>
+            )}
+
+            {duplicates.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm text-yellow-600">
+                  <AlertTriangle className="h-4 w-4" />
+                  {duplicates.length} duplicates found
+                </div>
+                <div className="max-h-40 overflow-y-auto border rounded-md p-4">
+                  <h4 className="font-medium mb-2">Duplicate Entries:</h4>
+                  <div className="space-y-1">
+                    {duplicates.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{d.name || d.Name}</span>
+                        <span className="text-muted-foreground">({d.email || d.Email})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={() => setDuplicates([])} variant="ghost">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleDuplicateApproval}>
+                    Add with modified names
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
