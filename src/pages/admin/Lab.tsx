@@ -1,0 +1,394 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useTimetableStore } from "@/store/timetableStore";
+import { getDepartmentByName } from "@/lib/supabaseService";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import AdminNavbar from "@/components/navbar/AdminNavbar";
+
+interface Lab {
+  id: string;
+  name: string;
+  lab_code: string;
+  capacity: number;
+  max_slots: number;
+  lab_type: string;
+  description: string;
+  building: string;
+  floor: string;
+  room_number: string;
+  equipment_list: string[];
+  safety_equipment: string[];
+  operating_hours: any;
+  is_active: boolean;
+  maintenance_status: string;
+  departments: string[]; // Array of department IDs
+  created_at: string;
+  updated_at: string;
+}
+
+interface LabSchedule {
+  id: string;
+  lab_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  max_capacity: number;
+  slot_number: number;
+  is_available: boolean;
+  semester?: string;
+  academic_year?: string;
+  labs?: { name: string };
+}
+
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6', 'Period 7'];
+
+const Lab = () => {
+  const navigate = useNavigate();
+  const selection = useTimetableStore((s) => s.selection);
+  const setSelection = useTimetableStore((s) => s.setSelection);
+  const [labs, setLabs] = useState<Lab[]>([]);
+  const [labSchedules, setLabSchedules] = useState<LabSchedule[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const adminData = localStorage.getItem("adminUser");
+    if (!adminData) {
+      navigate("/admin-login", { replace: true });
+      return;
+    }
+
+    // Load departments for this admin's department only and set selection
+    (async () => {
+      try {
+        const parsedAdmin = JSON.parse(adminData);
+        const { data, error } = await (supabase as any)
+          .from('departments')
+          .select('*')
+          .eq('id', parsedAdmin.department_id);
+
+        if (error) {
+          console.error('Error loading departments:', error);
+          toast.error(`Failed to load departments: ${error.message || error}`);
+          setLoading(false);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          toast.error('No departments found. Please contact your Super Admin.');
+          setLoading(false);
+          return;
+        }
+
+        // Set admin's department for selection
+        setDepartments(data);
+        // Automatically set the department selection if not already set
+        if (!selection.department) {
+          setSelection({ department: data[0].name });
+        }
+
+        // Also load all departments for lab display
+        const { data: allDepts } = await (supabase as any)
+          .from('departments')
+          .select('*')
+          .order('name');
+
+        if (allDepts) {
+          setDepartments(allDepts);
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Exception loading departments:', error);
+        toast.error('Failed to load departments. Please try again.');
+        setLoading(false);
+      }
+    })();
+  }, [navigate, setSelection, selection.department]);
+
+  useEffect(() => {
+    if (!selection.department) return;
+
+    (async () => {
+      try {
+        setLoading(true);
+
+        // Note: Current labs table doesn't have department_id, so we fetch all labs
+        // In a real implementation, we'd filter by the admin's department
+
+        // Get department ID for filtering
+        const dept = await getDepartmentByName(selection.department);
+        if (!dept) {
+          setLoading(false);
+          return;
+        }
+
+        // Note: departments field may not exist in current schema
+        // Fetch labs for this admin's department only
+        const { data: labsData, error: labsError } = await (supabase as any)
+          .from('labs')
+          .select('*')
+          .contains('departments', [dept.id])
+          .eq('is_active', true);
+
+        if (labsError) {
+          console.error('Error fetching labs:', labsError);
+          toast.error(`Failed to load labs: ${labsError.message}`);
+          setLoading(false);
+          return;
+        }
+
+        setLabs(labsData || []);
+
+        // Fetch lab schedules for this department's labs
+        const { data: schedulesData, error: schedulesError } = await (supabase as any)
+          .from('lab_schedules')
+          .select('*')
+          .in('lab_id', labsData?.map(lab => lab.id) || []);
+
+        if (schedulesError) {
+          console.error('Error fetching lab schedules:', schedulesError);
+          toast.error(`Failed to load lab schedules: ${schedulesError.message}`);
+          setLoading(false);
+          return;
+        }
+
+        setLabSchedules(schedulesData || []);
+      } catch (error) {
+        console.error('Error loading lab data:', error);
+        toast.error('Failed to load lab data');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [selection.department]);
+
+  const getLabScheduleForSlot = (dayIndex: number, periodIndex: number) => {
+    return labSchedules.find(
+      schedule => schedule.day_of_week === dayIndex + 1 && schedule.slot_number === periodIndex + 1
+    );
+  };
+
+  const getLabNameForSchedule = (schedule: LabSchedule) => {
+    const lab = labs.find(l => l.id === schedule.lab_id);
+    return lab?.name || 'Unknown Lab';
+  };
+
+  const ready = selection.department;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <AdminNavbar />
+        <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+          <section className="container py-8 md:pt-16">
+            <div className="text-center">Loading...</div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <AdminNavbar />
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <section className="container py-8">
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Lab Schedule</h1>
+                <p className="text-muted-foreground">
+                  {selection.department ? `Department: ${selection.department}` : 'All Labs (Department filtering coming soon)'}
+                  {selection.year ? ` • Year: ${selection.year}` : ''}
+                  {selection.section ? ` • Section: ${selection.section}` : ''}
+                </p>
+              </div>
+
+              {/* Department Selection */}
+              <div className="flex items-center gap-4">
+                <div className="w-48">
+                  <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
+                    <SelectTrigger className="bg-card">
+                      <SelectValue placeholder="Select Department" />
+                    </SelectTrigger>
+                    <SelectContent className="z-50 bg-popover">
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {!ready ? (
+              <Card className="rounded-2xl">
+                <CardContent className="py-8 text-center">
+                  <p className="text-muted-foreground">Please select a department to view lab schedules.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Lab Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Card className="rounded-2xl">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Total Labs</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{labs.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="rounded-2xl">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Active Schedules</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{labSchedules.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card className="rounded-2xl">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Available Slots</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {labSchedules.filter(s => s.is_available).length}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 7x7 Grid */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <CardTitle>Weekly Lab Schedule</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr>
+                            <th className="border p-2 text-center font-medium bg-muted/50">Day/Period</th>
+                            {PERIODS.map((period, index) => (
+                              <th key={index} className="border p-2 text-center font-medium bg-muted/50 min-w-[120px]">
+                                {period}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {DAYS.map((day, dayIndex) => (
+                            <tr key={dayIndex}>
+                              <td className="border p-2 text-center font-medium bg-muted/30 min-w-[100px]">
+                                {day}
+                              </td>
+                              {PERIODS.map((_, periodIndex) => {
+                                const schedule = getLabScheduleForSlot(dayIndex, periodIndex);
+                                return (
+                                  <td key={periodIndex} className="border p-2 text-center min-h-[60px]">
+                                    {schedule ? (
+                                      <div className="space-y-1">
+                                        <div className="font-medium text-sm">
+                                          {getLabNameForSchedule(schedule)}
+                                        </div>
+                                        <Badge
+                                          variant={schedule.is_available ? "default" : "secondary"}
+                                          className="text-xs"
+                                        >
+                                          {schedule.is_available ? "Available" : "Booked"}
+                                        </Badge>
+                                        <div className="text-xs text-muted-foreground">
+                                          {schedule.start_time} - {schedule.end_time}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          Cap: {schedule.max_capacity}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="text-muted-foreground text-sm">
+                                        Free
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+                {/* Lab List */}
+                {labs.length > 0 && (
+                  <Card className="rounded-2xl">
+                    <CardHeader>
+                      <CardTitle>Available Labs</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {labs.map((lab) => (
+                          <Card key={lab.id} className="rounded-lg">
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-sm">{lab.name}</CardTitle>
+                              <Badge variant="outline" className="w-fit">
+                                Lab {lab.id?.slice(0, 8)}
+                              </Badge>
+                            </CardHeader>
+                            <CardContent className="pt-0">
+                              <div className="space-y-2 text-sm">
+                                <div className="text-muted-foreground">
+                                  Room: {lab.building}-{lab.floor}-{lab.room_number}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Capacity: {lab.capacity}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Max Slots: {lab.max_slots}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Status: {lab.is_active ? 'Active' : 'Inactive'}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  <span className="font-medium">Departments:</span>
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {lab.departments && lab.departments.length > 0 ? (
+                                      lab.departments.map((deptId) => {
+                                        const dept = departments.find(d => d.id === deptId);
+                                        return (
+                                          <Badge key={deptId} variant="outline" className="text-xs">
+                                            {dept?.name || 'Unknown'}
+                                          </Badge>
+                                        );
+                                      })
+                                    ) : (
+                                      <span className="text-xs">No departments (field may not exist in current schema)</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+};
+
+export default Lab;

@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Routes, Route } from "react-router-dom";
 // Admin Pages
 import Index from "./pages/admin/Index";
+import AdminLogin from "./pages/admin/AdminLogin";
 import SubjectManagement from "./pages/admin/SubjectManagement";
 import Timetable from "./pages/admin/Timetable";
+import Lab from "./pages/admin/Lab";
 import YearSubjects from "./pages/admin/YearSubjects";
 import SectionManagement from "./pages/admin/SectionManagement";
 import CSVUpload from "./pages/admin/CSVUpload";
@@ -19,11 +21,13 @@ import FacultyDashboard from "./pages/faculty/FacultyDashboard";
 // Super Admin Pages
 import SuperAdminLogin from "./pages/superadmin/SuperAdminLogin";
 import SuperAdminDashboard from "./pages/superadmin/SuperAdminDashboard";
+import AdminManagement from "./pages/superadmin/AdminManagement";
 import Departments from "./pages/superadmin/Departments";
 import DepartmentDetails from "./pages/superadmin/DepartmentDetails";
 import PullRequests from "./pages/superadmin/PullRequests";
 import CurrentTimetables from "./pages/superadmin/CurrentTimetables";
 import PullRequestDetail from "./pages/superadmin/PullRequestDetail";
+import LabManagement from "./pages/superadmin/LabManagement";
 
 // Shared Pages
 import NotFound from "./pages/NotFound";
@@ -40,9 +44,11 @@ const App = () => (
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<RoleSelect />} />
+            <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/admin" element={<Index />} />
             <Route path="/super-admin-login" element={<SuperAdminLogin />} />
             <Route path="/super-admin" element={<SuperAdminDashboard />} />
+            <Route path="/super-admin/admin-management" element={<AdminManagement />} />
             <Route path="/super-admin/departments" element={<Departments />} />
             <Route path="/super-admin/departments/:id" element={<DepartmentDetails />} />
             <Route path="/super-admin/departments/:id/years/:year" element={<YearSubjects />} />
@@ -55,6 +61,7 @@ const App = () => (
             <Route path="/pull-requests/:id" element={<PullRequestDetail />} />
             <Route path="/current-timetables" element={<CurrentTimetables />} />
             <Route path="/super-admin/faculty" element={<Faculty />} />
+            <Route path="/super-admin/labs" element={<LabManagement />} />
             <Route path="/faculty" element={<FacultyDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

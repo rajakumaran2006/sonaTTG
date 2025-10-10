@@ -26,7 +26,7 @@ const cellClass = (type: string) => {
   }
 };
 
-const DISPLAY_COLUMNS = ['PERIOD 1','PERIOD 2','BREAK','PERIOD 3','PERIOD 4','LUNCH','PERIOD 5','BREAK','PERIOD 6','PERIOD 7'] as const;
+const DISPLAY_COLUMNS = ['PERIOD 1','PERIOD 2','BREAK','PERIOD 3','PERIOD 4','LUNCH','PERIOD 5','PERIOD 6','BREAK','PERIOD 7'] as const;
 const PERIOD_TIME_LABELS: Record<(typeof DISPLAY_COLUMNS)[number], string> = {
   'PERIOD 1': '9:00–9:55',
   'PERIOD 2': '9:55–10:50',
@@ -193,7 +193,7 @@ function Timetable() {
     const body = [
       ['Day', ...Array.from(DISPLAY_COLUMNS)],
       ...timetable.map((row, i) => {
-        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]];
+        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
         return [DAYS[i], ...displayRow];
       })
     ];
@@ -250,7 +250,7 @@ function Timetable() {
     const ws = XLSX.utils.aoa_to_sheet([
       ['Day', ...Array.from(DISPLAY_COLUMNS)],
       ...timetable.map((row, i) => {
-        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]];
+        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
         return [DAYS[i], ...displayRow];
       })
     ]);
@@ -327,18 +327,19 @@ function Timetable() {
   };
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <section className="container py-10">
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Generated Timetable</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {selection.department ? `${selection.department}` : 'Department not selected'}
-              {selection.year ? ` • Year: ${selection.year}` : ''}
-              {selection.section ? ` • Section: ${selection.section}` : ''}
-            </p>
-          </div>
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <section className="container py-8">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Generated Timetable</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {selection.department ? `${selection.department}` : 'Department not selected'}
+                {selection.year ? ` • Year: ${selection.year}` : ''}
+                {selection.section ? ` • Section: ${selection.section}` : ''}
+              </p>
+            </div>
           <div className="flex gap-2">
             <Button variant="soft" onClick={regenerate}>Regenerate</Button>
             <Button variant="outline" onClick={exportPDF}>Export PDF</Button>
@@ -405,7 +406,7 @@ function Timetable() {
                 <tr key={dayIdx} className="border-t">
                   <td className="p-2 font-medium">{DAYS[dayIdx]}</td>
                   {(() => {
-                    const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]];
+                    const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
                     return displayRow.map((cell, i) => {
                       const type = subjectTypeByName(cell);
                       const subj = selected.find((s) => s.name === cell);
@@ -528,6 +529,7 @@ function Timetable() {
         </Dialog>
       </section>
     </main>
+  </div>
   );
 }
 

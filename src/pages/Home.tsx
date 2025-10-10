@@ -18,8 +18,8 @@ const RoleSelect = () => {
     {
       title: "Admin",
       description: "Manage timetable generation, subjects, and faculty",
-      action: "Continue",
-      route: "/admin",
+      action: "Login",
+      route: "/admin-login",
       icon: <Building2 className="w-8 h-8 text-primary" aria-hidden />,
       badge: "Department",
       variant: "default" as const,
