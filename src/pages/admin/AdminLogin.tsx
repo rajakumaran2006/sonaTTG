@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { Building2, Mail, Lock, ArrowLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface AdminUser {
   id: string;
@@ -107,45 +109,120 @@ const AdminLogin = () => {
   };
 
   return (
-    <main className="min-h-screen bg-background">
-      <section className="container py-16">
-        <div className="max-w-md mx-auto">
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle>Admin Login</CardTitle>
+    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 relative overflow-hidden">
+      {/* Decorative Background Elements */}
+      <div className="absolute inset-0 bg-grid-black/[0.02] bg-grid-16"></div>
+      <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl"></div>
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-accent/5 rounded-full blur-3xl"></div>
+
+      <section className="container relative py-16 flex items-center justify-center min-h-screen">
+        <div className="w-full max-w-md">
+          {/* Back Button */}
+          <Button
+            variant="ghost"
+            className="mb-6 group"
+            onClick={() => navigate("/")}
+          >
+            <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+            Back to Home
+          </Button>
+
+          {/* Login Card */}
+          <Card className="rounded-3xl border-0 shadow-2xl backdrop-blur-sm bg-card/50 overflow-hidden">
+            {/* Gradient Header */}
+            <div className="h-2 bg-gradient-to-r from-primary via-primary/80 to-accent"></div>
+            
+            <CardHeader className="text-center pt-10 pb-6">
+              {/* Icon */}
+              <div className="mx-auto mb-6 w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg">
+                <Building2 className="w-10 h-10 text-white" />
+              </div>
+              
+              {/* Title */}
+              <CardTitle className="text-3xl font-bold mb-2">Admin Login</CardTitle>
+              <Badge variant="secondary" className="mx-auto text-xs px-3 py-1">
+                Department Management
+              </Badge>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleLogin} className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
+
+            <CardContent className="px-8 pb-10">
+              <form onSubmit={handleLogin} className="space-y-6">
+                {/* Email Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-sm font-medium">
+                    Email Address
+                  </Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="pl-11 h-12 rounded-xl border-2 focus:border-primary transition-all"
+                      placeholder="admin@example.com"
+                    />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
+
+                {/* Password Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="password" className="text-sm font-medium">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className="pl-11 h-12 rounded-xl border-2 focus:border-primary transition-all"
+                      placeholder="••••••••"
+                    />
+                  </div>
                 </div>
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Signing in..." : "Login"}
+
+                {/* Submit Button */}
+                <Button 
+                  type="submit" 
+                  disabled={loading}
+                  className="w-full h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-primary/90 hover:shadow-lg hover:scale-[1.02] transition-all duration-300"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Signing in...
+                    </span>
+                  ) : (
+                    "Login"
+                  )}
                 </Button>
               </form>
-              <div className="mt-4 text-sm text-muted-foreground">
-                <p>Don't have an account? Contact your Super Admin to get access.</p>
-                <p className="mt-1">Use the email and password provided by your Super Admin.</p>
+
+              {/* Help Text */}
+              <div className="mt-8 pt-6 border-t border-border/50">
+                <div className="space-y-2 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Don't have an account?
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Contact your <span className="font-semibold text-foreground">Super Admin</span> to get access.
+                  </p>
+                </div>
               </div>
             </CardContent>
+
+            {/* Decorative Bottom Element */}
+            <div className="absolute bottom-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/10 to-transparent rounded-full -translate-y-16 translate-x-16"></div>
           </Card>
+
+          {/* Footer Text */}
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            Secure login powered by Supabase
+          </p>
         </div>
       </section>
     </main>
