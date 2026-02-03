@@ -1,147 +1,139 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Building2, School, ShieldCheck } from "lucide-react";
+import { Building2, School, ShieldCheck, Clock, CalendarDays, Sparkles } from "lucide-react";
 
 const RoleSelect = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    document.title = "Select Role - Timetable";
+    document.title = "Welcome | SONA TTG";
     const meta = document.querySelector('meta[name="description"]');
-    if (meta) meta.setAttribute("content", "Choose Admin, Faculty, or Super Admin to manage and view timetables.");
+    if (meta) meta.setAttribute("content", "Next-Gen Timetable Management System for SONA.");
   }, []);
 
   const roles = [
     {
       title: "Admin",
-      description: "Manage timetable generation, subjects, and faculty",
-      action: "Login",
+      description: "Orchestrate departments and generate schedules.",
+      action: "Access Portal",
       route: "/admin-login",
-      icon: <Building2 className="w-8 h-8 text-primary" aria-hidden />,
-      badge: "Department",
-      variant: "default" as const,
-      features: ["Create timetables", "Manage subjects", "Assign faculty", "Monitor schedules"]
+      icon: <Building2 className="w-6 h-6" />,
+      color: "bg-olive-100 text-olive-700",
+      hover: "hover:border-olive-400 hover:shadow-olive-200/50",
+      delay: "0ms"
     },
     {
       title: "Faculty",
-      description: "View your schedule and assigned classes",
-      action: "Log in",
+      description: "View your personal timeline and subjects.",
+      action: "View Schedule",
       route: "/faculty",
-      icon: <School className="w-8 h-8 text-primary" aria-hidden />,
-      badge: "Teacher",
-      variant: "outline" as const,
-      features: ["View schedule", "Check assignments", "Track classes", "Update availability"]
+      icon: <School className="w-6 h-6" />,
+      color: "bg-teal-50 text-teal-700", // Using a complementary tone or just olive variant
+      hover: "hover:border-teal-400 hover:shadow-teal-200/50",
+      delay: "100ms"
     },
     {
       title: "Super Admin",
-      description: "Full control over departments, years, and subjects",
-      action: "Log in",
+      description: "System-wide configuration and governance.",
+      action: "System Control",
       route: "/super-admin-login",
-      icon: <ShieldCheck className="w-8 h-8 text-primary" aria-hidden />,
-      badge: "Master Control",
-      variant: "secondary" as const,
-      features: ["Manage departments", "Control users", "System settings", "Full access"]
+      icon: <ShieldCheck className="w-6 h-6" />,
+      color: "bg-slate-100 text-slate-700",
+      hover: "hover:border-slate-400 hover:shadow-slate-200/50",
+      delay: "200ms"
     }
   ];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-grid-black/[0.02] bg-grid-16"></div>
-        <section className="container relative py-20">
-          <div className="text-center space-y-6 mb-16">
-            <Badge variant="secondary" className="px-4 py-2 text-sm font-medium">
-              🎓 Timetable Management System
-            </Badge>
-            <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-              Choose your role
-            </h1>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Access the comprehensive timetable management platform designed for educational institutions.
-            </p>
+    <main className="min-h-screen relative overflow-hidden bg-slate-50 font-sans selection:bg-olive-200">
+
+      {/* Abstract Background Shapes */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-olive-200/40 blur-3xl animate-float" />
+      <div className="absolute bottom-[-10%] right-[-5%] w-[30%] h-[30%] rounded-full bg-olive-300/30 blur-3xl animate-float" style={{ animationDelay: '2s' }} />
+      <div className="absolute top-[20%] right-[10%] w-[15%] h-[15%] rounded-full bg-slate-200/50 blur-2xl animate-float" style={{ animationDelay: '4s' }} />
+
+      {/* Grid Pattern Overlay */}
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none"></div>
+
+      <section className="container relative z-10 flex flex-col items-center justify-center min-h-screen py-10">
+
+        {/* Header Content */}
+        <div className="text-center max-w-3xl mx-auto space-y-6 mb-16 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 border border-olive-200 shadow-sm backdrop-blur-md mb-4">
+            <Sparkles className="w-4 h-4 text-olive-600" />
+            <span className="text-xs font-semibold text-olive-800 tracking-wide uppercase">Intelligent Scheduling v2.0</span>
           </div>
 
-          {/* Role Cards */}
-          <div className="grid gap-8 md:grid-cols-3 max-w-6xl mx-auto">
-            {roles.map((role, index) => (
-              <Card 
-                key={role.title}
-                className="group relative overflow-hidden rounded-3xl border-0 bg-card/50 backdrop-blur-sm shadow-lg hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 cursor-pointer"
-                onClick={() => navigate(role.route)}
-              >
-                {/* Gradient Border */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-primary/20 via-transparent to-primary/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                
-                {/* Card Content */}
-                <div className="relative p-8">
-                  {/* Icon and Badge */}
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="text-4xl transform group-hover:scale-110 transition-transform duration-300">
-                      {role.icon}
-                    </div>
-                    <Badge variant="secondary" className="text-xs px-3 py-1 bg-muted/50">
-                      {role.badge}
-                    </Badge>
-                  </div>
+          <h1 className="text-6xl md:text-7xl font-bold font-poppins tracking-tight text-slate-900 leading-[1.1]">
+            Simplify Your <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-olive-600 to-olive-400">
+              Academic Time.
+            </span>
+          </h1>
 
-                  {/* Title */}
-                  <CardHeader className="p-0 mb-4">
-                    <CardTitle className="text-2xl font-bold group-hover:text-primary transition-colors duration-300">
-                      {role.title}
-                    </CardTitle>
-                  </CardHeader>
+          <p className="text-lg md:text-xl text-slate-600 font-light max-w-2xl mx-auto leading-relaxed">
+            The automated timetable generator designed for perfection. Experience conflict-free scheduling with a touch of elegance.
+          </p>
 
-                  {/* Description */}
-                  <p className="text-muted-foreground text-base mb-6 leading-relaxed">
-                    {role.description}
-                  </p>
+          <div className="flex items-center justify-center gap-4 text-sm font-medium text-slate-500 pt-4">
+            <div className="flex items-center gap-1.5"><Clock className="w-4 h-4 text-olive-500" /> Real-time Gen</div>
+            <div className="w-1 h-1 rounded-full bg-slate-300" />
+            <div className="flex items-center gap-1.5"><CalendarDays className="w-4 h-4 text-olive-500" /> Smart Conflict Resolution</div>
+          </div>
+        </div>
 
-                  {/* Features */}
-                  <div className="space-y-2 mb-8">
-                    {role.features.map((feature, idx) => (
-                      <div key={idx} className="flex items-center text-sm text-muted-foreground">
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary/60 mr-3"></div>
-                        {feature}
-                      </div>
-                    ))}
-                  </div>
+        {/* Role Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl px-4">
+          {roles.map((role, index) => (
+            <Card
+              key={role.title}
+              className={`
+                group relative border-0 bg-white/60 backdrop-blur-xl shadow-xl shadow-slate-200/40 
+                hover:-translate-y-2 transition-all duration-500 cursor-pointer overflow-hidden
+                ${role.hover}
+                animate-in fade-in slide-in-from-bottom-4 fill-mode-backwards
+              `}
+              style={{ animationDelay: role.delay }}
+              onClick={() => navigate(role.route)}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
-                  {/* Action Button */}
-                  <Button 
-                    variant={role.variant}
-                    size="lg"
-                    className="w-full group-hover:shadow-lg transition-all duration-300 font-semibold py-6"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(role.route);
-                    }}
-                  >
-                    {role.action}
-                    <span className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300">
-                      →
-                    </span>
-                  </Button>
+              <CardHeader className="relative pb-2">
+                <div className={`w-12 h-12 rounded-xl ${role.color} flex items-center justify-center mb-4 transition-transform group-hover:scale-110 duration-300`}>
+                  {role.icon}
                 </div>
+                <CardTitle className="text-2xl font-bold font-montserrat text-slate-800">
+                  {role.title}
+                </CardTitle>
+              </CardHeader>
 
-                {/* Decorative Elements */}
-                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/10 to-transparent rounded-full -translate-y-16 translate-x-16 group-hover:scale-150 transition-transform duration-700"></div>
-              </Card>
-            ))}
-          </div>
+              <CardContent className="relative">
+                <p className="text-slate-500 mb-8 leading-relaxed">
+                  {role.description}
+                </p>
 
-          {/* Bottom Section */}
-          <div className="text-center mt-20">
-            <div className="inline-flex items-center space-x-2 text-sm text-muted-foreground bg-muted/30 rounded-full px-6 py-3">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              <span>System is online and ready</span>
-            </div>
-          </div>
-        </section>
-      </div>
+                <div className="flex items-center justify-between mt-auto">
+                  <span className="text-sm font-semibold text-olive-600 group-hover:underline decoration-2 decoration-olive-600/30 underline-offset-4 transition-all">
+                    {role.action}
+                  </span>
+                  <div className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center group-hover:bg-olive-600 group-hover:border-olive-600 group-hover:text-white transition-all duration-300">
+                    <span className="text-lg leading-none mb-0.5">→</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Footer Text */}
+        <footer className="absolute bottom-6 text-center text-slate-400 text-sm font-medium">
+          Powered by SONA TTG &copy; {new Date().getFullYear()}
+        </footer>
+
+      </section>
     </main>
   );
 };
