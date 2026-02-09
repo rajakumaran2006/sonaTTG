@@ -78,10 +78,6 @@ const CurrentTimetables = () => {
         {/* Header */}
         <header className="mb-8">
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold">Current Timetables</h1>
-              <p className="text-muted-foreground mt-1">View and manage existing timetables</p>
-            </div>
           </div>
 
           {/* Department Summary Card */}

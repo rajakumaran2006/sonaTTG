@@ -391,10 +391,6 @@ const AdminManagement = () => {
       <Navbar />
       <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Admin Management</h1>
-            <p className="text-sm text-muted-foreground">Manage department administrators</p>
-          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate('/admin-login')}>
               Admin Console

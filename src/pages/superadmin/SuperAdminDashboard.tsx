@@ -160,10 +160,6 @@ const SuperAdminDashboard = () => {
       <Navbar />
       <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold">Super Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">System overview and quick actions</p>
-          </div>
           <div className="flex flex-col sm:flex-row gap-2">
             <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
             <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')}>Manage Admins</Button>

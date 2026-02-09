@@ -24,6 +24,7 @@ const Navbar = () => {
     { label: "Departments", href: "/super-admin/departments" },
     { label: "Faculty", href: "/super-admin/faculty" },
     { label: "Faculty Schedules", href: "/super-admin/faculty-schedules" },
+    { label: "Labs", href: "/super-admin/labs" },
     { label: "Pull Requests", href: "/pull-requests", badge: pendingCount },
     { label: "Current Timetables", href: "/current-timetables" }
   ];

@@ -55,6 +55,9 @@ const App = () => (
             <Route path="/super-admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/subjects" element={<SubjectManagement />} />
             <Route path="/timetable" element={<Timetable />} />
+
+            <Route path="/admin/faculty" element={<Faculty />} />
+            <Route path="/lab" element={<Lab />} />
             <Route path="/csv-upload" element={<CSVUpload />} />
             <Route path="/faculty/csv-upload" element={<FacultyCSVUpload />} />
             <Route path="/pull-requests" element={<PullRequests />} />

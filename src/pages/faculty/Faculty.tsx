@@ -25,7 +25,11 @@ type FacultyElective = { id?: string; facultyId: string; departmentId: string; s
 
 const FacultyPage = () => {
   const navigate = useNavigate();
-  const isLoggedIn = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
+  const isLoggedIn = useMemo(() => {
+    const superAdmin = localStorage.getItem("superAdmin") === "true";
+    const adminUser = localStorage.getItem("adminUser");
+    return superAdmin || !!adminUser;
+  }, []);
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [deptFilterId, setDeptFilterId] = useState<string>("ALL");
@@ -33,6 +37,8 @@ const FacultyPage = () => {
   const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState("");
   const [yearFilter, setYearFilter] = useState<string>("ALL");
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [adminDeptId, setAdminDeptId] = useState<string>("");
 
   // Add form state
   const [addOpen, setAddOpen] = useState<boolean>(false);
@@ -100,18 +106,45 @@ const FacultyPage = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) { navigate('/super-admin-login', { replace: true }); return; }
+    if (!isLoggedIn) { 
+      // Check if trying to access as super admin but not logged in, or admin not logged in
+      const superAdmin = localStorage.getItem("superAdmin") === "true";
+      const adminUser = localStorage.getItem("adminUser");
+      
+      if (!superAdmin && !adminUser) {
+        navigate('/super-admin-login', { replace: true }); 
+        return; 
+      }
+    }
+
+    // Check if current user is Admin
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        const parsed = JSON.parse(adminData);
+        if (parsed && parsed.department_id) {
+          setIsAdmin(true);
+          setAdminDeptId(parsed.department_id);
+          setDeptFilterId(parsed.department_id); // Force filter to admin's department
+        }
+      } catch (e) {
+        console.error("Error parsing admin data", e);
+      }
+    }
+
     (async () => {
       const data = await getDepartments();
         setDepartments(data || []);
-      // default to All departments in view
-      if (!deptFilterId) setDeptFilterId("ALL");
+      // default to All departments in view ONLY if not admin
+      if (!adminData && !deptFilterId) setDeptFilterId("ALL");
     })();
 
     // Listen for import completion to refresh list
     const onImported = async (_e: any) => {
       // Re-trigger the current department filter to reload data
-      if (deptFilterId === "ALL") {
+      const currentDeptFilter = isAdmin && adminDeptId ? adminDeptId : deptFilterId;
+
+      if (currentDeptFilter === "ALL") {
         const { data, error } = await (supabase as any)
           .from('faculty_members')
           .select('id, name, email, designation, department_id');
@@ -126,44 +159,49 @@ const FacultyPage = () => {
           setFaculty(list);
           await loadFacultyYears(list.map(f => f.id));
         }
-      } else if (deptFilterId) {
-        const list = await getFacultyByDepartment(deptFilterId);
+      } else if (currentDeptFilter) {
+        const list = await getFacultyByDepartment(currentDeptFilter);
         setFaculty(list);
         await loadFacultyYears(list.map(f => f.id));
       }
     };
     window.addEventListener('faculty-import:inserted', onImported as any);
     return () => window.removeEventListener('faculty-import:inserted', onImported as any);
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isAdmin, adminDeptId]);
 
-  useEffect(() => {
-    (async () => {
-      if (deptFilterId === "ALL") {
-        const { data, error } = await (supabase as any)
-          .from('faculty_members')
-          .select('id, name, email, designation, department_id');
-        if (!error) {
-          const list = (data || []).map((f: any) => ({
-            id: f.id,
-            name: f.name,
-            email: f.email ?? null,
-            designation: f.designation ?? null,
-            departmentId: f.department_id,
-          })) as FacultyItem[];
-          setFaculty(list);
-          
-          // Load faculty year mappings
-          await loadFacultyYears(list.map(f => f.id));
-        }
-      } else if (deptFilterId) {
-        const list = await getFacultyByDepartment(deptFilterId);
+  const loadFaculty = async () => {
+    // If admin, ignore "ALL" and force department
+    const effectiveFilter = isAdmin ? adminDeptId : deptFilterId;
+
+    if (effectiveFilter === "ALL") {
+      const { data, error } = await (supabase as any)
+        .from('faculty_members')
+        .select('id, name, email, designation, department_id');
+      if (!error) {
+        const list = (data || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          email: f.email ?? null,
+          designation: f.designation ?? null,
+          departmentId: f.department_id,
+        })) as FacultyItem[];
         setFaculty(list);
         
         // Load faculty year mappings
         await loadFacultyYears(list.map(f => f.id));
       }
-    })();
-  }, [deptFilterId]);
+    } else if (effectiveFilter) {
+      const list = await getFacultyByDepartment(effectiveFilter);
+      setFaculty(list);
+      
+      // Load faculty year mappings
+      await loadFacultyYears(list.map(f => f.id));
+    }
+  };
+
+  useEffect(() => {
+    loadFaculty();
+  }, [deptFilterId, isAdmin, adminDeptId]);
 
   const loadFacultyYears = async (facultyIds: string[]) => {
     try {
@@ -764,6 +802,12 @@ const FacultyPage = () => {
           continue; // Skip this faculty member
         }
 
+        // Admin restriction check
+        if (isAdmin && adminDeptId && departmentId !== adminDeptId) {
+          toast.error(`You can only import faculty for your department. Skipped ${row.name || 'row'}.`);
+          continue;
+        }
+
         facultyData.push({
           name: row.name || row.Name || '',
           email: row.email || row.Email || '',
@@ -844,10 +888,6 @@ const FacultyPage = () => {
       <Navbar />
       <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Faculty</h1>
-            <p className="text-sm text-muted-foreground">List of faculty and add new</p>
-          </div>
           <div className="space-x-2">
             <Button 
               variant="outline" 
@@ -862,16 +902,18 @@ const FacultyPage = () => {
         </header>
 
         <div className="grid gap-4 md:grid-cols-4 mb-6">
-          <div>
-            <div className="text-xs text-muted-foreground mb-1">Department</div>
-            <Select value={deptFilterId} onValueChange={setDeptFilterId}>
-              <SelectTrigger><SelectValue placeholder="All departments" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All departments</SelectItem>
-                {departments.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!isAdmin && (
+            <div>
+              <div className="text-xs text-muted-foreground mb-1">Department</div>
+              <Select value={deptFilterId} onValueChange={setDeptFilterId}>
+                <SelectTrigger><SelectValue placeholder="All departments" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All departments</SelectItem>
+                  {departments.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div>
             <div className="text-xs text-muted-foreground mb-1">Year Filter</div>
             <Select value={yearFilter} onValueChange={setYearFilter}>
@@ -1000,7 +1042,7 @@ const FacultyPage = () => {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <div className="text-xs text-muted-foreground mb-1">Department</div>
-                <Select value={formDeptId} onValueChange={setFormDeptId}>
+                <Select value={formDeptId} onValueChange={setFormDeptId} disabled={isAdmin}>
                   <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                   <SelectContent>
                     {departments.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}
@@ -1637,7 +1679,7 @@ const FacultyPage = () => {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <div className="text-xs text-muted-foreground mb-1">Department</div>
-              <Select value={editDeptId} onValueChange={setEditDeptId}>
+              <Select value={editDeptId} onValueChange={setEditDeptId} disabled={isAdmin}>
                 <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
                 <SelectContent>
                   {departments.map((d) => (<SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>))}

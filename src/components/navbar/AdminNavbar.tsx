@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload } from "lucide-react";
+import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload, Menu } from "lucide-react";
 import { Breadcrumbs, Crumb } from "@/components/Breadcrumbs";
 import { useTimetableStore } from "@/store/timetableStore";
 
@@ -37,7 +37,9 @@ const AdminNavbar = () => {
     { label: "Home", href: "/admin", icon: <Home className="h-4 w-4" /> },
     { label: "Subjects", href: "/subjects", icon: <BookOpen className="h-4 w-4" /> },
     { label: "Timetable", href: "/timetable", icon: <Calendar className="h-4 w-4" /> },
-    { label: "import", href: "/csv-upload", icon: <Upload className="h-4 w-4" /> },
+
+    { label: "Faculty", href: "/admin/faculty", icon: <UserCheck className="h-4 w-4" /> },
+    { label: "Lab Allocation", href: "/lab", icon: <Upload className="h-4 w-4" /> },
   ];
 
   useEffect(() => {
@@ -45,7 +47,14 @@ const AdminNavbar = () => {
     const adminData = localStorage.getItem("adminUser");
     if (adminData) {
       try {
-        setAdminUser(JSON.parse(adminData));
+        const parsed = JSON.parse(adminData);
+        if (parsed && parsed.email) {
+            setAdminUser(parsed);
+        } else {
+            console.error('Invalid admin data structure');
+            localStorage.removeItem("adminUser");
+            navigate("/admin-login", { replace: true });
+        }
       } catch (error) {
         console.error('Error parsing admin data:', error);
         localStorage.removeItem("adminUser");
@@ -129,6 +138,10 @@ const AdminNavbar = () => {
     } else if (path === "/csv-upload") {
       breadcrumbs.push({ label: "Home", href: "/admin" });
       breadcrumbs.push({ label: "import" });
+
+    } else if (path === "/admin/faculty") {
+      breadcrumbs.push({ label: "Home", href: "/admin" });
+      breadcrumbs.push({ label: "Faculty" });
     }
 
     return breadcrumbs;
@@ -293,13 +306,13 @@ const AdminNavbar = () => {
       </header>
 
       {/* Desktop Sidebar - Responsive width */}
-      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 lg:w-80 xl:w-72 2xl:w-80 md:flex-col md:border-r md:bg-background">
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-30 md:flex md:w-72 lg:w-80 md:flex-col md:border-r md:bg-background">
         <SidebarContent />
       </aside>
 
       {/* Desktop Breadcrumbs - Responsive positioning */}
       {breadcrumbs.length > 0 && (
-        <div className="hidden md:block md:fixed md:top-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 md:right-0 md:z-20 md:border-b md:bg-muted/30 md:px-6 md:py-3">
+        <div className="hidden md:block md:fixed md:top-0 md:left-72 lg:left-80 md:right-0 md:z-20 md:border-b md:bg-muted/30 md:px-6 md:py-3">
           <Breadcrumbs segments={breadcrumbs} />
         </div>
       )}

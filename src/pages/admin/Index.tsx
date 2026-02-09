@@ -50,6 +50,11 @@ const Index = () => {
     try {
       const parsedAdmin = JSON.parse(adminData);
       console.log('Admin user data:', parsedAdmin);
+      
+      if (!parsedAdmin || !parsedAdmin.department_id) {
+        throw new Error("Invalid admin data");
+      }
+
       setAdminUser(parsedAdmin);
 
       // Load departments for this admin's department only and set selection
@@ -154,9 +159,9 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
-        <section className="container py-8 md:pt-16">
-          <div className="mx-auto max-w-3xl">
+      <main className="md:pl-72 lg:pl-80">
+        <section className="container flex flex-col items-center justify-center min-h-[calc(100vh-3.5rem)] md:min-h-screen py-8">
+          <div className="w-full max-w-3xl">
             <header className="mb-8 text-center">
               <h1 className="text-4xl font-bold tracking-tight mb-2" style={{fontFamily: 'Poppins'}}>Fast, Rule‑Based Timetable Generator</h1>
               <p className="text-muted-foreground">Greedy engine with smart constraints. Export to PDF & Excel.</p>

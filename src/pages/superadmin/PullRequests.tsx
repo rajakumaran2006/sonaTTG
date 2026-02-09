@@ -79,10 +79,6 @@ const PullRequests = () => {
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
       <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold">Pull Requests</h1>
-          <p className="text-sm text-muted-foreground">Review timetable change requests</p>
-        </header>
 
         <div className="grid gap-4 md:grid-cols-2">
           {prs.map((pr) => (

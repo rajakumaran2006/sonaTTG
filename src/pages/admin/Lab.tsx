@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useTimetableStore } from "@/store/timetableStore";
 import { getDepartmentByName } from "@/lib/supabaseService";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import { Plus, Trash2, Edit } from "lucide-react";
 
 interface Lab {
   id: string;
@@ -56,6 +60,89 @@ const Lab = () => {
   const [labSchedules, setLabSchedules] = useState<LabSchedule[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(null);
+
+  // Lab Form State
+  const [labDialog, setLabDialog] = useState(false);
+  const [labForm, setLabForm] = useState({
+    name: "",
+    lab_code: "",
+    capacity: 30,
+    max_slots: 3,
+    lab_type: "computer",
+    description: "",
+    building: "",
+    floor: "",
+    room_number: "",
+    equipment_list: [] as string[],
+    safety_equipment: [] as string[],
+    operating_hours: {} as any,
+  });
+
+  const resetLabForm = () => {
+    setLabForm({
+        name: "",
+        lab_code: "",
+        capacity: 30,
+        max_slots: 3,
+        lab_type: "computer",
+        description: "",
+        building: "",
+        floor: "",
+        room_number: "",
+        equipment_list: [],
+        safety_equipment: [],
+        operating_hours: {},
+    });
+  };
+
+  const handleCreateLab = async () => {
+    if (!adminDepartmentId) {
+        toast.error("Admin department not found.");
+        return;
+    }
+    if (!labForm.name || !labForm.lab_code) {
+        toast.error("Please fill in required fields.");
+        return;
+    }
+
+    try {
+        const labData = {
+            ...labForm,
+            departments: [adminDepartmentId], // Auto-assign Admin's department
+            is_active: true
+        };
+
+        const { error } = await (supabase as any)
+            .from('labs')
+            .insert([labData]);
+
+        if (error) throw error;
+
+        toast.success("Lab created successfully!");
+        setLabDialog(false);
+        resetLabForm();
+        // Trigger reload (simplified)
+        window.location.reload(); 
+    } catch (error: any) {
+        console.error("Error creating lab:", error);
+        toast.error(`Failed to create lab: ${error.message}`);
+    }
+  };
+
+  const handleDeleteLab = async (labId: string) => {
+    if (!confirm('Are you sure you want to delete this lab?')) return;
+    try {
+      const { error } = await (supabase as any).from('labs').delete().eq('id', labId);
+      if (error) throw error;
+      toast.success('Lab deleted successfully');
+      setLabs(labs.filter(l => l.id !== labId));
+    } catch (error: any) {
+      console.error('Error deleting lab:', error);
+      toast.error(`Failed to delete lab: ${error.message}`);
+    }
+  };
+
 
   useEffect(() => {
     const adminData = localStorage.getItem("adminUser");
@@ -68,6 +155,7 @@ const Lab = () => {
     (async () => {
       try {
         const parsedAdmin = JSON.parse(adminData);
+        if (!parsedAdmin || !parsedAdmin.department_id) throw new Error("Invalid admin data");
         const { data, error } = await (supabase as any)
           .from('departments')
           .select('*')
@@ -88,6 +176,8 @@ const Lab = () => {
 
         // Set admin's department for selection
         setDepartments(data);
+        setAdminDepartmentId(parsedAdmin.department_id);
+        
         // Automatically set the department selection if not already set
         if (!selection.department) {
           setSelection({ department: data[0].name });
@@ -213,6 +303,9 @@ const Lab = () => {
 
               {/* Department Selection */}
               <div className="flex items-center gap-4">
+                <Button onClick={() => setLabDialog(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Add Lab
+                </Button>
                 <div className="w-48">
                   <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
                     <SelectTrigger className="bg-card">
@@ -227,6 +320,67 @@ const Lab = () => {
                 </div>
               </div>
             </div>
+
+            <Dialog open={labDialog} onOpenChange={setLabDialog}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Add New Lab</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="name">Lab Name *</Label>
+                                <Input id="name" value={labForm.name} onChange={(e) => setLabForm({...labForm, name: e.target.value})} placeholder="e.g. Computer Lab 1" />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="code">Lab Code *</Label>
+                                <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({...labForm, lab_code: e.target.value})} placeholder="e.g. CL1" />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="capacity">Capacity</Label>
+                                <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({...labForm, capacity: +e.target.value})} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="type">Type</Label>
+                                <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({...labForm, lab_type: v})}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="computer">Computer</SelectItem>
+                                        <SelectItem value="electronics">Electronics</SelectItem>
+                                        <SelectItem value="physics">Physics</SelectItem>
+                                        <SelectItem value="chemistry">Chemistry</SelectItem>
+                                        <SelectItem value="other">Other</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="room">Room Number</Label>
+                                <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({...labForm, room_number: e.target.value})} />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                             <div className="grid gap-2">
+                                <Label htmlFor="building">Building</Label>
+                                <Input id="building" value={labForm.building} onChange={(e) => setLabForm({...labForm, building: e.target.value})} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="floor">Floor</Label>
+                                <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({...labForm, floor: e.target.value})} />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="desc">Description</Label>
+                            <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({...labForm, description: e.target.value})} />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setLabDialog(false)}>Cancel</Button>
+                        <Button onClick={handleCreateLab}>Create Lab</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {!ready ? (
               <Card className="rounded-2xl">
@@ -338,10 +492,17 @@ const Lab = () => {
                         {labs.map((lab) => (
                           <Card key={lab.id} className="rounded-lg">
                             <CardHeader className="pb-2">
-                              <CardTitle className="text-sm">{lab.name}</CardTitle>
-                              <Badge variant="outline" className="w-fit">
-                                Lab {lab.id?.slice(0, 8)}
-                              </Badge>
+                              <div className="flex justify-between items-start">
+                                <div>
+                                    <CardTitle className="text-sm">{lab.name}</CardTitle>
+                                    <Badge variant="outline" className="w-fit mt-1">
+                                        Lab {lab.lab_code}
+                                    </Badge>
+                                </div>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </CardHeader>
                             <CardContent className="pt-0">
                               <div className="space-y-2 text-sm">
