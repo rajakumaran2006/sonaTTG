@@ -11,8 +11,20 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
-import { Calendar, Settings, Eye } from "lucide-react";
+import { Calendar, Settings, Eye, Plus, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Department {
   id: string;
@@ -64,11 +76,34 @@ const LabManagement = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
   const [loading, setLoading] = useState(true);
+  const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // Form states for dialogs
   const [scheduleViewDialog, setScheduleViewDialog] = useState(false);
+  const [labDialog, setLabDialog] = useState(false);
   const [selectedLabForSchedule, setSelectedLabForSchedule] = useState<Lab | null>(null);
+  const [labForm, setLabForm] = useState({
+    name: "",
+    lab_code: "",
+    capacity: 30,
+    max_slots: 3,
+    lab_type: "computer",
+    description: "",
+    building: "",
+    floor: "",
+    room_number: "",
+    equipment_list: [] as string[],
+    safety_equipment: [] as string[],
+    operating_hours: {} as any,
+  });
+  const [itAdsLabs, setItAdsLabs] = useState<any[]>([]);
+  const [newSession, setNewSession] = useState({
+    semester: "",
+    academic_year: new Date().getFullYear().toString() + "-" + (new Date().getFullYear() + 1).toString().slice(-2),
+    max_capacity: 30,
+    is_available: true
+  });
 
   const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -83,6 +118,7 @@ const LabManagement = () => {
       loadDepartments();
       loadLabs();
       loadLabSchedules();
+      loadITandADSLabs();
     }
   }, [isLoggedIn, selectedDepartment]);
 
@@ -154,16 +190,177 @@ const LabManagement = () => {
     }
   };
 
+  const resetLabForm = () => {
+    setLabForm({
+      name: "",
+      lab_code: "",
+      capacity: 30,
+      max_slots: 3,
+      lab_type: "computer",
+      description: "",
+      building: "",
+      floor: "",
+      room_number: "",
+      equipment_list: [],
+      safety_equipment: [],
+      operating_hours: {},
+    });
+  };
 
-  const openScheduleViewDialog = (lab: Lab) => {
+  const handleCreateLab = async () => {
+    if (!labForm.name || !labForm.lab_code) {
+      toast.error("Please fill in required fields.");
+      return;
+    }
+
+    try {
+      // For Super Admin, we might want to let them pick departments,
+      // but for now let's auto-assign the currently selected department if applicable
+      const labData = {
+        ...labForm,
+        departments: selectedDepartment !== "all-departments" ? [selectedDepartment] : [],
+        is_active: true
+      };
+
+      const { error } = await (supabase as any)
+        .from('labs')
+        .insert([labData]);
+
+      if (error) throw error;
+
+      toast.success("Lab created successfully!");
+      setLabDialog(false);
+      resetLabForm();
+      loadLabs();
+    } catch (error: any) {
+      console.error("Error creating lab:", error);
+      toast.error(`Failed to create lab: ${error.message}`);
+    }
+  };
+
+  const handleDeleteLab = async (labId: string) => {
+    if (!confirm('Are you sure you want to delete this lab?')) return;
+    try {
+      const { error } = await (supabase as any).from('labs').delete().eq('id', labId);
+      if (error) throw error;
+      toast.success('Lab deleted successfully');
+      setLabs(labs.filter(l => l.id !== labId));
+    } catch (error: any) {
+      console.error('Error deleting lab:', error);
+      toast.error(`Failed to delete lab: ${error.message}`);
+    }
+  };
+
+  const loadITandADSLabs = async () => {
+    try {
+      // First get IT and ADS department IDs
+      const { data: depts, error: deptError } = await (supabase as any)
+        .from('departments')
+        .select('id, name')
+        .or('name.ilike.%IT%,name.ilike.%Info%,name.ilike.%ADS%,name.ilike.%Data Science%');
+
+      if (deptError) throw deptError;
+
+      if (depts && depts.length > 0) {
+        const deptIds = depts.map((d: any) => d.id);
+        const { data: subjs, error: subjsError } = await (supabase as any)
+          .from('subjects')
+          .select('id, name, year, department_id, departments(name)')
+          .eq('type', 'lab')
+          .in('department_id', deptIds);
+
+        if (subjsError) throw subjsError;
+        setItAdsLabs(subjs || []);
+      }
+    } catch (error) {
+      console.error('Error loading IT/ADS labs:', error);
+    }
+  };
+
+
+
+  const openScheduleViewDialog = async (lab: Lab) => {
     setSelectedLabForSchedule(lab);
     setScheduleViewDialog(true);
+
+    // Fetch subjects for the departments associated with this lab
+    try {
+      if (lab.departments && lab.departments.length > 0) {
+        const { data: subjs, error: subjsError } = await (supabase as any)
+          .from('subjects')
+          .select('*')
+          .eq('type', 'lab')
+          .in('department_id', lab.departments)
+          .order('name');
+
+        if (subjsError) throw subjsError;
+        setItAdsLabs(subjs || []);
+      } else {
+        setItAdsLabs([]);
+      }
+    } catch (error) {
+      console.error('Error loading subjects for lab:', error);
+    }
   };
 
   const getScheduleForDay = (dayOfWeek: number) => {
     return labSchedules.filter(schedule =>
       schedule.lab_id === selectedLabForSchedule?.id && schedule.day_of_week === dayOfWeek
     ).sort((a, b) => a.slot_number - b.slot_number);
+  };
+
+
+  const handleAddSchedule = async (slot: { day: number, startTime: string, endTime: string, slotNumber: number }, subjectId: string) => {
+    if (!selectedLabForSchedule || !slot || !subjectId) {
+      toast.error("Please select a lab session from the list");
+      return;
+    }
+
+    try {
+      const selectedLabSubjectData = itAdsLabs.find(l => l.id === subjectId);
+
+      const { error } = await (supabase as any)
+        .from('lab_schedules')
+        .insert([{
+          lab_id: selectedLabForSchedule.id,
+          day_of_week: slot.day,
+          start_time: slot.startTime,
+          end_time: slot.endTime,
+          slot_number: slot.slotNumber,
+          semester: selectedLabSubjectData
+            ? `Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
+            : newSession.semester,
+          academic_year: newSession.academic_year,
+          max_capacity: selectedLabForSchedule.capacity || newSession.max_capacity,
+          is_available: newSession.is_available,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }]);
+
+      if (error) throw error;
+      toast.success("Lab session added successfully");
+      loadLabSchedules();
+    } catch (error: any) {
+      console.error('Error adding lab schedule:', error);
+      toast.error(`Failed to add lab session: ${error.message}`);
+    }
+  };
+
+  const handleRemoveSchedule = async (scheduleId: string) => {
+    if (!confirm("Are you sure you want to remove this lab session?")) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('lab_schedules')
+        .delete()
+        .eq('id', scheduleId);
+
+      if (error) throw error;
+      toast.success("Lab session removed successfully");
+      loadLabSchedules();
+    } catch (error: any) {
+      console.error('Error removing lab schedule:', error);
+      toast.error(`Failed to remove lab session: ${error.message}`);
+    }
   };
 
   const periods = [
@@ -176,10 +373,11 @@ const LabManagement = () => {
     { id: 'P7', time: '3:55-4:50', startTime: '15:55', endTime: '16:50' }
   ];
 
-  const getScheduleForPeriod = (dayOfWeek: number, periodStartTime: string) => {
+  const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
     return labSchedules.find(schedule =>
+      schedule.lab_id === selectedLabForSchedule?.id &&
       schedule.day_of_week === dayOfWeek &&
-      schedule.start_time === periodStartTime
+      schedule.slot_number === slotNumber
     );
   };
 
@@ -200,28 +398,29 @@ const LabManagement = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-        <header className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-48">
-                <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Departments" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all-departments">All Departments</SelectItem>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button onClick={() => navigate('/super-admin')}>
-                Back to Dashboard
-              </Button>
+        <header className="mb-8 flex justify-end">
+          <div className="flex items-center gap-4">
+            <div className="w-48">
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-departments">All Departments</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+            <Button onClick={() => setLabDialog(true)}>
+              <Plus className="mr-2 h-4 w-4" /> Add Lab
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/super-admin')}>
+              Back to Dashboard
+            </Button>
           </div>
         </header>
 
@@ -236,6 +435,67 @@ const LabManagement = () => {
               Schedules
             </TabsTrigger>
           </TabsList>
+
+          <Dialog open={labDialog} onOpenChange={setLabDialog}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Add New Lab</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Lab Name *</Label>
+                    <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="code">Lab Code *</Label>
+                    <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CL1" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="capacity">Capacity</Label>
+                    <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="type">Type</Label>
+                    <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({ ...labForm, lab_type: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="computer">Computer</SelectItem>
+                        <SelectItem value="electronics">Electronics</SelectItem>
+                        <SelectItem value="physics">Physics</SelectItem>
+                        <SelectItem value="chemistry">Chemistry</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="room">Room Number</Label>
+                    <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="building">Building</Label>
+                    <Input id="building" value={labForm.building} onChange={(e) => setLabForm({ ...labForm, building: e.target.value })} />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="floor">Floor</Label>
+                    <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({ ...labForm, floor: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="desc">Description</Label>
+                  <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({ ...labForm, description: e.target.value })} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setLabDialog(false)}>Cancel</Button>
+                <Button onClick={handleCreateLab}>Create Lab</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <TabsContent value="labs" className="space-y-6">
             <div className="flex justify-between items-center">
@@ -298,17 +558,20 @@ const LabManagement = () => {
                     <p className="text-xs text-muted-foreground line-clamp-2">
                       {lab.description}
                     </p>
-                     <div className="flex gap-2 pt-1">
-                       <Button
-                         variant="outline"
-                         size="sm"
-                         onClick={() => openScheduleViewDialog(lab)}
-                         className="flex-1 h-8"
-                       >
-                         <Eye className="h-3 w-3 mr-1" />
-                         View Schedule
-                       </Button>
-                     </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openScheduleViewDialog(lab)}
+                        className="flex-1 h-8"
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        View Schedule
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -319,7 +582,7 @@ const LabManagement = () => {
           <TabsContent value="schedules" className="space-y-6">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold">Lab Schedules</h2>
-               {/* Add Schedule button removed for read-only view */}
+              {/* Add Schedule button removed for read-only view */}
             </div>
 
 
@@ -424,35 +687,75 @@ const LabManagement = () => {
                           {day.name}
                         </TableCell>
                         {periods.map((period) => {
-                          const scheduleForPeriod = getScheduleForPeriod(day.value, period.startTime);
+                          const slotNumber = parseInt(period.id.replace('P', ''));
+                          const scheduleForPeriod = getScheduleForPeriod(day.value, slotNumber);
 
                           return (
-                            <TableCell key={period.id} className="text-center p-3 border-r">
+                            <TableCell key={period.id} className="text-center p-2 border-r">
                               {scheduleForPeriod ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-center">
-                                    <Badge
-                                      variant={scheduleForPeriod.is_available ? "default" : "secondary"}
-                                      className="text-xs"
-                                    >
-                                      {scheduleForPeriod.is_available ? "Available" : "Booked"}
-                                    </Badge>
+                                <div className="space-y-1 relative group flex flex-col items-center">
+                                  <div className="font-bold text-xs text-black text-center leading-tight">
+                                    {scheduleForPeriod.semester || "Allocated"}
                                   </div>
-                                  {scheduleForPeriod.max_capacity && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {scheduleForPeriod.max_capacity} students
-                                    </p>
-                                  )}
-                                  {scheduleForPeriod.semester && (
-                                    <p className="text-xs font-medium text-blue-600">
-                                      {scheduleForPeriod.semester}
-                                    </p>
-                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute -top-2 -right-2 h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => handleRemoveSchedule(scheduleForPeriod.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
                                 </div>
                               ) : (
-                                <div className="flex items-center justify-center h-12">
-                                  <span className="text-muted-foreground text-sm font-medium">Free</span>
-                                </div>
+                                <Popover
+                                  open={openPopoverId === `${day.value}-${period.id}`}
+                                  onOpenChange={(open) => setOpenPopoverId(open ? `${day.value}-${period.id}` : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      role="combobox"
+                                      className="h-10 w-full justify-between border-none bg-transparent hover:bg-muted/50 focus:ring-0 shadow-none px-2"
+                                    >
+                                      <span className="text-primary text-xs font-medium truncate">Accessible</span>
+                                      <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[280px] p-0 overflow-hidden shadow-xl border-2" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search subject..." className="h-9 border-b" />
+                                      <CommandList
+                                        className="max-h-[350px] overflow-y-auto scrollbar-thin"
+                                      >
+                                        <CommandEmpty>No subject found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {itAdsLabs.map((subj) => (
+                                            <CommandItem
+                                              key={subj.id}
+                                              value={subj.name}
+                                              onSelect={() => {
+                                                const slot = {
+                                                  day: day.value,
+                                                  startTime: period.startTime,
+                                                  endTime: period.endTime,
+                                                  slotNumber: parseInt(period.id.replace('P', ''))
+                                                };
+                                                handleAddSchedule(slot, subj.id);
+                                                setOpenPopoverId(null);
+                                              }}
+                                              className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
+                                            >
+                                              <div className="flex flex-col text-left">
+                                                <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
+                                                <span className="text-[11px] text-muted-foreground">Year {subj.year}</span>
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
                               )}
                             </TableCell>
                           );
@@ -474,8 +777,8 @@ const LabManagement = () => {
                   <span>Special Activities</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Free</span>
-                  <span>Free Periods</span>
+                  <span className="text-primary font-medium">Accessible</span>
+                  <span>Add Lab Session</span>
                 </div>
               </div>
             </div>
@@ -488,6 +791,7 @@ const LabManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </main>
   );
 };

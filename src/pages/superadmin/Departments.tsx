@@ -27,19 +27,19 @@ const Departments = () => {
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [stats, setStats] = useState<{ [id: string]: DeptStats }>({});
   const [search, setSearch] = useState("");
-  
+
   // Bulk delete state
   const [selectedDepartments, setSelectedDepartments] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState<boolean>(false);
   const [deleteMode, setDeleteMode] = useState<boolean>(false);
-  
+
   // Inline editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
 
   const filtered = useMemo(() =>
     departments.filter((d) => d.name.toLowerCase().includes(search.toLowerCase())),
-  [departments, search]);
+    [departments, search]);
 
   useEffect(() => {
     document.title = "Departments - Super Admin";
@@ -137,19 +137,19 @@ const Departments = () => {
     try {
       const deptIds = Array.from(selectedDepartments);
       const deptNames = deptIds.map(id => departments.find(d => d.id === id)?.name).filter(Boolean);
-      
+
       const { error } = await (supabase as any)
         .from('departments')
         .delete()
         .in('id', deptIds);
-      
+
       if (error) {
         toast.error('Failed to delete departments');
         return;
       }
 
       toast.success(`Successfully deleted ${selectedDepartments.size} department(s)`);
-      
+
       // Update state
       setDepartments(prev => prev.filter(d => !selectedDepartments.has(d.id)));
       setStats(prev => {
@@ -169,39 +169,39 @@ const Departments = () => {
   const handleEdit = (id: string, name: string) => {
     navigate(`/super-admin/departments/edit/${id}`, { state: { name } });
   };
-  
+
   const handleInlineEdit = (id: string, name: string) => {
     setEditingId(id);
     setEditingName(name);
   };
-  
+
   const handleSaveEdit = async (id: string) => {
     if (editingName.trim() === '') return;
-    
+
     try {
       const { error } = await supabase
         .from('departments')
         .update({ name: editingName.trim() })
         .eq('id', id);
-      
+
       if (error) throw error;
-      
+
       // Update local state
-      setDepartments(prev => 
+      setDepartments(prev =>
         prev.map(d => d.id === id ? { ...d, name: editingName.trim() } : d)
       );
-      
+
       // Reset editing state
       setEditingId(null);
       setEditingName('');
-      
+
       toast.success('Department name updated successfully');
     } catch (error) {
       console.error('Error updating department:', error);
       toast.error('Failed to update department name');
     }
   };
-  
+
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditingName('');
@@ -322,7 +322,7 @@ const Departments = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleBulkDelete}
             >

@@ -12,7 +12,21 @@ import { getDepartmentByName } from "@/lib/supabaseService";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
-import { Plus, Trash2, Edit } from "lucide-react";
+import { Plus, Trash2, Edit, Calendar, Settings, Eye } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Lab {
   id: string;
@@ -35,7 +49,7 @@ interface Lab {
   updated_at: string;
 }
 
-interface LabSchedule {
+interface LabScheduleDetail {
   id: string;
   lab_id: string;
   day_of_week: number;
@@ -50,20 +64,33 @@ interface LabSchedule {
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6', 'Period 7'];
+const periods = [
+  { id: 'P1', time: '9:00-9:55', startTime: '09:00', endTime: '09:55' },
+  { id: 'P2', time: '9:55-10:50', startTime: '09:55', endTime: '10:50' },
+  { id: 'P3', time: '11:05-12:00', startTime: '11:05', endTime: '12:00' },
+  { id: 'P4', time: '12:00-12:55', startTime: '12:00', endTime: '12:55' },
+  { id: 'P5', time: '1:55-2:50', startTime: '13:55', endTime: '14:50' },
+  { id: 'P6', time: '2:50-3:45', startTime: '14:50', endTime: '15:45' },
+  { id: 'P7', time: '3:55-4:50', startTime: '15:55', endTime: '16:50' }
+];
 
 const Lab = () => {
   const navigate = useNavigate();
   const selection = useTimetableStore((s) => s.selection);
   const setSelection = useTimetableStore((s) => s.setSelection);
+
   const [labs, setLabs] = useState<Lab[]>([]);
-  const [labSchedules, setLabSchedules] = useState<LabSchedule[]>([]);
+  const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(null);
+  const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
 
-  // Lab Form State
+  // Form states for dialogs
   const [labDialog, setLabDialog] = useState(false);
+  const [scheduleViewDialog, setScheduleViewDialog] = useState(false);
+  const [selectedLabForSchedule, setSelectedLabForSchedule] = useState<Lab | null>(null);
   const [labForm, setLabForm] = useState({
     name: "",
     lab_code: "",
@@ -78,55 +105,62 @@ const Lab = () => {
     safety_equipment: [] as string[],
     operating_hours: {} as any,
   });
+  const [itAdsLabs, setItAdsLabs] = useState<any[]>([]);
+  const [newSession, setNewSession] = useState({
+    semester: "",
+    academic_year: new Date().getFullYear().toString() + "-" + (new Date().getFullYear() + 1).toString().slice(-2),
+    max_capacity: 30,
+    is_available: true
+  });
 
   const resetLabForm = () => {
     setLabForm({
-        name: "",
-        lab_code: "",
-        capacity: 30,
-        max_slots: 3,
-        lab_type: "computer",
-        description: "",
-        building: "",
-        floor: "",
-        room_number: "",
-        equipment_list: [],
-        safety_equipment: [],
-        operating_hours: {},
+      name: "",
+      lab_code: "",
+      capacity: 30,
+      max_slots: 3,
+      lab_type: "computer",
+      description: "",
+      building: "",
+      floor: "",
+      room_number: "",
+      equipment_list: [],
+      safety_equipment: [],
+      operating_hours: {},
     });
   };
 
   const handleCreateLab = async () => {
     if (!adminDepartmentId) {
-        toast.error("Admin department not found.");
-        return;
+      toast.error("Admin department not found.");
+      return;
     }
     if (!labForm.name || !labForm.lab_code) {
-        toast.error("Please fill in required fields.");
-        return;
+      toast.error("Please fill in required fields.");
+      return;
     }
 
     try {
-        const labData = {
-            ...labForm,
-            departments: [adminDepartmentId], // Auto-assign Admin's department
-            is_active: true
-        };
+      const labData = {
+        ...labForm,
+        departments: [adminDepartmentId], // Auto-assign Admin's department
+        is_active: true
+      };
 
-        const { error } = await (supabase as any)
-            .from('labs')
-            .insert([labData]);
+      const { error } = await (supabase as any)
+        .from('labs')
+        .insert([labData]);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        toast.success("Lab created successfully!");
-        setLabDialog(false);
-        resetLabForm();
-        // Trigger reload (simplified)
-        window.location.reload(); 
+      toast.success("Lab created successfully!");
+      setLabDialog(false);
+      resetLabForm();
+      // Trigger reload (simplified)
+      window.location.reload();
     } catch (error: any) {
-        console.error("Error creating lab:", error);
-        toast.error(`Failed to create lab: ${error.message}`);
+      console.error("Error creating lab:", error);
+      toast.error(`Failed to create lab: ${error.message}`);
     }
   };
 
@@ -177,10 +211,10 @@ const Lab = () => {
         // Set admin's department for selection
         setDepartments(data);
         setAdminDepartmentId(parsedAdmin.department_id);
-        
+
         // Automatically set the department selection if not already set
         if (!selection.department) {
-          setSelection({ department: data[0].name });
+          setSelectedDepartment("all-departments");
         }
 
         // Also load all departments for lab display
@@ -199,72 +233,180 @@ const Lab = () => {
         setLoading(false);
       }
     })();
-  }, [navigate, setSelection, selection.department]);
+  }, [navigate]);
+
+  const openScheduleViewDialog = async (lab: Lab) => {
+    setSelectedLabForSchedule(lab);
+    setScheduleViewDialog(true);
+
+    // Fetch subjects for the departments associated with this lab
+    try {
+      if (lab.departments && lab.departments.length > 0) {
+        const { data: subjs, error: subjsError } = await (supabase as any)
+          .from('subjects')
+          .select('*')
+          .eq('type', 'lab')
+          .in('department_id', lab.departments)
+          .order('name');
+
+        if (subjsError) throw subjsError;
+        setItAdsLabs(subjs || []);
+      } else {
+        setItAdsLabs([]);
+      }
+    } catch (error) {
+      console.error('Error loading subjects for lab:', error);
+    }
+  };
+
+  const loadLabs = async () => {
+    try {
+      setLoading(true);
+      let query = (supabase as any)
+        .from('labs')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+
+      if (selectedDepartment && selectedDepartment !== "all-departments") {
+        query = query.contains('departments', [selectedDepartment]);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setLabs(data || []);
+    } catch (error) {
+      console.error('Error loading labs:', error);
+      toast.error('Failed to load labs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadLabSchedules = async () => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('lab_schedules')
+        .select(`
+          *,
+          labs(name)
+        `)
+        .order('lab_id, day_of_week, start_time');
+
+      if (error) throw error;
+      setLabSchedules(data || []);
+    } catch (error) {
+      console.error('Error loading lab schedules:', error);
+      toast.error('Failed to load lab schedules');
+    }
+  };
 
   useEffect(() => {
-    if (!selection.department) return;
+    loadLabs();
+    loadLabSchedules();
+  }, [selectedDepartment]);
 
-    (async () => {
-      try {
-        setLoading(true);
-
-        // Note: Current labs table doesn't have department_id, so we fetch all labs
-        // In a real implementation, we'd filter by the admin's department
-
-        // Get department ID for filtering
-        const dept = await getDepartmentByName(selection.department);
-        if (!dept) {
-          setLoading(false);
-          return;
-        }
-
-        // Note: departments field may not exist in current schema
-        // Fetch labs for this admin's department only
-        const { data: labsData, error: labsError } = await (supabase as any)
-          .from('labs')
-          .select('*')
-          .contains('departments', [dept.id])
-          .eq('is_active', true);
-
-        if (labsError) {
-          console.error('Error fetching labs:', labsError);
-          toast.error(`Failed to load labs: ${labsError.message}`);
-          setLoading(false);
-          return;
-        }
-
-        setLabs(labsData || []);
-
-        // Fetch lab schedules for this department's labs
-        const { data: schedulesData, error: schedulesError } = await (supabase as any)
-          .from('lab_schedules')
-          .select('*')
-          .in('lab_id', labsData?.map(lab => lab.id) || []);
-
-        if (schedulesError) {
-          console.error('Error fetching lab schedules:', schedulesError);
-          toast.error(`Failed to load lab schedules: ${schedulesError.message}`);
-          setLoading(false);
-          return;
-        }
-
-        setLabSchedules(schedulesData || []);
-      } catch (error) {
-        console.error('Error loading lab data:', error);
-        toast.error('Failed to load lab data');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [selection.department]);
-
-  const getLabScheduleForSlot = (dayIndex: number, periodIndex: number) => {
-    return labSchedules.find(
-      schedule => schedule.day_of_week === dayIndex + 1 && schedule.slot_number === periodIndex + 1
+  const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
+    return labSchedules.find(schedule =>
+      schedule.lab_id === selectedLabForSchedule?.id &&
+      schedule.day_of_week === dayOfWeek &&
+      schedule.slot_number === slotNumber
     );
   };
 
-  const getLabNameForSchedule = (schedule: LabSchedule) => {
+  const loadITandADSLabs = async () => {
+    try {
+      const { data: depts, error: deptError } = await (supabase as any)
+        .from('departments')
+        .select('id, name')
+        .or('name.ilike.%IT%,name.ilike.%Information Technology%,name.ilike.%ADS%,name.ilike.%Applied Data Science%');
+
+      if (deptError) throw deptError;
+
+      if (depts && depts.length > 0) {
+        const deptIds = depts.map((d: any) => d.id);
+        const { data: subjs, error: subjsError } = await (supabase as any)
+          .from('subjects')
+          .select('id, name, year, department_id, departments(name)')
+          .eq('type', 'lab')
+          .in('department_id', deptIds);
+
+        if (subjsError) throw subjsError;
+        setItAdsLabs(subjs || []);
+      }
+    } catch (error) {
+      console.error('Error loading IT/ADS labs:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadITandADSLabs();
+  }, []);
+
+  const handleAddSchedule = async (slot: { day: number, startTime: string, endTime: string, slotNumber: number, labId: string }, subjectId: string) => {
+    if (!slot || !subjectId) {
+      toast.error("Please select a lab session from the list");
+      return;
+    }
+
+    try {
+      const selectedLabSubjectData = itAdsLabs.find(l => l.id === subjectId);
+
+      const { error } = await (supabase as any)
+        .from('lab_schedules')
+        .insert([{
+          lab_id: slot.labId,
+          day_of_week: slot.day,
+          start_time: slot.startTime,
+          end_time: slot.endTime,
+          slot_number: slot.slotNumber,
+          semester: selectedLabSubjectData
+            ? `Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
+            : newSession.semester,
+          academic_year: newSession.academic_year,
+          max_capacity: labs.find(l => l.id === slot.labId)?.capacity || newSession.max_capacity,
+          is_available: newSession.is_available,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }]);
+
+      if (error) throw error;
+      toast.success("Lab session added successfully");
+
+      // Trigger reload of schedules
+      const { data: schedulesData } = await (supabase as any)
+        .from('lab_schedules')
+        .select('*')
+        .in('lab_id', labs.map(lab => lab.id));
+      setLabSchedules(schedulesData || []);
+    } catch (error: any) {
+      console.error('Error adding lab schedule:', error);
+      toast.error(`Failed to add lab session: ${error.message}`);
+    }
+  };
+
+  const handleRemoveSchedule = async (scheduleId: string) => {
+    if (!confirm("Are you sure you want to remove this lab session?")) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('lab_schedules')
+        .delete()
+        .eq('id', scheduleId);
+
+      if (error) throw error;
+      toast.success("Lab session removed successfully");
+      const { data: schedulesData } = await (supabase as any)
+        .from('lab_schedules')
+        .select('*')
+        .in('lab_id', labs.map(lab => lab.id));
+      setLabSchedules(schedulesData || []);
+    } catch (error: any) {
+      console.error('Error removing lab schedule:', error);
+      toast.error(`Failed to remove lab session: ${error.message}`);
+    }
+  };
+
+  const getLabNameForSchedule = (schedule: LabScheduleDetail) => {
     const lab = labs.find(l => l.id === schedule.lab_id);
     return lab?.name || 'Unknown Lab';
   };
@@ -291,264 +433,405 @@ const Lab = () => {
         <section className="container py-8">
           <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Lab Schedule</h1>
-                <p className="text-muted-foreground">
-                  {selection.department ? `Department: ${selection.department}` : 'All Labs (Department filtering coming soon)'}
-                  {selection.year ? ` • Year: ${selection.year}` : ''}
-                  {selection.section ? ` • Section: ${selection.section}` : ''}
-                </p>
-              </div>
-
-              {/* Department Selection */}
+            <header className="mb-8 flex justify-end">
               <div className="flex items-center gap-4">
-                <Button onClick={() => setLabDialog(true)}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Lab
-                </Button>
                 <div className="w-48">
-                  <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
-                    <SelectTrigger className="bg-card">
-                      <SelectValue placeholder="Select Department" />
+                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All Departments" />
                     </SelectTrigger>
-                    <SelectContent className="z-50 bg-popover">
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                    <SelectContent>
+                      <SelectItem value="all-departments">All Departments</SelectItem>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                <Button onClick={() => setLabDialog(true)}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Lab
+                </Button>
               </div>
-            </div>
+            </header>
 
-            <Dialog open={labDialog} onOpenChange={setLabDialog}>
+            <Tabs defaultValue="labs" className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="labs" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Labs
+                </TabsTrigger>
+                <TabsTrigger value="schedules" className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Schedules
+                </TabsTrigger>
+              </TabsList>
+
+              <Dialog open={labDialog} onOpenChange={setLabDialog}>
                 <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Add New Lab</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="name">Lab Name *</Label>
-                                <Input id="name" value={labForm.name} onChange={(e) => setLabForm({...labForm, name: e.target.value})} placeholder="e.g. Computer Lab 1" />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="code">Lab Code *</Label>
-                                <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({...labForm, lab_code: e.target.value})} placeholder="e.g. CL1" />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="capacity">Capacity</Label>
-                                <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({...labForm, capacity: +e.target.value})} />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="type">Type</Label>
-                                <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({...labForm, lab_type: v})}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="computer">Computer</SelectItem>
-                                        <SelectItem value="electronics">Electronics</SelectItem>
-                                        <SelectItem value="physics">Physics</SelectItem>
-                                        <SelectItem value="chemistry">Chemistry</SelectItem>
-                                        <SelectItem value="other">Other</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="room">Room Number</Label>
-                                <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({...labForm, room_number: e.target.value})} />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                             <div className="grid gap-2">
-                                <Label htmlFor="building">Building</Label>
-                                <Input id="building" value={labForm.building} onChange={(e) => setLabForm({...labForm, building: e.target.value})} />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="floor">Floor</Label>
-                                <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({...labForm, floor: e.target.value})} />
-                            </div>
-                        </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="desc">Description</Label>
-                            <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({...labForm, description: e.target.value})} />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setLabDialog(false)}>Cancel</Button>
-                        <Button onClick={handleCreateLab}>Create Lab</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {!ready ? (
-              <Card className="rounded-2xl">
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">Please select a department to view lab schedules.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                {/* Lab Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Card className="rounded-2xl">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Total Labs</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{labs.length}</div>
-                    </CardContent>
-                  </Card>
-                  <Card className="rounded-2xl">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Active Schedules</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{labSchedules.length}</div>
-                    </CardContent>
-                  </Card>
-                  <Card className="rounded-2xl">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Available Slots</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">
-                        {labSchedules.filter(s => s.is_available).length}
+                  <DialogHeader>
+                    <DialogTitle>Add New Lab</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="name">Lab Name *</Label>
+                        <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
                       </div>
-                    </CardContent>
-                  </Card>
+                      <div className="grid gap-2">
+                        <Label htmlFor="code">Lab Code *</Label>
+                        <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CL1" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="capacity">Capacity</Label>
+                        <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="type">Type</Label>
+                        <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({ ...labForm, lab_type: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="computer">Computer</SelectItem>
+                            <SelectItem value="electronics">Electronics</SelectItem>
+                            <SelectItem value="physics">Physics</SelectItem>
+                            <SelectItem value="chemistry">Chemistry</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="room">Room Number</Label>
+                        <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="building">Building</Label>
+                        <Input id="building" value={labForm.building} onChange={(e) => setLabForm({ ...labForm, building: e.target.value })} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="floor">Floor</Label>
+                        <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({ ...labForm, floor: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="desc">Description</Label>
+                      <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({ ...labForm, description: e.target.value })} />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setLabDialog(false)}>Cancel</Button>
+                    <Button onClick={handleCreateLab}>Create Lab</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <TabsContent value="labs" className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Lab Facilities</h2>
                 </div>
 
-                {/* 7x7 Grid */}
-                <Card className="rounded-2xl">
-                  <CardHeader>
-                    <CardTitle>Weekly Lab Schedule</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr>
-                            <th className="border p-2 text-center font-medium bg-muted/50">Day/Period</th>
-                            {PERIODS.map((period, index) => (
-                              <th key={index} className="border p-2 text-center font-medium bg-muted/50 min-w-[120px]">
-                                {period}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {DAYS.map((day, dayIndex) => (
-                            <tr key={dayIndex}>
-                              <td className="border p-2 text-center font-medium bg-muted/30 min-w-[100px]">
-                                {day}
-                              </td>
-                              {PERIODS.map((_, periodIndex) => {
-                                const schedule = getLabScheduleForSlot(dayIndex, periodIndex);
+                <div className="grid gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {labs.map((lab) => (
+                    <Card key={lab.id} className="relative">
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <CardTitle className="text-base font-semibold leading-tight">{lab.name}</CardTitle>
+                            <CardDescription className="text-xs">
+                              {lab.building && `${lab.building}, `}
+                              {lab.floor && `${lab.floor}, `}
+                              {lab.room_number && `Room ${lab.room_number}`}
+                            </CardDescription>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={lab.is_active ? "default" : "secondary"} className="text-[10px] py-0.5 px-2">
+                              {lab.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground text-xs">Capacity</span>
+                          <span className="font-medium text-sm">{lab.capacity} students</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground text-xs">Location</span>
+                          <span className="font-medium text-right text-sm truncate max-w-[60%]">
+                            {lab.building}{lab.floor ? `, ${lab.floor}` : ''}{lab.room_number ? `, Room ${lab.room_number}` : ''}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-sm text-muted-foreground">Available Departments:</span>
+                          <div className="flex flex-wrap gap-1">
+                            {lab.departments && lab.departments.length > 0 ? (
+                              lab.departments.map((deptId) => {
+                                const dept = departments.find(d => d.id === deptId);
                                 return (
-                                  <td key={periodIndex} className="border p-2 text-center min-h-[60px]">
-                                    {schedule ? (
-                                      <div className="space-y-1">
-                                        <div className="font-medium text-sm">
-                                          {getLabNameForSchedule(schedule)}
-                                        </div>
-                                        <Badge
-                                          variant={schedule.is_available ? "default" : "secondary"}
-                                          className="text-xs"
-                                        >
-                                          {schedule.is_available ? "Available" : "Booked"}
-                                        </Badge>
-                                        <div className="text-xs text-muted-foreground">
-                                          {schedule.start_time} - {schedule.end_time}
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                          Cap: {schedule.max_capacity}
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="text-muted-foreground text-sm">
-                                        Free
-                                      </div>
-                                    )}
-                                  </td>
+                                  <Badge key={deptId} variant="outline" className="text-[10px]">
+                                    {dept?.name || 'Unknown'}
+                                  </Badge>
                                 );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-                {/* Lab List */}
-                {labs.length > 0 && (
-                  <Card className="rounded-2xl">
-                    <CardHeader>
-                      <CardTitle>Available Labs</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {labs.map((lab) => (
-                          <Card key={lab.id} className="rounded-lg">
-                            <CardHeader className="pb-2">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                    <CardTitle className="text-sm">{lab.name}</CardTitle>
-                                    <Badge variant="outline" className="w-fit mt-1">
-                                        Lab {lab.lab_code}
-                                    </Badge>
-                                </div>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="pt-0">
-                              <div className="space-y-2 text-sm">
-                                <div className="text-muted-foreground">
-                                  Room: {lab.building}-{lab.floor}-{lab.room_number}
-                                </div>
-                                <div className="text-muted-foreground">
-                                  Capacity: {lab.capacity}
-                                </div>
-                                <div className="text-muted-foreground">
-                                  Max Slots: {lab.max_slots}
-                                </div>
-                                <div className="text-muted-foreground">
-                                  Status: {lab.is_active ? 'Active' : 'Inactive'}
-                                </div>
-                                <div className="text-muted-foreground">
-                                  <span className="font-medium">Departments:</span>
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {lab.departments && lab.departments.length > 0 ? (
-                                      lab.departments.map((deptId) => {
-                                        const dept = departments.find(d => d.id === deptId);
-                                        return (
-                                          <Badge key={deptId} variant="outline" className="text-xs">
-                                            {dept?.name || 'Unknown'}
-                                          </Badge>
-                                        );
-                                      })
-                                    ) : (
-                                      <span className="text-xs">No departments (field may not exist in current schema)</span>
-                                    )}
+                              })
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">
+                                No departments
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {lab.description}
+                        </p>
+                        <div className="flex gap-2 pt-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openScheduleViewDialog(lab)}
+                            className="flex-1 h-8"
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            View Schedule
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="schedules" className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold">Lab Schedules</h2>
+                </div>
+
+                <div className="space-y-4">
+                  {labs.map((lab) => {
+                    const labScheds = labSchedules.filter(schedule => schedule.lab_id === lab.id);
+                    if (labScheds.length === 0) return null;
+
+                    return (
+                      <Card key={lab.id}>
+                        <CardHeader>
+                          <CardTitle>{lab.name} - Schedule</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {labScheds.map((schedule) => (
+                              <div key={schedule.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
+                                <div className="flex-1">
+                                  <div className="font-medium">
+                                    {DAYS[schedule.day_of_week - 1]} - Slot {schedule.slot_number}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {schedule.start_time} - {schedule.end_time}
                                   </div>
                                 </div>
+                                <div className="text-right flex items-center gap-4">
+                                  <div>
+                                    <div className="font-medium">{schedule.max_capacity} students</div>
+                                    <Badge variant={schedule.is_available ? "default" : "secondary"}>
+                                      {schedule.is_available ? "Available" : "Unavailable"}
+                                    </Badge>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-destructive"
+                                    onClick={() => handleRemoveSchedule(schedule.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </>
-            )}
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </section>
       </main>
-    </div>
+
+      {/* Schedule View Modal */}
+      <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedLabForSchedule && (
+            <div className="space-y-4">
+              {/* Lab Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/20 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Building</p>
+                  <p className="font-semibold">{selectedLabForSchedule.building}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Floor</p>
+                  <p className="font-semibold">{selectedLabForSchedule.floor}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Room</p>
+                  <p className="font-semibold">{selectedLabForSchedule.room_number}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Capacity</p>
+                  <p className="font-semibold">{selectedLabForSchedule.capacity} students</p>
+                </div>
+              </div>
+
+              {/* Schedule Table */}
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-24 font-bold text-center border-r">Day / Period</TableHead>
+                      {periods.map((period) => (
+                        <TableHead key={period.id} className="text-center border-r min-w-[100px]">
+                          <div className="space-y-1">
+                            <div className="font-bold text-sm">{period.id}</div>
+                            <div className="text-xs text-muted-foreground">{period.time}</div>
+                          </div>
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[
+                      { name: 'Monday', value: 1 },
+                      { name: 'Tuesday', value: 2 },
+                      { name: 'Wednesday', value: 3 },
+                      { name: 'Thursday', value: 4 },
+                      { name: 'Friday', value: 5 },
+                      { name: 'Saturday', value: 6 }
+                    ].map((day) => (
+                      <TableRow key={day.name} className="hover:bg-muted/20">
+                        <TableCell className="font-medium text-center border-r bg-muted/30">
+                          {day.name}
+                        </TableCell>
+                        {periods.map((period) => {
+                          const slotNumber = parseInt(period.id.replace('P', ''));
+                          const scheduleForPeriod = getScheduleForPeriod(day.value, slotNumber);
+
+                          return (
+                            <TableCell key={period.id} className="text-center p-2 border-r">
+                              {scheduleForPeriod ? (
+                                <div className="space-y-1 relative group flex flex-col items-center">
+                                  <div className="font-bold text-xs text-black text-center leading-tight">
+                                    {scheduleForPeriod.semester || "Allocated"}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="absolute -top-2 -right-2 h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() => handleRemoveSchedule(scheduleForPeriod.id)}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <Popover
+                                  open={openPopoverId === `${day.value}-${period.id}`}
+                                  onOpenChange={(open) => setOpenPopoverId(open ? `${day.value}-${period.id}` : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      role="combobox"
+                                      className="h-10 w-full justify-between border-none bg-transparent hover:bg-muted/50 focus:ring-0 shadow-none px-2"
+                                    >
+                                      <span className="text-primary text-xs font-medium truncate">Accessible</span>
+                                      <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[280px] p-0 overflow-hidden shadow-xl border-2" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search subject..." className="h-9 border-b" />
+                                      <CommandList
+                                        className="max-h-[350px] overflow-y-auto scrollbar-thin"
+                                      >
+                                        <CommandEmpty>No subject found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {itAdsLabs.map((subj) => (
+                                            <CommandItem
+                                              key={subj.id}
+                                              value={subj.name}
+                                              onSelect={() => {
+                                                const slot = {
+                                                  day: day.value,
+                                                  startTime: period.startTime,
+                                                  endTime: period.endTime,
+                                                  slotNumber: parseInt(period.id.replace('P', '')),
+                                                  labId: selectedLabForSchedule.id
+                                                };
+                                                handleAddSchedule(slot, subj.id);
+                                                setOpenPopoverId(null);
+                                              }}
+                                              className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
+                                            >
+                                              <div className="flex flex-col text-left">
+                                                <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
+                                                <span className="text-[11px] text-muted-foreground">Year {subj.year}</span>
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Legend */}
+              <div className="flex gap-6 text-sm justify-center">
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                  <span>Regular Classes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 bg-yellow-500 rounded"></div>
+                  <span>Special Activities</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-primary font-medium">Accessible</span>
+                  <span>Add Lab Session</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setScheduleViewDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </div >
   );
 };
 

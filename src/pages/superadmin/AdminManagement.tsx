@@ -329,7 +329,7 @@ const AdminManagement = () => {
     try {
       const { error } = await (supabase as any)
         .from('admin_users')
-        .update({ is_active: false })
+        .delete()
         .eq('id', adminId);
 
       if (error) {
@@ -402,64 +402,64 @@ const AdminManagement = () => {
                   Create Admin
                 </Button>
               </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create New Admin</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  />
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New Admin</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Name</Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="department">Department</Label>
+                    <Select
+                      value={formData.department_id}
+                      onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={departments.length === 0 ? "No departments available" : "Select department"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="department">Department</Label>
-                  <Select
-                    value={formData.department_id}
-                    onValueChange={(value) => setFormData({...formData, department_id: value})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={departments.length === 0 ? "No departments available" : "Select department"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpenCreate(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateAdmin}>Create Admin</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setOpenCreate(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateAdmin}>Create Admin</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </header>
 
@@ -554,7 +554,7 @@ const AdminManagement = () => {
                 <Input
                   id="edit-name"
                   value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
               </div>
               <div className="grid gap-2">
@@ -563,14 +563,14 @@ const AdminManagement = () => {
                   id="edit-email"
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-department">Department</Label>
                 <Select
                   value={formData.department_id}
-                  onValueChange={(value) => setFormData({...formData, department_id: value})}
+                  onValueChange={(value) => setFormData({ ...formData, department_id: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
@@ -590,7 +590,7 @@ const AdminManagement = () => {
                   id="edit-password"
                   type="password"
                   value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 />
               </div>
             </div>
