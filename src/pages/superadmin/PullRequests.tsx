@@ -78,8 +78,26 @@ const PullRequests = () => {
   return (
     <main className="min-h-screen bg-background">
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="container py-8 md:pt-16">
+          <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Pull Requests</h1>
+              <p className="text-muted-foreground">Review and manage timetable update requests.</p>
+            </div>
+            <div className="flex gap-2">
+              {['All', 'Pending', 'Approved', 'Rejected'].map((s) => (
+                <Button 
+                  key={s} 
+                  variant={status === s ? 'default' : 'outline'}
+                  onClick={() => setStatus(s as any)}
+                  size="sm"
+                >
+                  {s}
+                </Button>
+              ))}
+            </div>
+          </header>
         <div className="grid gap-4 md:grid-cols-2">
           {prs.map((pr) => (
             <Card key={pr.id} className="rounded-xl">
@@ -119,7 +137,8 @@ const PullRequests = () => {
             </div>
           )}
         </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 };

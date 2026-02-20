@@ -25,9 +25,10 @@ interface SpecialHoursManagerProps {
   departmentId: string;
   year: string;
   onConfigUpdate: (configs: SpecialHoursConfig[]) => void;
+  className?: string;
 }
 
-export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: SpecialHoursManagerProps) {
+export function SpecialHoursManager({ departmentId, year, onConfigUpdate, className }: SpecialHoursManagerProps) {
   const { toast } = useToast();
   const [configs, setConfigs] = useState<SpecialHoursConfig[]>([]);
   const [editingConfig, setEditingConfig] = useState<SpecialHoursConfig | null>(null);
@@ -247,22 +248,21 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate }: Spec
   };
 
   return (
-    <Card className="rounded-2xl">
-      <CardHeader>
+    <Card className={`rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm ${className || ''}`}>
+      <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Special Hours Configuration</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              Department: {departmentId} • Year: {year} • Total Hours: {getTotalHours()}
+            <CardTitle className="text-lg font-bold">Special Hours Configuration</CardTitle>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-1">
+              {getTotalHours()} hours configured for this class
             </p>
           </div>
-          <Button onClick={() => openEditDialog()} size="sm">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Special
+          <Button onClick={() => openEditDialog()} size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-full hover:bg-primary/10">
+            <Plus className="h-4 w-4 text-primary" />
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 pt-0">
         {configs.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
             No special hours configured. Click "Add Special" to create one.

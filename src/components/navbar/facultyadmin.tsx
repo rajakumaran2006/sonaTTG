@@ -21,10 +21,9 @@ const Navbar = () => {
   }, []);
 
   const navItems: NavItem[] = [
-    { label: "Departments", href: "/super-admin/departments" },
-    { label: "Faculty", href: "/super-admin/faculty" },
-    { label: "Faculty Schedules", href: "/super-admin/faculty-schedules" },
-    { label: "Labs", href: "/super-admin/labs" },
+    { label: "Dashboard", href: "/faculty" },
+    { label: "Faculty", href: "/faculty/view-dept-faculty" },
+    { label: "Subjects", href: "/faculty/subjects" },
     { label: "Pull Requests", href: "/pull-requests", badge: pendingCount },
     { label: "Current Timetables", href: "/current-timetables" }
   ];
@@ -56,10 +55,10 @@ const Navbar = () => {
 
 
   const handleSuperAdminLogin = () => {
-    navigate("/super-admin-login");
+    navigate("/");
   };
   const handleAdminLogin = () => {
-    navigate("/admin-login");
+    navigate("/");
   };
 
 
@@ -75,7 +74,7 @@ const Navbar = () => {
     <header className="border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <nav className="container h-14 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link to="/super-admin" className="font-semibold">
+          <Link to="/super-admin" className="font-semibold uppercase">
             OptiTime
           </Link>
         </div>

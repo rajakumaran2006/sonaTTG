@@ -180,6 +180,41 @@ export async function deleteSubject(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function getSectionSubjects(departmentId: string, year: string, section: string): Promise<string[]> {
+  const { data, error } = await (supabase as any)
+    .from('section_subjects')
+    .select('subject_id')
+    .eq('department_id', departmentId)
+    .eq('year', year)
+    .eq('section', section);
+  
+  if (error) throw error;
+  return (data || []).map((r: any) => r.subject_id);
+}
+
+export async function saveSectionSubjects(departmentId: string, year: string, section: string, subjectIds: string[]): Promise<void> {
+  // Delete existing
+  await (supabase as any)
+    .from('section_subjects')
+    .delete()
+    .eq('department_id', departmentId)
+    .eq('year', year)
+    .eq('section', section);
+  
+  if (subjectIds.length > 0) {
+    const rows = subjectIds.map(sid => ({
+      department_id: departmentId,
+      year,
+      section,
+      subject_id: sid
+    }));
+    const { error } = await (supabase as any)
+      .from('section_subjects')
+      .insert(rows);
+    if (error) throw error;
+  }
+}
+
 // Timetable operations
 export async function saveTimetable(
   departmentId: string,
@@ -748,6 +783,14 @@ export async function deleteFaculty(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function deleteFacultyBulk(ids: string[]): Promise<void> {
+  const { error } = await (supabase as any)
+    .from('faculty_members')
+    .delete()
+    .in('id', ids);
+  if (error) throw error;
+}
+
 export async function assignFacultyToSubject(facultyId: string, subjectId: string): Promise<void> {
   const { data: subject, error: subjError } = await (supabase as any)
     .from('subjects')
@@ -1194,7 +1237,7 @@ export async function getSubjectFacultyMap(
 ): Promise<Record<string, string>> {
   const subjectToFacultyNames: Record<string, string> = {};
 
-  // Try precise class-level mapping first
+  // Step 1: Load section-specific assignments
   try {
     let query = (supabase as any)
       .from('faculty_subject_assignments')
@@ -1203,9 +1246,7 @@ export async function getSubjectFacultyMap(
       .eq('year', year);
     if (section) query = query.eq('section', section);
     const { data: fscRows, error: fscErr } = await query;
-    if (fscErr) throw fscErr;
-    if (fscRows && fscRows.length > 0) {
-      const subjectIds: string[] = Array.from(new Set((fscRows as any[]).map((r) => r.subject_id).filter(Boolean)));
+    if (!fscErr && fscRows && fscRows.length > 0) {
       const facultyIds: string[] = Array.from(new Set((fscRows as any[]).map((r) => r.faculty_id).filter(Boolean)));
       if (facultyIds.length > 0) {
         const { data: facRows } = await (supabase as any)
@@ -1214,47 +1255,26 @@ export async function getSubjectFacultyMap(
           .in('id', facultyIds);
         const idToName = new Map<string, string>();
         (facRows || []).forEach((r: any) => idToName.set(r.id, r.name));
-        // For each subject, choose the first mapped faculty (per section there should be one)
-        subjectIds.forEach((sid) => {
-          const fIdsForSubject = (fscRows as any[]).filter((r) => r.subject_id === sid).map((r) => r.faculty_id);
-          const names = fIdsForSubject.map((fid: string) => idToName.get(fid)).filter(Boolean) as string[];
-          if (names.length > 0) subjectToFacultyNames[sid] = names.join(', ');
+        (fscRows as any[]).forEach((r) => {
+          const name = idToName.get(r.faculty_id);
+          if (name && r.subject_id) subjectToFacultyNames[r.subject_id] = name;
         });
       }
-      // If we found any mapping, return early
-      if (Object.keys(subjectToFacultyNames).length > 0) return subjectToFacultyNames;
     }
   } catch (e) {
-    // non-fatal; fallback below
-    console.warn('getSubjectFacultyMap: faculty_subject_assignments unavailable, falling back');
+    console.warn('getSubjectFacultyMap: section-specific query failed', e);
   }
 
-  // Fallback: year-wide assignments (section may be null)
+  // Step 2: Fill in year-wide assignments for subjects not yet covered
   try {
-    let query = (supabase as any)
+    const { data: yearWide } = await (supabase as any)
       .from('faculty_subject_assignments')
       .select('subject_id, faculty_id')
       .eq('department_id', departmentId)
-      .eq('year', year);
-    if (section) {
-      // Prefer exact section rows; if none, we will still use the results (which might be empty)
-      query = query.eq('section', section);
-    }
-    const { data: assignRows, error: assignErr } = await query;
-    if (assignErr) throw assignErr;
+      .eq('year', year)
+      .is('section', null);
 
-    // If we filtered by section and got nothing, try section null (year-wide)
-    let rows: any[] = (assignRows || []) as any[];
-    if (rows.length === 0 && section) {
-      const { data: yearWide } = await (supabase as any)
-        .from('faculty_subject_assignments')
-        .select('subject_id, faculty_id')
-        .eq('department_id', departmentId)
-        .eq('year', year)
-        .is('section', null);
-      rows = (yearWide || []) as any[];
-    }
-
+    const rows: any[] = (yearWide || []) as any[];
     if (rows.length > 0) {
       const facultyIds: string[] = Array.from(new Set(rows.map((r) => r.faculty_id).filter(Boolean)));
       const { data: facRows } = await (supabase as any)
@@ -1263,23 +1283,21 @@ export async function getSubjectFacultyMap(
         .in('id', facultyIds);
       const idToName = new Map<string, string>();
       (facRows || []).forEach((r: any) => idToName.set(r.id, r.name));
-      const bySubject = new Map<string, Set<string>>();
       rows.forEach((r) => {
-        const name = idToName.get(r.faculty_id);
-        if (!name) return;
-        if (!bySubject.has(r.subject_id)) bySubject.set(r.subject_id, new Set());
-        bySubject.get(r.subject_id)!.add(name);
-      });
-      bySubject.forEach((names, sid) => {
-        if (names.size > 0) subjectToFacultyNames[sid] = Array.from(names).join(', ');
+        // Only fill in if not already assigned by section-specific entry
+        if (!subjectToFacultyNames[r.subject_id]) {
+          const name = idToName.get(r.faculty_id);
+          if (name && r.subject_id) subjectToFacultyNames[r.subject_id] = name;
+        }
       });
     }
   } catch (e) {
-    console.warn('getSubjectFacultyMap: faculty_subject_assignments unavailable');
+    console.warn('getSubjectFacultyMap: year-wide query failed', e);
   }
 
   return subjectToFacultyNames;
 }
+
 
 export async function getSubjectFacultyMapByDeptName(
   departmentName: string,
@@ -1592,4 +1610,108 @@ async function populateFacultyScheduleJS(
     }
   }
 }
+
+// Fetch manual lab schedules for a specific section
+export async function getLabSchedulesForSection(
+  departmentId: string,
+  year: string,
+  section: string
+): Promise<Array<{ day: number; period: number; labId: string; labName: string }>> {
+  // Use the structured year/section columns for reliable matching
+  const { data, error } = await (supabase as any)
+    .from('lab_schedules')
+    .select(`
+      day_of_week,
+      slot_number,
+      lab_id,
+      semester,
+      year,
+      section,
+      labs ( name, lab_code )
+    `)
+    .eq('year', year)
+    .eq('section', section);
+
+  if (error) {
+    // Fallback: try text-based matching on semester field (legacy support)
+    console.warn('getLabSchedulesForSection: year/section columns not available, falling back to text match');
+    const { data: fallbackData, error: fallbackError } = await (supabase as any)
+      .from('lab_schedules')
+      .select(`day_of_week, slot_number, lab_id, semester, labs ( name, lab_code )`)
+      .eq('is_available', true);
+    if (fallbackError) {
+      console.error('Error fetching lab schedules:', fallbackError);
+      return [];
+    }
+    const schedules: Array<{ day: number; period: number; labId: string; labName: string }> = [];
+    const searchPattern = `Year ${year} Sec ${section}`;
+    (fallbackData || []).forEach((item: any) => {
+      if (item.semester && item.semester.includes(searchPattern)) {
+        schedules.push({
+          day: item.day_of_week - 1,
+          period: item.slot_number - 1,
+          labId: item.lab_id,
+          labName: item.semester.split('-').pop()?.trim() || item.labs?.name || 'Lab',
+        });
+      }
+    });
+    return schedules;
+  }
+
+  return (data || []).map((item: any) => ({
+    day: item.day_of_week - 1,   // Convert 1-based day to 0-based
+    period: item.slot_number - 1, // Convert 1-based slot to 0-based
+    labId: item.lab_id,
+    labName: item.semester?.split('-').pop()?.trim() || item.labs?.name || 'Lab',
+  }));
+}
+
+/**
+ * Returns a map of subjectName → { labName, labCode } for lab subjects allocated
+ * to a specific section. Used by the Subject Management page to show lab allocation info.
+ */
+export async function getLabAllocationsForSection(
+  year: string,
+  section: string
+): Promise<Record<string, { labName: string; labCode: string }>> {
+  const result: Record<string, { labName: string; labCode: string }> = {};
+  const searchPattern = `Year ${year} Sec ${section}`;
+
+  // Query 1: rows with structured year/section columns populated
+  const { data: structuredData } = await (supabase as any)
+    .from('lab_schedules')
+    .select(`semester, labs ( name, lab_code )`)
+    .eq('year', year)
+    .eq('section', section);
+
+  (structuredData || []).forEach((item: any) => {
+    const subjectName = item.semester?.split('-').pop()?.trim() || '';
+    if (subjectName) {
+      result[subjectName] = {
+        labName: item.labs?.name || 'Lab',
+        labCode: item.labs?.lab_code || '',
+      };
+    }
+  });
+
+  // Query 2: text-based search to catch rows where year/section columns are null
+  // but the semester field contains the correct "Year X Sec Y - Subject" pattern
+  const { data: textData } = await (supabase as any)
+    .from('lab_schedules')
+    .select(`semester, labs ( name, lab_code )`)
+    .like('semester', `%${searchPattern}%`);
+
+  (textData || []).forEach((item: any) => {
+    const subjectName = item.semester?.split('-').pop()?.trim() || '';
+    if (subjectName && !result[subjectName]) {
+      result[subjectName] = {
+        labName: item.labs?.name || 'Lab',
+        labCode: item.labs?.lab_code || '',
+      };
+    }
+  });
+
+  return result;
+}
+
 

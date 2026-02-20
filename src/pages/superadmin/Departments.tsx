@@ -210,12 +210,9 @@ const Departments = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-        <header className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Button onClick={() => setOpenAdd(true)}>Add Department</Button>
-          </div>
-        </header>
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="container py-10 md:pt-16">
+
 
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex items-center space-x-4">
@@ -296,7 +293,8 @@ const Departments = () => {
             </Card>
           ))}
         </div>
-      </section>
+        </section>
+      </div>
 
       {/* Bulk Delete Confirmation Dialog */}
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>

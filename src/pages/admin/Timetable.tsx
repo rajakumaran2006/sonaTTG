@@ -12,6 +12,7 @@ import { createPullRequest } from "@/lib/supabaseService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle } from "lucide-react";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import SelectionHeader from "@/components/admin/SelectionHeader";
 
 const cellClass = (type: string) => {
   switch (type) {
@@ -19,6 +20,8 @@ const cellClass = (type: string) => {
       return 'bg-primary/15 ring-1 ring-primary/30';
     case 'special':
       return 'bg-accent/25 ring-1 ring-accent/40';
+    case 'extra-class':
+      return 'bg-pink-100 text-pink-900 ring-1 ring-pink-300';
     case 'break':
       return 'bg-muted text-muted-foreground';
     default:
@@ -62,14 +65,26 @@ function Timetable() {
     labDays: Record<string, number[]>;
   } | null>(null);
 
+  // Returns true if a cell label matches any active special hours config type
+  const isSpecialHoursCell = (name?: string | null): boolean => {
+    if (!name) return false;
+    const lowerName = name.toLowerCase();
+    // Check against all active special hours config types (with or without counsellor suffix)
+    if (specialHoursConfigs.some(c => c.is_active && lowerName.startsWith(c.special_type.toLowerCase()))) {
+      return true;
+    }
+    // Fallback: legacy hardcoded names
+    return (
+      name === 'Seminar' || name === 'Library' || name === 'Student Counselling' ||
+      name.startsWith('Seminar (') || name.startsWith('Library (') || name.startsWith('Student Counselling (')
+    );
+  };
+
   const subjectTypeByName = (name?: string | null) => {
     if (!name) return 'theory';
     if (name === 'BREAK' || name === 'LUNCH') return 'break';
-    // Check for special subjects (including those with class counselor names)
-    if (name === 'Seminar' || name === 'Library' || name === 'Student Counselling' ||
-        name.startsWith('Seminar (') || name.startsWith('Library (') || name.startsWith('Student Counselling (')) {
-      return 'special';
-    }
+    if (name.includes('Extra Class')) return 'extra-class';
+    if (isSpecialHoursCell(name)) return 'special';
     const found = selected.find((s) => s.name === name);
     return found?.type || 'theory';
   };
@@ -84,6 +99,12 @@ function Timetable() {
     
     if (subject?.type === 'open elective' || subjectName === 'Open Elective') {
       return 'Open Elective';
+    }
+
+    // For special hours cells, strip the counsellor suffix " (Name)" so the cell shows a clean label
+    if (isSpecialHoursCell(subjectName)) {
+      const parenIdx = subjectName.indexOf(' (');
+      if (parenIdx !== -1) return subjectName.slice(0, parenIdx);
     }
     
     return subjectName;
@@ -327,9 +348,10 @@ function Timetable() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       <AdminNavbar />
       <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <SelectionHeader />
         <section className="container py-8">
           <div className="flex items-start justify-between mb-6">
             <div>
@@ -412,11 +434,9 @@ function Timetable() {
                       const subj = selected.find((s) => s.name === cell);
                       let staff = subj ? (subjectToFaculty[subj.id] || subj.staff || '') : '';
                       
-                      // Check if this is a special activity with class counselor
-                      if (classCounselorName && 
-                          (cell === 'Seminar' || cell === 'Library' || cell === 'Student Counselling' ||
-                           cell?.startsWith('Seminar (') || cell?.startsWith('Library (') || cell?.startsWith('Student Counselling ('))) {
-                        staff = classCounselorName;
+                      // For any special hours cell, always show the class counsellor as staff
+                      if (isSpecialHoursCell(cell)) {
+                        staff = classCounselorName || staff;
                       }
                       
                       const isOpenElective = subj?.type === 'open elective';
@@ -494,16 +514,16 @@ function Timetable() {
                     </>
                   );
                 })()}
-                {(special.seminar || special.library || special.counselling) && (
-                  <tr className="border-b">
+                {specialHoursConfigs.filter(c => c.is_active).map((config, idx) => (
+                  <tr key={config.id || idx} className="border-b">
                     <td className="p-2">-</td>
-                    <td className="p-2">SC/SEM/LIB</td>
-                    <td className="p-2">Student Counselling / Seminar / Library</td>
-                    <td className="p-2">{(special.seminar ? 2 : 0) + (special.library ? 1 : 0) + (special.counselling ? 2 : 0)}</td>
+                    <td className="p-2">-</td>
+                    <td className="p-2 capitalize">{config.special_type}</td>
+                    <td className="p-2">{config.total_hours}</td>
                     <td className="p-2">special</td>
                     <td className="p-2">{classCounselorName || '-'}</td>
                   </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -530,7 +550,7 @@ function Timetable() {
       </section>
     </main>
   </div>
-  );
+);
 }
 
 export default Timetable;

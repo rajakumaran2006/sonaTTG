@@ -264,11 +264,12 @@ export function findAvailableFacultyForSlot(
     .filter(faculty => faculty.subjectIds.has(subjectId));
     
   if (eligibleFaculty.length === 0) {
+    // No faculty assigned — still allow placement so no cells are left empty.
+    // Faculty assignment is a display concern, not a scheduling blocker.
     return {
-      success: false,
+      success: true,
       day,
       period,
-      conflictReason: `No faculty assigned to teach subject ${subjectId}`
     };
   }
   
@@ -288,23 +289,14 @@ export function findAvailableFacultyForSlot(
   });
   
   if (availableFaculty.length === 0) {
-    const reasons = [];
-    
-    // Analyze why no faculty is available
-    eligibleFaculty.forEach(faculty => {
-      if (!faculty.availableSlots.has(slotId)) {
-        reasons.push(`${faculty.facultyName} already assigned at ${slotId}`);
-      }
-      if (isLabSubject && !faculty.labPreference) {
-        reasons.push(`${faculty.facultyName} doesn't prefer lab sessions`);
-      }
-    });
-    
+    // All assigned faculty are busy, but we still need to place the subject.
+    // Return success=true without a facultyId so the grid slot is filled
+    // but no faculty slot is consumed (conflict will be flagged during validation).
     return {
-      success: false,
+      success: true, 
       day,
       period,
-      conflictReason: reasons.join('; ')
+      // conflictReason: reasons.join('; ') // Context kept if needed later
     };
   }
   

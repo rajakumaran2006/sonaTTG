@@ -62,11 +62,11 @@ const Navbar = () => {
     navigate("/");
   };
   const handleSuperAdminLogin = () => {
-    navigate("/super-admin-login");
+    navigate("/");
   };
 
   const handleAdminConsole = () => {
-    navigate("/admin-login");
+    navigate("/");
   };
 
   const handleFacultyLogin = () => {
@@ -80,7 +80,7 @@ const Navbar = () => {
   const SidebarContent = () => (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center border-b px-6">
-        <Link to="/super-admin" className="font-semibold text-lg">
+        <Link to="/super-admin" className="font-semibold text-lg uppercase">
           OptiTime
         </Link>
       </div>
@@ -128,7 +128,7 @@ const Navbar = () => {
             </SheetContent>
           </Sheet>
 
-          <Link to="/super-admin" className="font-semibold">
+          <Link to="/super-admin" className="font-semibold uppercase">
             OptiTime
           </Link>
 

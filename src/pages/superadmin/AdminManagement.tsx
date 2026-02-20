@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/navbar/Navbar";
 import { Plus, Edit, Trash2, UserCheck, UserX } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface AdminUser {
   id: string;
@@ -65,7 +66,7 @@ const AdminManagement = () => {
     };
 
     if (!checkAuth()) {
-      navigate("/super-admin-login", { replace: true });
+      navigate("/", { replace: true });
       return;
     }
 
@@ -75,7 +76,7 @@ const AdminManagement = () => {
     // Listen for storage changes (in case user logs in/out in another tab)
     const handleStorageChange = () => {
       if (!checkAuth()) {
-        navigate("/super-admin-login", { replace: true });
+        navigate("/", { replace: true });
       } else {
         loadData();
       }
@@ -95,7 +96,7 @@ const AdminManagement = () => {
       // Check if user is authenticated
       if (!isLoggedIn) {
         console.log('User not authenticated, redirecting to login');
-        navigate("/super-admin-login", { replace: true });
+        navigate("/", { replace: true });
         return;
       }
 
@@ -300,7 +301,15 @@ const AdminManagement = () => {
       };
 
       if (formData.password) {
-        updateData.password_hash = formData.password;
+        const { data: hashResult, error: hashError } = await (supabase as any)
+          .rpc('hash_password', { password: formData.password });
+
+        if (hashError) {
+          console.error('Error hashing password:', hashError);
+          toast.error('Failed to hash password');
+          return;
+        }
+        updateData.password_hash = hashResult;
       }
 
       const { error } = await (supabase as any)
@@ -389,7 +398,8 @@ const AdminManagement = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="container py-10 md:pt-16">
         <header className="mb-6 flex items-center justify-between">
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate('/admin-login')}>
@@ -487,56 +497,78 @@ const AdminManagement = () => {
                 No administrators found. Create your first admin to get started.
               </div>
             ) : (
-              <div className="space-y-4">
-                {admins.map((admin) => (
-                  <div key={admin.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="font-semibold">{admin.name}</h3>
-                        <Badge variant={admin.is_active ? "default" : "secondary"}>
-                          {admin.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-1">{admin.email}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Department: {(() => {
-                          const dept = departments.find(d => d.id === admin.department_id);
-                          return dept?.name || 'Unknown';
-                        })()}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Created: {new Date(admin.created_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditDialog(admin)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggleStatus(admin.id, admin.is_active)}
-                      >
-                        {admin.is_active ? (
-                          <UserX className="h-4 w-4" />
-                        ) : (
-                          <UserCheck className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteAdmin(admin.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[200px]">Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden md:table-cell">Created</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {admins.map((admin) => (
+                      <TableRow key={admin.id} className="group">
+                        <TableCell className="font-medium">
+                          {admin.name}
+                        </TableCell>
+                        <TableCell>{admin.email}</TableCell>
+                        <TableCell>
+                          {(() => {
+                            const dept = departments.find(d => d.id === admin.department_id);
+                            return dept?.name || 'Unknown';
+                          })()}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={admin.is_active ? "default" : "secondary"}>
+                            {admin.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-muted-foreground whitespace-nowrap">
+                          {new Date(admin.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEditDialog(admin)}
+                              className="h-8 w-8 text-slate-500 hover:text-olive-600"
+                              title="Edit Admin"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleToggleStatus(admin.id, admin.is_active)}
+                              className={`h-8 w-8 ${admin.is_active ? 'text-slate-500 hover:text-amber-600' : 'text-slate-500 hover:text-emerald-600'}`}
+                              title={admin.is_active ? "Deactivate Admin" : "Activate Admin"}
+                            >
+                              {admin.is_active ? (
+                                <UserX className="h-4 w-4" />
+                              ) : (
+                                <UserCheck className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteAdmin(admin.id)}
+                              className="h-8 w-8 text-slate-500 hover:text-destructive"
+                              title="Delete Admin"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>
@@ -602,7 +634,8 @@ const AdminManagement = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </section>
+        </section>
+      </div>
     </main>
   );
 };

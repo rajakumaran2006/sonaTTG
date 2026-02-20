@@ -14,7 +14,7 @@ export function Navbar() {
       </div>
       
       <div className="flex items-center gap-4">
-        <Link to="/admin-login">
+        <Link to="/">
             <Button variant="ghost" className="text-sm font-medium text-slate-600 hover:text-olive-700 hover:bg-olive-50/50">
             Sign In
             </Button>

@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import * as XLSX from "xlsx";
-import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
+import AdminNavbar from "@/components/navbar/AdminNavbar";
+import SelectionHeader from "@/components/admin/SelectionHeader";
 
 interface Subject { id: string; name: string; type: string; hours_per_week: number }
 interface Faculty { id: string; name: string }
@@ -19,7 +20,10 @@ interface Faculty { id: string; name: string }
 const SectionManagement = () => {
   const { id, year, section } = useParams();
   const navigate = useNavigate();
-  const isLoggedIn = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
+  const superAdmin = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
+  const adminUser = useMemo(() => localStorage.getItem("adminUser"), []);
+  const isLoggedIn = useMemo(() => superAdmin || !!adminUser, [superAdmin, adminUser]);
+  const userType = superAdmin ? 'super' : 'admin';
 
   const [deptName, setDeptName] = useState("");
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -45,7 +49,7 @@ const SectionManagement = () => {
   }, [year, section]);
 
   useEffect(() => {
-    if (!isLoggedIn) { navigate('/super-admin-login', { replace: true }); return; }
+    if (!isLoggedIn) { navigate('/', { replace: true }); return; }
     if (!id || !year || !section) return;
     (async () => {
       const [deptRes, subjRes, secSubjRes, ttRes, facRes, fsaRes, labRes] = await Promise.all([
@@ -94,25 +98,18 @@ const SectionManagement = () => {
   };
 
   return (
-    <main className="min-h-screen bg-background">
-      <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-        <Breadcrumbs
-          segments={[
-            { label: 'Super Admin', href: '/super-admin' },
-            { label: 'Departments', href: '/super-admin/departments' },
-            { label: deptName || 'Department', href: `/super-admin/departments/${id}` },
-            { label: `Year ${year}`, href: `/super-admin/departments/${id}/years/${year}` },
-            { label: `Section ${section}` },
-          ]}
-        />
+    <main className="min-h-screen bg-background text-foreground">
+      {userType === 'super' ? <Navbar /> : <AdminNavbar />}
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <SelectionHeader />
+        <section className="container py-4">
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">{deptName || 'Department'} — Year {year} — Section {section}</h1>
             <p className="text-sm text-muted-foreground">Assign subjects, view timetable, manage lab preferences</p>
           </div>
           <div className="space-x-2">
-            <Button variant="outline" onClick={() => navigate(`/super-admin/departments/${id}/years/${year}`)}>Back</Button>
+            <Button variant="outline" onClick={() => navigate(userType === 'super' ? `/super-admin/departments/${id}/years/${year}` : '/admin')}>Back</Button>
             <Button onClick={exportXlsx}>Export (Excel)</Button>
           </div>
         </header>
@@ -298,8 +295,9 @@ const SectionManagement = () => {
           </Card>
         </section>
       </section>
-    </main>
-  );
+    </div>
+  </main>
+);
 };
 
 export default SectionManagement;

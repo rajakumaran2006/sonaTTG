@@ -171,7 +171,8 @@ const DepartmentDetails = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="container py-10 md:pt-16">
         <Breadcrumbs
           segments={[
             { label: 'Super Admin', href: '/super-admin' },
@@ -292,7 +293,8 @@ const DepartmentDetails = () => {
           <Card className="rounded-xl"><CardHeader><CardTitle className="text-base">Working faculty</CardTitle></CardHeader><CardContent><div className="text-3xl font-semibold">{deptStats.faculty}</div></CardContent></Card>
           <Card className="rounded-xl"><CardHeader><CardTitle className="text-base">Total weekly periods</CardTitle></CardHeader><CardContent><div className="text-3xl font-semibold">{deptStats.totalWeeklyPeriods}</div></CardContent></Card>
         </section>
-      </section>
+        </section>
+      </div>
     </main>
   );
 };

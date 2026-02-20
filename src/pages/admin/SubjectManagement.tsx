@@ -15,8 +15,10 @@ import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
-import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName, setOpenElectiveHours, getOpenElectiveHours } from "@/lib/supabaseService";
+import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName, setOpenElectiveHours, getOpenElectiveHours, getSectionSubjects, saveSectionSubjects, getLabAllocationsForSection } from "@/lib/supabaseService";
+
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import SelectionHeader from "@/components/admin/SelectionHeader";
 import { SpecialHoursManager } from "@/components/SpecialHoursManager";
 //sample
 const SubjectManagement = () => {
@@ -67,13 +69,23 @@ const SubjectManagement = () => {
   const [openElectiveHours, setOpenElectiveHoursState] = useState<number>(0);
   const [savingOpenElective, setSavingOpenElective] = useState(false);
 
+  // Lab allocation map: subjectName → { labName, labCode }
+  const [labAllocations, setLabAllocations] = useState<Record<string, { labName: string; labCode: string }>>({});
+
+  // Search and Filter State
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterFaculty, setFilterFaculty] = useState<string>("all");
+
+
   // Load subjects for current selection from Supabase
   useEffect(() => {
-    if (!selection.department || !selection.year) return;
+    if (!selection.department || !selection.year || !selection.section) return;
     (async () => {
       try {
         const dep = await ensureDepartment(selection.department!);
-        let subs = await getSubjectsForYear(dep.id, selection.year!);
+        const yearBaseSubjects = await getSubjectsForYear(dep.id, selection.year!);
+        const sectionAllocatedIds = await getSectionSubjects(dep.id, selection.year!, selection.section!);
 
         const AI_DS_NAMES = new Set([
           "Artificial Intelligence and Data Science",
@@ -82,7 +94,8 @@ const SubjectManagement = () => {
         ]);
         const isAidsYear3 = AI_DS_NAMES.has(selection.department!) && (selection.year === "III" || selection.year === "3");
 
-        if (subs.length === 0 && isAidsYear3) {
+        let loadedSubjects = yearBaseSubjects;
+        if (loadedSubjects.length === 0 && isAidsYear3) {
           const base: Omit<Subject, 'id'>[] = [
             { name: "CN", hoursPerWeek: 4, type: "theory" },
             { name: "ML", hoursPerWeek: 4, type: "theory" },
@@ -98,16 +111,42 @@ const SubjectManagement = () => {
             { name: "DBMS LAB", hoursPerWeek: 2, type: "lab" },
             { name: "AIDS LAB", hoursPerWeek: 2, type: "lab" },
           ];
-          await addSubjectsBulk(base.map((b) => ({ ...b, departmentId: dep.id, year: selection.year! })));
-          subs = await getSubjectsForYear(dep.id, selection.year!);
+          loadedSubjects = await addSubjectsBulk(base.map((b) => ({ ...b, departmentId: dep.id, year: selection.year! })));
         }
-        seedYearDataset(subs);
+
+        // Handle initial load or section-specific filter
+        const available = loadedSubjects;
+        // If we have section-level allocations, use them. Otherwise default to all subjects.
+        const selected = sectionAllocatedIds.length > 0 
+          ? loadedSubjects.filter(s => sectionAllocatedIds.includes(s.id))
+          : loadedSubjects;
+
+        useTimetableStore.setState(state => {
+          const datasetKey = (sel: any) => {
+            const d = sel.department || "";
+            const y = sel.year || "";
+            const isAI3 = (d === "Artificial Intelligence and Data Science" || d === "AI & DS" || d === "Artificial Intelligence & Data Science") && (y === "III" || y === "3");
+            const s = isAI3 ? "*" : (sel.section || "");
+            return [d, y, s].join("|");
+          };
+          const key = datasetKey(selection);
+          return {
+            ...state,
+            availableSubjects: available,
+            selectedSubjects: selected,
+            datasets: {
+              ...state.datasets,
+              [key]: { available, selected, prefs: state.datasets[key]?.prefs || {} }
+            }
+          };
+        });
+
         setDepartmentId(dep.id);
       } catch (e: any) {
         toast({ title: "Failed to load subjects", description: e?.message || String(e) });
       }
     })();
-  }, [selection.department, selection.year]);
+  }, [selection.department, selection.year, selection.section]);
 
   // Load faculty and subject-faculty mapping when department/year/section changes
   useEffect(() => {
@@ -123,8 +162,10 @@ const SubjectManagement = () => {
         // Load current subject-faculty assignments
         const facultyMap = await getSubjectFacultyMap(dep.id, selection.year!, selection.section);
         setSubjectFacultyMap(facultyMap);
-        
-        console.log('Loaded faculty assignments for section:', facultyMap);
+
+        // Load lab allocations for this section
+        const allocations = await getLabAllocationsForSection(selection.year!, selection.section!);
+        setLabAllocations(allocations);
       } catch (e: any) {
         console.warn('Failed to load faculty data:', e);
         toast({ title: "Failed to load faculty data", description: e?.message || String(e) });
@@ -309,7 +350,25 @@ const SubjectManagement = () => {
     setLabSettingsOpen(false);
   };
 
-  const next = () => {
+  const filteredSubjects = useMemo(() => {
+    return selected.filter(s => {
+      const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                           s.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           s.abbreviation?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      // Filter by type (special type shows all subjects since special hours appear as separate rows)
+      if (filterType !== "all" && filterType !== "special" && s.type !== filterType) return false;
+      
+      const matchesFaculty = filterFaculty === "all" || 
+                            (filterFaculty === "unassigned" && getAssignedFaculty(s.id) === 'Unassigned') ||
+                            (availableFaculty.find(f => f.name === getAssignedFaculty(s.id))?.id === filterFaculty);
+
+      return matchesSearch && matchesFaculty;
+    });
+  }, [selected, searchTerm, filterType, filterFaculty, subjectFacultyMap, availableFaculty]);
+
+  const next = async () => {
+
     const totalHours = totals.total + configuredSpecialHrs;
     if (totalHours > SUBJECT_HOUR_LIMIT) {
       toast({ title: "Too many hours", description: `Assigned ${totalHours}/42. Reduce to continue.` });
@@ -323,222 +382,370 @@ const SubjectManagement = () => {
       toast({ title: "No subjects selected", description: "Please select at least one subject." });
       return;
     }
-    navigate("/timetable");
+    
+    try {
+      // Save section-level assignments before proceeding
+      await saveSectionSubjects(departmentId, selection.year, selection.section, selected.map(s => s.id));
+      navigate("/timetable");
+    } catch (e: any) {
+      toast({ title: "Failed to save assignments", description: e?.message || String(e) });
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
       <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
-        <section className="container py-10 md:pt-16">
-          <header className="mb-6">
-            <h1 className="text-3xl font-bold" style={{fontFamily: 'Poppins'}}>Manage Subjects</h1>
-            <p className="text-muted-foreground">Choose subjects for the selected year. Added subjects are shared across sections of that year.</p>
-          </header>
+        <SelectionHeader />
+        <section className="container py-4">
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-              <CardDescription>Max 42 hours/week</CardDescription>
+        {/* Top row: Summary + Faculty (+ Open Elective for Year IV) */}
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${isFourthYear ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-6 mb-6 transform-gpu transition-all duration-300`}>
+          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold">Summary</CardTitle>
+              <CardDescription className="text-xs">Max 42 hours/week</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3">
-              <div className="p-4 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Total Hours</div>
-                <div className="text-2xl font-semibold">{(totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs}</div>
+            <CardContent className="grid grid-cols-2 gap-3 pt-0">
+              <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total</div>
+                <div className="text-xl font-bold">{(totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs}</div>
               </div>
-              <div className="p-4 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Theory</div>
-                <div className="text-2xl font-semibold">{totals.theory}</div>
+              <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Theory</div>
+                <div className="text-xl font-bold">{totals.theory}</div>
               </div>
-              <div className="p-4 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Labs</div>
-                <div className="text-2xl font-semibold">{totals.lab}</div>
+              <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Labs</div>
+                <div className="text-xl font-bold">{totals.lab}</div>
               </div>
-              <div className="p-4 rounded-lg bg-secondary">
-                  <div className="text-sm text-muted-foreground">Specials</div>
-                  <div className="text-2xl font-semibold">{configuredSpecialHrs}</div>
+              <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Specials</div>
+                <div className="text-xl font-bold">{configuredSpecialHrs}</div>
               </div>
             </CardContent>
           </Card>
 
           {/* Fourth Year: Open Elective Hours */}
           {isFourthYear && (
-            <Card className="rounded-2xl">
-              <CardHeader>
-                <CardTitle>Open Elective Hours</CardTitle>
-                <CardDescription>Only for Year IV</CardDescription>
+            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-bold">Open Elective Hours</CardTitle>
+                <CardDescription className="text-xs">Only for Year IV</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label className="text-sm">Hours per week</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={42}
-                    value={openElectiveHours}
-                    onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
-                    className="mt-1 w-32"
-                  />
-                  <div className="text-xs text-muted-foreground mt-1">Configured: {openElectiveHours} h/w • Subjects total: {currentOpenElectiveHours} h/w</div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective}>
-                    {savingOpenElective ? 'Saving…' : 'Save'}
-                  </Button>
+              <CardContent className="space-y-3 pt-0">
+                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm">
+                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={42}
+                      value={openElectiveHours}
+                      onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
+                      className="h-8 w-20 bg-background/50"
+                    />
+                    <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
+                      {savingOpenElective ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-2">Configured: {openElectiveHours}h • Subjects: {currentOpenElectiveHours}h</div>
                 </div>
               </CardContent>
             </Card>
           )}
 
           {/* Faculty Overview */}
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Faculty Overview
+          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-lg font-bold">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Users className="h-4 w-4 text-primary" />
+                </div>
+                Faculty
               </CardTitle>
-              <CardDescription>Auto-assignment available</CardDescription>
+              <CardDescription className="text-xs">Assignment Status</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Available Faculty</div>
-                <div className="text-lg font-semibold">{availableFaculty.length}</div>
-              </div>
-              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Assigned Subjects</div>
-                <div className="text-lg font-semibold text-green-600">
-                  {Object.keys(subjectFacultyMap).length}
+            <CardContent className="space-y-3 pt-0">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2.5 rounded-xl bg-background/50 border border-border/50 shadow-sm">
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Total</div>
+                  <div className="text-lg font-bold">{availableFaculty.length}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-background/50 border border-border/50 shadow-sm">
+                  <div className="text-[10px] uppercase font-semibold text-green-600 mb-1">Assigned</div>
+                  <div className="text-lg font-bold text-green-600">{Object.keys(subjectFacultyMap).length}</div>
                 </div>
               </div>
-              <div className="flex justify-between items-center p-3 rounded-lg bg-secondary">
-                <div className="text-sm text-muted-foreground">Unassigned</div>
-                <div className="text-lg font-semibold text-orange-600">
-                  {available.length - Object.keys(subjectFacultyMap).length}
-                </div>
-              </div>
-              {availableFaculty.length > 0 && (
-                <div className="pt-2 border-t">
-                  <div className="text-xs text-muted-foreground mb-2">Quick Actions</div>
-                  <div className="space-y-1">
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="w-full text-xs"
-                      onClick={() => {
-                        // Auto-assign all subjects with suggestions
-                        available.forEach(subject => {
-                          const suggestions = getSuggestedFaculty(subject);
-                          if (suggestions.length > 0 && getAssignedFaculty(subject.id) === 'Unassigned') {
-                            handleFacultyAssignment(suggestions[0].id);
-                          }
-                        });
-                      }}
-                      disabled={assignmentLoading}
-                    >
-                      Auto-Assign All
-                    </Button>
+              <div className="p-2.5 rounded-xl bg-orange-50/50 border border-orange-100 shadow-sm flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] uppercase font-semibold text-orange-600">Unassigned</div>
+                  <div className="text-lg font-bold text-orange-600">
+                    {available.length - Object.keys(subjectFacultyMap).length}
                   </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Special Hours Configuration</CardTitle>
-              <CardDescription>Configure Seminar, Library, and Counselling hours for this class</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {departmentId && selection.year ? (
-                <div className="w-full">
-                  <SpecialHoursManager
-                    departmentId={departmentId}
-                    year={selection.year}
-                    onConfigUpdate={setSpecialHoursConfigs}
-                  />
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <div className="text-lg font-medium">Select department and year</div>
-                  <div className="text-sm">Special hours can be configured once a class is selected</div>
-                </div>
-              )}
+                {availableFaculty.length > 0 && (
+                  <Button 
+                    size="sm" 
+                    variant="ghost" 
+                    className="h-8 px-2 text-[10px] font-bold uppercase hover:bg-orange-100/50"
+                    onClick={() => {
+                      available.forEach(subject => {
+                        const suggestions = getSuggestedFaculty(subject);
+                        if (suggestions.length > 0 && getAssignedFaculty(subject.id) === 'Unassigned') {
+                          handleFacultyAssignment(suggestions[0].id);
+                        }
+                      });
+                    }}
+                    disabled={assignmentLoading}
+                  >
+                    Auto-Assign
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
 
+        {/* Special Hours Manager — full-width single row */}
+        <div className="mb-8">
+          {departmentId && selection.year ? (
+            <SpecialHoursManager
+              className=""
+              departmentId={departmentId}
+              year={selection.year}
+              onConfigUpdate={setSpecialHoursConfigs}
+            />
+          ) : (
+            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-lg font-bold">Special Hours Configuration</CardTitle>
+                <CardDescription className="text-xs">Configure Seminar, Library, and Counselling</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center py-6">
+                <BookOpen className="h-10 w-10 text-muted-foreground opacity-20 mb-2" />
+                <p className="text-xs text-muted-foreground text-center">Select department and year to configure special hours</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
           <Card className="rounded-2xl">
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex-1">
                 <CardTitle>Selected for Generation</CardTitle>
-                <CardDescription>Used by the algorithm</CardDescription>
+                <CardDescription>Filter and manage subjects for the timetable</CardDescription>
               </div>
-              <Button 
-                size="sm"
-                variant="hero"
-                onClick={next}
-                className="w-full sm:w-auto"
-                disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
-                         !selection.department || !selection.year || !selection.section ||
-                         selected.length === 0}
-              >
-                Generate Timetable
-              </Button>
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <Button 
+                  size="sm"
+                  variant="hero"
+                  onClick={next}
+                  className="w-full sm:w-auto px-6"
+                  disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
+                           !selection.department || !selection.year || !selection.section ||
+                           selected.length === 0}
+                >
+                  Generate Timetable
+                </Button>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {selected.map((s) => {
-                const assignedFaculty = getAssignedFaculty(s.id);
-                const suggestedFaculty = getSuggestedFaculty(s);
-                
-                return (
-                  <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-card border">
-                    <div className="flex items-center gap-3 flex-1">
-                      <Badge variant={s.type === 'lab' ? 'default' : 'secondary'}>{s.type.toUpperCase()}</Badge>
-                      <div className="flex-1">
-                        <div className="font-medium">{s.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {s.type === 'open elective' ? '-' : `${s.hoursPerWeek} h/w`} {s.tags?.length ? `• ${s.tags?.join(', ')}` : ''}
-                        </div>
-                        <div className="text-xs flex items-center gap-1 mt-1">
-                          <UserCheck className="h-3 w-3" />
-                          <span className={assignedFaculty === 'Unassigned' ? 'text-orange-600' : 'text-green-600'}>
-                            {assignedFaculty}
-                          </span>
-                          {suggestedFaculty.length > 0 && assignedFaculty === 'Unassigned' && (
-                            <span className="text-blue-600 ml-2">
-                              • Suggested: {suggestedFaculty[0].name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        onClick={() => openFacultyAssignment(s)}
-                        className="text-xs"
-                      >
-                        <Users className="h-3 w-3 mr-1" />
-                        Assign
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => moveToAvailable(s.id)}>Remove</Button>
-                    </div>
-                  </div>
-                );
-              })}
+            <CardContent className="space-y-4">
+              {/* Search and Filters */}
+              <div className="flex flex-col md:flex-row gap-3 items-end mb-4">
+                <div className="flex-1 w-full">
+                  <Label className="text-xs mb-1 block">Search Subjects</Label>
+                  <Input 
+                    placeholder="Search by name or code..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+                <div className="w-full md:w-40">
+                  <Label className="text-xs mb-1 block">Type</Label>
+                  <Select value={filterType} onValueChange={setFilterType}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="All Types" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="theory">Theory</SelectItem>
+                      <SelectItem value="lab">Lab</SelectItem>
+                      <SelectItem value="elective">Elective</SelectItem>
+                      <SelectItem value="open elective">Open Elective</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full md:w-48">
+                  <Label className="text-xs mb-1 block">Assigned Faculty</Label>
+                  <Select value={filterFaculty} onValueChange={setFilterFaculty}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="All Faculty" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Faculty</SelectItem>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {availableFaculty.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="rounded-xl border overflow-hidden">
+                <div className="max-h-[560px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-gray-300">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-card z-10 shadow-sm">
+                      <TableRow>
+                        <TableHead className="w-[90px]">Type</TableHead>
+                        <TableHead className="min-w-[160px]">Subject Name</TableHead>
+                        <TableHead className="w-[60px]">Hrs</TableHead>
+                        <TableHead className="w-[130px]">Lab Room</TableHead>
+                        <TableHead className="min-w-[160px]">Assigned Faculty</TableHead>
+                        <TableHead className="w-[80px] text-center">Status</TableHead>
+                        <TableHead className="text-right w-[120px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredSubjects.length === 0 && specialHoursConfigs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                            No subjects found matching your filters.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        <>
+                          {filteredSubjects.map((s) => {
+                            const assignedFaculty = getAssignedFaculty(s.id);
+                            const isAssigned = assignedFaculty !== 'Unassigned';
+                            const alloc = s.type === 'lab' ? labAllocations[s.name] : null;
+                            const isLabAllocated = s.type !== 'lab' || !!alloc;
+                            const isFullyReady = isAssigned && isLabAllocated;
+                            
+                            return (
+                              <TableRow key={s.id} className="group hover:bg-muted/50 transition-colors">
+                                <TableCell>
+                                  <Badge 
+                                    variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} 
+                                    className="uppercase text-[10px] whitespace-nowrap"
+                                  >
+                                    {s.type === 'open elective' ? 'OE' : s.type}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="font-medium text-sm">{s.name}</div>
+                                  {s.code && <div className="text-[10px] text-muted-foreground">{s.code}</div>}
+                                </TableCell>
+                                <TableCell>
+                                  <span className="text-sm font-medium">{s.type === 'open elective' ? '—' : `${s.hoursPerWeek}h`}</span>
+                                </TableCell>
+                                <TableCell>
+                                  {s.type === 'lab' ? (
+                                    alloc ? (
+                                      <div className="flex flex-col gap-0.5">
+                                        <Badge variant="default" className="text-[10px] bg-green-600 hover:bg-green-700 w-fit">
+                                          {alloc.labName}
+                                        </Badge>
+                                        {alloc.labCode && <span className="text-[10px] text-muted-foreground">{alloc.labCode}</span>}
+                                      </div>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] text-orange-500 border-orange-300 w-fit">
+                                        Not Allocated
+                                      </Badge>
+                                    )
+                                  ) : (
+                                    <span className="text-muted-foreground text-sm">—</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <span className={`text-sm flex items-center gap-1.5 ${isAssigned ? 'text-green-600' : 'text-orange-500'}`}>
+                                    {isAssigned ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
+                                    <span className="truncate max-w-[140px]">{assignedFaculty}</span>
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {!isFullyReady && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-[10px] text-orange-500 border-orange-300 bg-orange-50"
+                                    >
+                                      ⚠ Pending
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost" 
+                                      onClick={() => openFacultyAssignment(s)}
+                                      className="h-7 text-[11px] px-2"
+                                    >
+                                      Assign
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost" 
+                                      onClick={() => moveToAvailable(s.id)}
+                                      className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    >
+                                      Remove
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+
+                          {/* Special Hours Rows */}
+                          {specialHoursConfigs.filter(c => c.is_active).map((config) => (
+                            <TableRow key={`special-${config.id}`} className="bg-purple-50/30 hover:bg-purple-50/50 transition-colors">
+                              <TableCell>
+                                <Badge className="uppercase text-[10px] bg-purple-600 hover:bg-purple-700 whitespace-nowrap">
+                                  special
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium text-sm capitalize">{config.special_type}</div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {config.saturday_hours > 0 && `Sat: P${config.saturday_periods.join(', P')}`}
+                                  {config.saturday_hours > 0 && config.weekdays_hours > 0 && ' • '}
+                                  {config.weekdays_hours > 0 && `Weekdays: P${config.weekdays_periods.join(', P')}`}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-sm font-medium">{config.total_hours}h</span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-muted-foreground text-sm">—</span>
+                              </TableCell>
+                              <TableCell>
+                                <span className="text-muted-foreground text-sm">—</span>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {/* Ready status hidden */}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="text-[10px] text-muted-foreground">Auto-scheduled</span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
 
               <Separator className="my-4" />
 
               {/* Lab Settings trigger and controls remain below */}
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 pt-2">
                 <Dialog open={labSettingsOpen} onOpenChange={setLabSettingsOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="soft">Open Lab Settings</Button>
-                  </DialogTrigger>
                   <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl max-h-[80vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Lab Scheduling Preferences</DialogTitle>

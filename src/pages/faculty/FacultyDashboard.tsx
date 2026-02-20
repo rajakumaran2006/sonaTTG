@@ -75,6 +75,28 @@ const FacultyDashboard = () => {
 
   useEffect(() => {
     document.title = "Faculty Dashboard";
+    
+    // Check if user is already logged in
+    const storedFaculty = localStorage.getItem("facultyUser");
+    if (storedFaculty) {
+      try {
+        const parsedFaculty = JSON.parse(storedFaculty);
+        setFaculty(parsedFaculty);
+        setEditData({
+          name: parsedFaculty.name,
+          email: parsedFaculty.email || "",
+          designation: parsedFaculty.designation || ""
+        });
+        // Load their schedule
+        extractFacultyScheduleFromTimetables(parsedFaculty.name).then(({ schedule: facultySchedule, assignments }) => {
+          setSchedule(facultySchedule);
+          setSubjectAssignments(assignments);
+        });
+      } catch (e) {
+        console.error("Failed to parse stored faculty user", e);
+        localStorage.removeItem("facultyUser");
+      }
+    }
   }, []);
 
   // Algorithm to extract faculty schedule from approved timetables

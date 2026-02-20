@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useTimetableStore } from "@/store/timetableStore";
-import { getDepartmentByName } from "@/lib/supabaseService";
+import { getDepartmentByName, getAllYears, getSectionsForYear } from "@/lib/supabaseService";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
-import { Plus, Trash2, Edit, Calendar, Settings, Eye } from "lucide-react";
+import SelectionHeader from "@/components/admin/SelectionHeader";
+import { Plus, Trash2, Edit, Calendar, Settings, Eye, LayoutGrid, List, Download } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -25,8 +27,9 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react";
+import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react"; // Search used in lab table header
 import { cn } from "@/lib/utils";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 interface Lab {
   id: string;
@@ -45,6 +48,9 @@ interface Lab {
   is_active: boolean;
   maintenance_status: string;
   departments: string[]; // Array of department IDs
+  year: string;
+  section: string;
+  allowed_classes?: { year: string; section: string }[];
   created_at: string;
   updated_at: string;
 }
@@ -74,10 +80,63 @@ const periods = [
   { id: 'P7', time: '3:55-4:50', startTime: '15:55', endTime: '16:50' }
 ];
 
+const parseScheduleInfo = (info: string) => {
+  if (!info) return { raw: "Allocated" };
+  
+  // Pattern 1: Year {Y} Sec {S} - {Subject}
+  // Matches: Year III Sec C - FSD Lab
+  const yearSecMatch = info.match(/Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)/);
+  if (yearSecMatch) {
+    return {
+      year: `Year ${yearSecMatch[1]}`,
+      section: `Sec ${yearSecMatch[2]}`,
+      subject: yearSecMatch[3]
+    };
+  }
+
+  // Pattern 2: Year {Y}, {Subject}
+  // Matches: Year III, FSD Lab
+  const yearMatch = info.match(/Year\s+([a-zA-Z0-9]+),\s+(.+)/);
+  if (yearMatch) {
+    return {
+      year: `Year ${yearMatch[1]}`,
+      subject: yearMatch[2]
+    };
+  }
+
+  // Fallback
+  return { raw: info };
+};
+
 const Lab = () => {
   const navigate = useNavigate();
+  const { isDark } = useDarkMode();
   const selection = useTimetableStore((s) => s.selection);
   const setSelection = useTimetableStore((s) => s.setSelection);
+
+  // ── Theme tokens ────────────────────────────────────────────────────────────
+  const tblBg        = isDark ? "bg-slate-900"          : "bg-white border border-slate-200";
+  const tblHeaderBg  = isDark ? "bg-slate-800/90"       : "bg-slate-50";
+  const tblBorder    = isDark ? "border-slate-700/60"   : "border-slate-200";
+  const tblDivide    = isDark ? "divide-slate-800"      : "divide-slate-100";
+  const tblRowHover  = isDark ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
+  const tblText      = isDark ? "text-slate-200"        : "text-slate-800";
+  const tblTextMuted = isDark ? "text-slate-400"        : "text-slate-500";
+  const tblTextDim   = isDark ? "text-slate-500"        : "text-slate-400";
+  const tblHeadText  = isDark ? "text-slate-400"        : "text-slate-500";
+  const tblCellName  = isDark ? "text-white"            : "text-slate-900";
+  const tblInputBg   = isDark ? "bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500" : "bg-slate-100 border-slate-200 text-slate-800 placeholder:text-slate-400";
+  const tblSelectBg  = isDark ? "bg-slate-800 border-slate-700 text-slate-100" : "bg-slate-100 border-slate-200 text-slate-800";
+  const tblViewToggleBg = isDark ? "bg-slate-800 border-slate-700" : "bg-slate-100 border-slate-200";
+  const tblViewInactive = isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700";
+  const tblDeleteBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-red-500 hover:text-red-400" : "bg-white border-slate-200 text-slate-600 hover:border-red-400 hover:text-red-500";
+  const tblExportBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-emerald-500 hover:text-emerald-400" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600";
+  const tblActionBtn = isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-slate-100 hover:bg-slate-200 text-slate-700";
+  const tblActionDel = isDark ? "bg-slate-700 hover:bg-red-900/60 text-slate-400 hover:text-red-400" : "bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500";
+  const tblTypeBadge = isDark ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-700";
+  const tblEmptyText = isDark ? "text-slate-500" : "text-slate-400";
+  const tblEmptyIcon = isDark ? "opacity-30" : "opacity-20";
+  // ────────────────────────────────────────────────────────────────────────────
 
   const [labs, setLabs] = useState<Lab[]>([]);
   const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
@@ -86,6 +145,17 @@ const Lab = () => {
   const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(null);
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
+
+  // Table UI state
+  const [labSearch, setLabSearch] = useState("");
+  const [labTypeFilter, setLabTypeFilter] = useState("all");
+  const [labViewMode, setLabViewMode] = useState<'table' | 'list'>('table');
+  const [labDeleteMode, setLabDeleteMode] = useState(false);
+  const [selectedLabIds, setSelectedLabIds] = useState<Set<string>>(new Set());
+  
+  // Year and Section for Lab creation
+  const [availableYears, setAvailableYears] = useState<any[]>([]);
+  const [availableSections, setAvailableSections] = useState<any[]>([]);
 
   // Form states for dialogs
   const [labDialog, setLabDialog] = useState(false);
@@ -101,6 +171,9 @@ const Lab = () => {
     building: "",
     floor: "",
     room_number: "",
+    year: "", // Legacy support
+    section: "", // Legacy support
+    allowed_classes: [] as { year: string, section: string }[],
     equipment_list: [] as string[],
     safety_equipment: [] as string[],
     operating_hours: {} as any,
@@ -111,6 +184,15 @@ const Lab = () => {
     academic_year: new Date().getFullYear().toString() + "-" + (new Date().getFullYear() + 1).toString().slice(-2),
     max_capacity: 30,
     is_available: true
+  });
+
+  // Extra Class State
+  const [extraClassDialog, setExtraClassDialog] = useState(false);
+  const [extraClassForm, setExtraClassForm] = useState({
+    day: "",
+    period: "",
+    subject: "", // Can be subject ID or custom text
+    notes: ""
   });
 
   const resetLabForm = () => {
@@ -124,10 +206,14 @@ const Lab = () => {
       building: "",
       floor: "",
       room_number: "",
+      year: "",
+      section: "",
+      allowed_classes: [],
       equipment_list: [],
       safety_equipment: [],
       operating_hours: {},
     });
+    setAvailableSections([]);
   };
 
   const handleCreateLab = async () => {
@@ -135,7 +221,7 @@ const Lab = () => {
       toast.error("Admin department not found.");
       return;
     }
-    if (!labForm.name || !labForm.lab_code) {
+    if (!labForm.name) {
       toast.error("Please fill in required fields.");
       return;
     }
@@ -143,7 +229,12 @@ const Lab = () => {
     try {
       const labData = {
         ...labForm,
-        departments: [adminDepartmentId], // Auto-assign Admin's department
+        department_id: adminDepartmentId, // Fixed: use department_id as expected by DB
+        departments: [adminDepartmentId], 
+        // Fallback for legacy: use the first allowed class if any, or null
+        year: labForm.year === "null_value" || !labForm.year ? (labForm.allowed_classes[0]?.year || null) : labForm.year,
+        section: labForm.section === "null_value" || !labForm.section ? (labForm.allowed_classes[0]?.section || null) : labForm.section,
+        allowed_classes: labForm.allowed_classes,
         is_active: true
       };
 
@@ -181,7 +272,7 @@ const Lab = () => {
   useEffect(() => {
     const adminData = localStorage.getItem("adminUser");
     if (!adminData) {
-      navigate("/admin-login", { replace: true });
+      navigate("/", { replace: true });
       return;
     }
 
@@ -211,21 +302,8 @@ const Lab = () => {
         // Set admin's department for selection
         setDepartments(data);
         setAdminDepartmentId(parsedAdmin.department_id);
+        setSelectedDepartment(parsedAdmin.department_id); // Lock to admin's department
 
-        // Automatically set the department selection if not already set
-        if (!selection.department) {
-          setSelectedDepartment("all-departments");
-        }
-
-        // Also load all departments for lab display
-        const { data: allDepts } = await (supabase as any)
-          .from('departments')
-          .select('*')
-          .order('name');
-
-        if (allDepts) {
-          setDepartments(allDepts);
-        }
         setLoading(false);
       } catch (error) {
         console.error('Exception loading departments:', error);
@@ -235,22 +313,63 @@ const Lab = () => {
     })();
   }, [navigate]);
 
+  // Fetch years on mount
+  useEffect(() => {
+    const fetchYears = async () => {
+      const years = await getAllYears();
+      setAvailableYears(years);
+    };
+    fetchYears();
+  }, []);
+
+  // Fetch sections when year or department changes
+  useEffect(() => {
+    const fetchSections = async () => {
+      if (adminDepartmentId && labForm.year) {
+        try {
+          const sections = await getSectionsForYear(adminDepartmentId, labForm.year);
+          setAvailableSections(sections);
+        } catch (error) {
+          console.error("Error fetching sections:", error);
+        }
+      } else {
+        setAvailableSections([]);
+      }
+    };
+    fetchSections();
+  }, [adminDepartmentId, labForm.year]);
+
   const openScheduleViewDialog = async (lab: Lab) => {
     setSelectedLabForSchedule(lab);
     setScheduleViewDialog(true);
 
-    // Fetch subjects for the departments associated with this lab
+    // Fetch subjects for the departments associated with this lab,
+    // filtered to only the years/sections allocated to this lab
     try {
       if (lab.departments && lab.departments.length > 0) {
         const { data: subjs, error: subjsError } = await (supabase as any)
           .from('subjects')
           .select('*')
           .eq('type', 'lab')
-          .in('department_id', lab.departments)
-          .order('name');
+          .in('department_id', lab.departments);
 
         if (subjsError) throw subjsError;
-        setItAdsLabs(subjs || []);
+
+        let allSubjs = subjs || [];
+
+        // Determine which years are allowed for this lab
+        const allowedClasses = lab.allowed_classes || [];
+        if (allowedClasses.length > 0) {
+          // Get unique allowed years
+          const allowedYears = [...new Set(allowedClasses.map(c => c.year))];
+          // Filter subjects to only those whose year is in the allowed years
+          allSubjs = allSubjs.filter((s: any) => allowedYears.includes(s.year));
+        } else if (lab.year) {
+          // Legacy fallback: filter by single year field
+          allSubjs = allSubjs.filter((s: any) => s.year === lab.year);
+        }
+
+        setItAdsLabs(allSubjs);
       } else {
         setItAdsLabs([]);
       }
@@ -266,15 +385,43 @@ const Lab = () => {
         .from('labs')
         .select('*')
         .eq('is_active', true)
-        .order('name');
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
 
       if (selectedDepartment && selectedDepartment !== "all-departments") {
         query = query.contains('departments', [selectedDepartment]);
+      } else if (adminDepartmentId) {
+        query = query.contains('departments', [adminDepartmentId]);
       }
 
       const { data, error } = await query;
       if (error) throw error;
-      setLabs(data || []);
+      
+      // Filter logic: Only show labs that contain the current selection in their allowed_classes
+      let filteredLabs = data || [];
+
+      // If a specific selection is active (not All Departments / All Years), apply filtering
+      // However, if we are in admin view (no specific year/section selected in header top), we might want to see all our department's labs.
+      // The user requirement says "only that class can access the lab".
+      // Assuming "selection" from store reflects the current VIEW context.
+      
+      if (selection.department && selection.year && selection.section) {
+          filteredLabs = filteredLabs.filter((lab: Lab) => {
+              // Backward compatibility: Check legacy columns first if allowed_classes is empty/null which might happen before migration fully propagates
+              const allowed = lab.allowed_classes || [];
+              if (allowed.length > 0) {
+                  return allowed.some(c => 
+                      c.year === selection.year && 
+                      (c.section === selection.section || c.section === "All Sections")
+                  );
+              }
+              // Fallback to legacy
+              return (!lab.year || lab.year === selection.year) && (!lab.section || lab.section === selection.section);
+          });
+      }
+
+      setLabs(filteredLabs);
     } catch (error) {
       console.error('Error loading labs:', error);
       toast.error('Failed to load labs');
@@ -327,7 +474,7 @@ const Lab = () => {
         const deptIds = depts.map((d: any) => d.id);
         const { data: subjs, error: subjsError } = await (supabase as any)
           .from('subjects')
-          .select('id, name, year, department_id, departments(name)')
+          .select('id, name, year, department_id, hours_per_week, departments(name)')
           .eq('type', 'lab')
           .in('department_id', deptIds);
 
@@ -343,35 +490,126 @@ const Lab = () => {
     loadITandADSLabs();
   }, []);
 
-  const handleAddSchedule = async (slot: { day: number, startTime: string, endTime: string, slotNumber: number, labId: string }, subjectId: string) => {
+  const handleAddSchedule = async (slot: { day: number, startTime: string, endTime: string, slotNumber: number, labId: string }, subjectId: string, allocationInfo?: string) => {
     if (!slot || !subjectId) {
       toast.error("Please select a lab session from the list");
       return;
     }
 
-    try {
-      const selectedLabSubjectData = itAdsLabs.find(l => l.id === subjectId);
+    const selectedLabSubjectData = itAdsLabs.find(l => l.id === subjectId);
 
+    // Access Control Check
+    if (selectedLabForSchedule?.allowed_classes && selectedLabForSchedule.allowed_classes.length > 0) {
+        // Parse allocationInfo to get Year and Section
+        // Format: "Year {Y} Sec {S} - {Name}"
+        // or derived from selectedLabSubjectData if allocationInfo is missing (which implies manual/default?)
+        
+        let targetYear = "";
+        let targetSection = "";
+
+        if (allocationInfo) {
+            const match = allocationInfo.match(/Year\s+(.+?)\s+Sec\s+(.+?)\s+-/);
+            if (match) {
+                targetYear = match[1];
+                targetSection = match[2];
+            }
+        } else if (selectedLabSubjectData) {
+             targetYear = selectedLabSubjectData.year;
+             // If no section specified in allocationInfo, we might need to rely on context or assume it's generic?
+             // But the UI forces picking a section button for standard subjects.
+             // For manual entry, we might not have section.
+        }
+
+        if (targetYear && targetSection) {
+            const isAllowed = selectedLabForSchedule.allowed_classes.some(c => 
+                c.year === targetYear && (c.section === targetSection || c.section === "All Sections")
+            );
+            
+            if (!isAllowed) {
+                toast.error(`Access Denied: Year ${targetYear} Section ${targetSection} is not allowed in this lab.`);
+                return;
+            }
+        }
+    }
+
+    try {
+      // Determine duration: use subject's hours_per_week if available, or default to 1 (for manual/custom entries)
+      const duration = selectedLabSubjectData?.hours_per_week || 1;
+
+      // 1. Check if the starting slot + duration exceeds the daily periods
+      // periods is globally available in the file
+      if (slot.slotNumber + duration - 1 > periods.length) {
+        toast.error(`Cannot schedule ${duration} hours starting at Period ${slot.slotNumber}. It exceeds the daily limit.`);
+        return;
+      }
+
+      const slotsToBook = [];
+
+      // Parse year and section from allocationInfo (format: "Year III Sec C - Subject")
+      let parsedYear = "";
+      let parsedSection = "";
+      if (allocationInfo) {
+        const match = allocationInfo.match(/Year\s+(.+?)\s+Sec\s+(.+?)\s+-/);
+        if (match) {
+          parsedYear = match[1];
+          parsedSection = match[2];
+        }
+      } else if (selectedLabSubjectData) {
+        parsedYear = selectedLabSubjectData.year || "";
+        // No section info available without allocationInfo — leave parsedSection empty
+      }
+
+      // 2. Prepare slots and check for collisions
+      for (let i = 0; i < duration; i++) {
+        const currentSlotNum = slot.slotNumber + i;
+        
+        // Check collision locally against current state
+        const isOccupied = labSchedules.find(s => 
+          s.lab_id === slot.labId && 
+          s.day_of_week === slot.day && 
+          s.slot_number === currentSlotNum
+        );
+
+        if (isOccupied) {
+          toast.error(`Period ${currentSlotNum} is already occupied. Cannot book ${duration} consecutive hours.`);
+          return;
+        }
+
+        const periodData = periods.find(p => parseInt(p.id.replace('P', '')) === currentSlotNum);
+        
+        if (periodData) {
+          slotsToBook.push({
+            lab_id: slot.labId,
+            day_of_week: slot.day,
+            start_time: periodData.startTime,
+            end_time: periodData.endTime,
+            slot_number: currentSlotNum,
+            semester: allocationInfo || (selectedLabSubjectData
+              ? `Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
+              : newSession.semester),
+            year: parsedYear || null,
+            section: parsedSection || null,
+            academic_year: newSession.academic_year,
+            max_capacity: labs.find(l => l.id === slot.labId)?.capacity || newSession.max_capacity,
+            is_available: newSession.is_available,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
+      }
+
+      if (slotsToBook.length === 0) {
+        toast.error("No valid slots found to book.");
+        return;
+      }
+
+      // 3. Insert all slots
       const { error } = await (supabase as any)
         .from('lab_schedules')
-        .insert([{
-          lab_id: slot.labId,
-          day_of_week: slot.day,
-          start_time: slot.startTime,
-          end_time: slot.endTime,
-          slot_number: slot.slotNumber,
-          semester: selectedLabSubjectData
-            ? `Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
-            : newSession.semester,
-          academic_year: newSession.academic_year,
-          max_capacity: labs.find(l => l.id === slot.labId)?.capacity || newSession.max_capacity,
-          is_available: newSession.is_available,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }]);
+        .insert(slotsToBook);
 
       if (error) throw error;
-      toast.success("Lab session added successfully");
+      toast.success(`Lab session added successfully (${duration} hour${duration > 1 ? 's' : ''})`);
 
       // Trigger reload of schedules
       const { data: schedulesData } = await (supabase as any)
@@ -411,6 +649,79 @@ const Lab = () => {
     return lab?.name || 'Unknown Lab';
   };
 
+  const handleManualAddSchedule = async () => {
+    if (!selectedLabForSchedule || !extraClassForm.day || !extraClassForm.period || !extraClassForm.subject) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    const dayIndex = parseInt(extraClassForm.day);
+    const periodData = periods.find(p => p.id === extraClassForm.period);
+
+    if (!periodData) {
+      toast.error("Invalid period selected");
+      return;
+    }
+
+    // Check if slot is already occupied
+    const existing = getScheduleForPeriod(dayIndex, parseInt(periodData.id.replace('P', '')));
+    if (existing) {
+      toast.error("This slot is already occupied. Please remove the existing session first.");
+      return;
+    }
+
+    // Construct slot object for reuse
+    const slot = {
+      day: dayIndex,
+      startTime: periodData.startTime,
+      endTime: periodData.endTime,
+      slotNumber: parseInt(periodData.id.replace('P', '')),
+      labId: selectedLabForSchedule.id
+    };
+
+    // Call existing handler
+    // If subject matches an ID in itAdsLabs, use it, otherwise pass as note/semester info
+    const subjectMatch = itAdsLabs.find(s => s.id === extraClassForm.subject);
+    
+    if (subjectMatch) {
+      await handleAddSchedule(slot, subjectMatch.id);
+    } else {
+      // Manual entry (Special Class / Extra Class)
+      try {
+        const { error } = await (supabase as any)
+        .from('lab_schedules')
+        .insert([{
+          lab_id: slot.labId,
+          day_of_week: slot.day,
+          start_time: slot.startTime,
+          end_time: slot.endTime,
+          slot_number: slot.slotNumber,
+          semester: extraClassForm.subject + (extraClassForm.notes ? ` - ${extraClassForm.notes}` : ""), // Use input as description
+          academic_year: newSession.academic_year,
+          max_capacity: selectedLabForSchedule.capacity,
+          is_available: false, // Occupied
+          created_at: new Date().toISOString(),
+        }]);
+
+        if (error) throw error;
+        toast.success("Extra class added successfully");
+        
+        // Refresh
+        const { data: schedulesData } = await (supabase as any)
+          .from('lab_schedules')
+          .select('*')
+          .in('lab_id', labs.map(lab => lab.id));
+        setLabSchedules(schedulesData || []);
+        setExtraClassDialog(false);
+        setExtraClassForm({ day: "", period: "", subject: "", notes: "" });
+
+      } catch (error: any) {
+        console.error('Error adding extra class:', error);
+        toast.error(`Failed to add extra class: ${error.message}`);
+      }
+    }
+  };
+
   const ready = selection.department;
 
   if (loading) {
@@ -430,31 +741,9 @@ const Lab = () => {
     <div className="min-h-screen bg-background">
       <AdminNavbar />
       <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
-        <section className="container py-8">
+        <SelectionHeader />
+        <section className="container py-4">
           <div className="space-y-6">
-            {/* Header */}
-            <header className="mb-8 flex justify-end">
-              <div className="flex items-center gap-4">
-                <div className="w-48">
-                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All Departments" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all-departments">All Departments</SelectItem>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button onClick={() => setLabDialog(true)}>
-                  <Plus className="mr-2 h-4 w-4" /> Add Lab
-                </Button>
-              </div>
-            </header>
 
             <Tabs defaultValue="labs" className="space-y-6">
               <TabsList className="grid w-full grid-cols-2">
@@ -480,17 +769,17 @@ const Lab = () => {
                         <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="code">Lab Code *</Label>
-                        <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CL1" />
+                        <Label htmlFor="lab_code">Lab Code *</Label>
+                        <Input id="lab_code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CS101" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
-                        <Label htmlFor="capacity">Capacity</Label>
-                        <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
+                        <Label htmlFor="room">Room Number</Label>
+                        <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} placeholder="e.g. 301" />
                       </div>
                       <div className="grid gap-2">
-                        <Label htmlFor="type">Type</Label>
+                        <Label htmlFor="type">Lab Type</Label>
                         <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({ ...labForm, lab_type: v })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -502,24 +791,102 @@ const Lab = () => {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4">
                       <div className="grid gap-2">
-                        <Label htmlFor="room">Room Number</Label>
-                        <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} />
+                        <Label htmlFor="capacity">Capacity</Label>
+                        <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="building">Building</Label>
-                        <Input id="building" value={labForm.building} onChange={(e) => setLabForm({ ...labForm, building: e.target.value })} />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="floor">Floor</Label>
-                        <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({ ...labForm, floor: e.target.value })} />
-                      </div>
-                    </div>
+                    
+                    
                     <div className="grid gap-2">
-                      <Label htmlFor="desc">Description</Label>
-                      <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({ ...labForm, description: e.target.value })} />
+                       <Label>Allowed Classes (Who can access this lab)</Label>
+                       <div className="flex gap-2 items-end">
+                          <div className="grid gap-2 flex-1">
+                            <Label htmlFor="year-select" className="text-xs">Year</Label>
+                             <Select 
+                              value={labForm.year} 
+                              onValueChange={(v) => {
+                                setLabForm({ ...labForm, year: v, section: "" }); // Reset section on year change
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Year" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableYears.map((y) => (
+                                  <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                           <div className="grid gap-2 flex-1">
+                             <Label htmlFor="section-select" className="text-xs">Section</Label>
+                            <Select 
+                              value={labForm.section} 
+                              onValueChange={(v) => setLabForm({ ...labForm, section: v })}
+                              disabled={!labForm.year}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Section" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                 <SelectItem value="All Sections">All Sections</SelectItem>
+                                {availableSections.map((s) => (
+                                  <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button 
+                            type="button"
+                            onClick={() => {
+                                if (labForm.year && labForm.section) {
+                                  // Avoid duplicates
+                                  const exists = labForm.allowed_classes.some(
+                                      c => c.year === labForm.year && c.section === labForm.section
+                                  );
+                                  if (!exists) {
+                                      setLabForm({
+                                          ...labForm,
+                                          allowed_classes: [...labForm.allowed_classes, { year: labForm.year, section: labForm.section }],
+                                          year: "", // Reset selectors
+                                          section: ""
+                                      });
+                                  } else {
+                                      toast.error("Class already added");
+                                  }
+                                } else {
+                                    toast.error("Please select both Year and Section");
+                                }
+                            }}
+                          >
+                            Add
+                          </Button>
+                       </div>
+                    
+                       {/* List of added classes */}
+                       <div className="flex flex-wrap gap-2 mt-2">
+                          {labForm.allowed_classes.length === 0 && (
+                              <span className="text-xs text-muted-foreground italic">No classes permitted yet. Lab will be hidden.</span>
+                          )}
+                          {labForm.allowed_classes.map((cls, idx) => (
+                              <Badge key={`${cls.year}-${cls.section}-${idx}`} variant="secondary" className="flex items-center gap-1">
+                                  Year {cls.year} - {cls.section}
+                                  <button 
+                                      onClick={() => {
+                                          const newClasses = [...labForm.allowed_classes];
+                                          newClasses.splice(idx, 1);
+                                          setLabForm({ ...labForm, allowed_classes: newClasses });
+                                      }}
+                                      className="ml-1 hover:text-destructive"
+                                  >
+                                      <Trash2 className="h-3 w-3" />
+                                  </button>
+                              </Badge>
+                          ))}
+                       </div>
                     </div>
                   </div>
                   <DialogFooter>
@@ -529,81 +896,264 @@ const Lab = () => {
                 </DialogContent>
               </Dialog>
 
-              <TabsContent value="labs" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">Lab Facilities</h2>
-                </div>
+              <TabsContent value="labs" className="space-y-4">
+                {/* Theme-aware table card */}
+                <div className={`rounded-2xl overflow-hidden shadow-xl ${tblBg}`}>
+                  {/* Table Header */}
+                  <div className={`px-5 py-4 border-b ${tblBorder} flex flex-col sm:flex-row sm:items-center gap-3`}>
+                    {/* Add Lab Button */}
+                    <button
+                      onClick={() => setLabDialog(true)}
+                      className="h-9 px-4 rounded-lg bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition-colors flex items-center gap-2 shrink-0 shadow-sm"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Lab
+                    </button>
+                    {/* Search */}
+                    <div className="relative flex-1">
+                      <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${tblTextDim}`} />
+                      <input
+                        type="text"
+                        placeholder="Search labs..."
+                        value={labSearch}
+                        onChange={(e) => setLabSearch(e.target.value)}
+                        className={`w-full pl-9 pr-3 h-9 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${tblInputBg}`}
+                      />
+                    </div>
+                    {/* Type filter */}
+                    <select
+                      value={labTypeFilter}
+                      onChange={(e) => setLabTypeFilter(e.target.value)}
+                      className={`h-9 px-3 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${tblSelectBg}`}
+                    >
+                      <option value="all">All Types</option>
+                      <option value="computer">Computer</option>
+                      <option value="electronics">Electronics</option>
+                      <option value="physics">Physics</option>
+                      <option value="chemistry">Chemistry</option>
+                      <option value="other">Other</option>
+                    </select>
+                    {/* View toggle */}
+                    <div className={`flex items-center gap-1 border rounded-lg p-1 ${tblViewToggleBg}`}>
+                      <button
+                        onClick={() => setLabViewMode('table')}
+                        className={`p-1.5 rounded-md transition-colors ${labViewMode === 'table' ? 'bg-emerald-600 text-white' : tblViewInactive}`}
+                        title="Table view"
+                      >
+                        <LayoutGrid className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => setLabViewMode('list')}
+                        className={`p-1.5 rounded-md transition-colors ${labViewMode === 'list' ? 'bg-emerald-600 text-white' : tblViewInactive}`}
+                        title="List view"
+                      >
+                        <List className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {/* Delete mode toggle */}
+                    <button
+                      onClick={() => { setLabDeleteMode(d => !d); setSelectedLabIds(new Set()); }}
+                      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center gap-2 ${
+                        labDeleteMode
+                          ? 'bg-red-600 border-red-500 text-white'
+                          : tblDeleteBtn
+                      }`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {labDeleteMode ? `Delete (${selectedLabIds.size})` : 'Delete'}
+                    </button>
+                    {/* Export */}
+                    <button
+                      onClick={() => {
+                        const filtered = labs.filter(l => {
+                          const matchSearch = l.name.toLowerCase().includes(labSearch.toLowerCase()) || l.lab_code?.toLowerCase().includes(labSearch.toLowerCase());
+                          const matchType = labTypeFilter === 'all' || l.lab_type === labTypeFilter;
+                          return matchSearch && matchType;
+                        });
+                        const csv = [
+                          ['Name','Code','Type','Capacity','Room','Status'].join(','),
+                          ...filtered.map(l => [l.name, l.lab_code, l.lab_type, l.capacity, l.room_number, l.is_active ? 'Active' : 'Inactive'].join(','))
+                        ].join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = 'labs.csv'; a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center gap-2 ${tblExportBtn}`}
+                    >
+                      <Download className="h-4 w-4" />
+                      Export
+                    </button>
+                    {/* Confirm bulk delete */}
+                    {labDeleteMode && selectedLabIds.size > 0 && (
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete ${selectedLabIds.size} lab(s)?`)) return;
+                          await Promise.all(Array.from(selectedLabIds).map(id => handleDeleteLab(id)));
+                          setSelectedLabIds(new Set());
+                          setLabDeleteMode(false);
+                        }}
+                        className="h-9 px-3 rounded-lg bg-red-600 border border-red-500 text-white text-sm font-semibold transition-colors"
+                      >
+                        Confirm Delete
+                      </button>
+                    )}
+                  </div>
 
-                <div className="grid gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {labs.map((lab) => (
-                    <Card key={lab.id} className="relative">
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <CardTitle className="text-base font-semibold leading-tight">{lab.name}</CardTitle>
-                            <CardDescription className="text-xs">
-                              {lab.building && `${lab.building}, `}
-                              {lab.floor && `${lab.floor}, `}
-                              {lab.room_number && `Room ${lab.room_number}`}
-                            </CardDescription>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={lab.is_active ? "default" : "secondary"} className="text-[10px] py-0.5 px-2">
-                              {lab.is_active ? "Active" : "Inactive"}
-                            </Badge>
-                          </div>
+                  {/* Table Body */}
+                  {(() => {
+                    const filteredLabs = labs.filter(l => {
+                      const matchSearch = l.name.toLowerCase().includes(labSearch.toLowerCase()) || l.lab_code?.toLowerCase().includes(labSearch.toLowerCase());
+                      const matchType = labTypeFilter === 'all' || l.lab_type === labTypeFilter;
+                      return matchSearch && matchType;
+                    });
+
+                    if (filteredLabs.length === 0) {
+                      return (
+                        <div className={`flex flex-col items-center justify-center py-16 ${tblEmptyText}`}>
+                          <Settings className={`h-10 w-10 mb-3 ${tblEmptyIcon}`} />
+                          <p className="text-sm">No labs found</p>
                         </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground text-xs">Capacity</span>
-                          <span className="font-medium text-sm">{lab.capacity} students</span>
+                      );
+                    }
+
+                    if (labViewMode === 'table') {
+                      return (
+                        <div className="overflow-auto max-h-[520px]">
+                          <table className={`w-full text-sm ${tblText}`}>
+                            <thead className={`sticky top-0 backdrop-blur z-10 ${tblHeaderBg}`}>
+                              <tr>
+                                {labDeleteMode && <th className="w-10 px-4 py-3 text-left"></th>}
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Lab Name</th>
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Code</th>
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Type</th>
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Capacity</th>
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Allocated Year</th>
+                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Status</th>
+                                <th className={`px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className={`divide-y ${tblDivide}`}>
+                              {filteredLabs.map((lab) => (
+                                <tr key={lab.id} className={`${tblRowHover} transition-colors ${selectedLabIds.has(lab.id) ? 'bg-red-900/20' : ''}`}>
+                                  {labDeleteMode && (
+                                    <td className="px-4 py-3">
+                                      <Checkbox
+                                        checked={selectedLabIds.has(lab.id)}
+                                        onCheckedChange={(v) => {
+                                          setSelectedLabIds(prev => {
+                                            const next = new Set(prev);
+                                            v ? next.add(lab.id) : next.delete(lab.id);
+                                            return next;
+                                          });
+                                        }}
+                                        className="border-slate-600"
+                                      />
+                                    </td>
+                                  )}
+                                  <td className="px-4 py-3">
+                                    <div className={`font-semibold ${tblCellName}`}>{lab.name}</div>
+                                    {lab.room_number && <div className={`text-xs ${tblTextDim}`}>Room {lab.room_number}</div>}
+                                  </td>
+                                  <td className={`px-4 py-3 font-mono text-xs ${tblTextMuted}`}>{lab.lab_code}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-0.5 rounded-full text-xs capitalize ${tblTypeBadge}`}>{lab.lab_type}</span>
+                                  </td>
+                                  <td className={`px-4 py-3 ${tblText}`}>{lab.capacity} students</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap gap-1">
+                                      {(lab.allowed_classes && lab.allowed_classes.length > 0)
+                                        ? lab.allowed_classes.map((cls, idx) => (
+                                            <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] font-medium border border-emerald-700/40">
+                                              Yr {cls.year} • {cls.section}
+                                            </span>
+                                          ))
+                                        : (lab.year || lab.section)
+                                          ? <span className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] font-medium border border-emerald-700/40">{lab.year} {lab.section}</span>
+                                          : <span className="text-slate-600 text-xs">—</span>
+                                      }
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      lab.is_active ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-700/40' : 'bg-slate-700 text-slate-400'
+                                    }`}>
+                                      {lab.is_active ? 'Active' : 'Inactive'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => openScheduleViewDialog(lab)}
+                                        className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors ${tblActionBtn}`}
+                                      >
+                                        Edit
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground text-xs">Location</span>
-                          <span className="font-medium text-right text-sm truncate max-w-[60%]">
-                            {lab.building}{lab.floor ? `, ${lab.floor}` : ''}{lab.room_number ? `, Room ${lab.room_number}` : ''}
-                          </span>
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-sm text-muted-foreground">Available Departments:</span>
-                          <div className="flex flex-wrap gap-1">
-                            {lab.departments && lab.departments.length > 0 ? (
-                              lab.departments.map((deptId) => {
-                                const dept = departments.find(d => d.id === deptId);
-                                return (
-                                  <Badge key={deptId} variant="outline" className="text-[10px]">
-                                    {dept?.name || 'Unknown'}
-                                  </Badge>
-                                );
-                              })
-                            ) : (
-                              <Badge variant="outline" className="text-[10px]">
-                                No departments
-                              </Badge>
+                      );
+                    }
+
+                    // List view
+                    return (
+                      <div className={`overflow-auto max-h-[520px] divide-y ${tblDivide}`}>
+                        {filteredLabs.map((lab) => (
+                          <div key={lab.id} className={`flex items-center gap-4 px-5 py-4 ${tblRowHover} transition-colors ${selectedLabIds.has(lab.id) ? 'bg-red-900/20' : ''}`}>
+                            {labDeleteMode && (
+                              <Checkbox
+                                checked={selectedLabIds.has(lab.id)}
+                                onCheckedChange={(v) => {
+                                  setSelectedLabIds(prev => {
+                                    const next = new Set(prev);
+                                    v ? next.add(lab.id) : next.delete(lab.id);
+                                    return next;
+                                  });
+                                }}
+                                className="border-slate-600"
+                              />
                             )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`font-semibold ${tblCellName}`}>{lab.name}</span>
+                                <span className={`text-xs font-mono ${tblTextDim}`}>{lab.lab_code}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  lab.is_active ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-700/40' : (isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500')
+                                }`}>{lab.is_active ? 'Active' : 'Inactive'}</span>
+                              </div>
+                              <div className={`flex items-center gap-3 mt-1 text-xs flex-wrap ${tblTextMuted}`}>
+                                <span className="capitalize">{lab.lab_type}</span>
+                                <span>•</span>
+                                <span>{lab.capacity} students</span>
+                                {lab.room_number && <><span>•</span><span>Room {lab.room_number}</span></>}
+                                {(lab.allowed_classes && lab.allowed_classes.length > 0) && (
+                                  <div className="flex gap-1 flex-wrap">
+                                    {lab.allowed_classes.map((cls, idx) => (
+                                      <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] border border-emerald-700/40">
+                                        Yr {cls.year} • {cls.section}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => openScheduleViewDialog(lab)}
+                                className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors ${tblActionBtn}`}
+                              >
+                                Edit
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {lab.description}
-                        </p>
-                        <div className="flex gap-2 pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openScheduleViewDialog(lab)}
-                            className="flex-1 h-8"
-                          >
-                            <Eye className="h-3 w-3 mr-1" />
-                            View Schedule
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </TabsContent>
 
@@ -667,7 +1217,7 @@ const Lab = () => {
       {/* Schedule View Modal */}
       <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>
         <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
+          <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
             <DialogTitle>
               Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
             </DialogTitle>
@@ -676,24 +1226,37 @@ const Lab = () => {
           {selectedLabForSchedule && (
             <div className="space-y-4">
               {/* Lab Info */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/20 rounded-lg">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-muted/20 rounded-lg">
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Building</p>
-                  <p className="font-semibold">{selectedLabForSchedule.building}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Floor</p>
-                  <p className="font-semibold">{selectedLabForSchedule.floor}</p>
+                  <p className="text-sm font-medium text-muted-foreground">Allocation</p>
+                  {selectedLabForSchedule.allowed_classes && selectedLabForSchedule.allowed_classes.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedLabForSchedule.allowed_classes.map((cls: any, idx: number) => (
+                        <Badge key={idx} variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                          Yr {cls.year} • {cls.section}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (selectedLabForSchedule.year || selectedLabForSchedule.section) ? (
+                    <div className="mt-1">
+                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                        {selectedLabForSchedule.year ? `Year ${selectedLabForSchedule.year}` : ''} {selectedLabForSchedule.section ? `• Sec ${selectedLabForSchedule.section}` : ''}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <p className="font-semibold text-orange-600">Shared Campus Facility</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Room</p>
-                  <p className="font-semibold">{selectedLabForSchedule.room_number}</p>
+                  <p className="font-semibold">{selectedLabForSchedule.room_number || 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Capacity</p>
                   <p className="font-semibold">{selectedLabForSchedule.capacity} students</p>
                 </div>
               </div>
+
 
               {/* Schedule Table */}
               <div className="border rounded-lg overflow-hidden">
@@ -728,18 +1291,34 @@ const Lab = () => {
                           const slotNumber = parseInt(period.id.replace('P', ''));
                           const scheduleForPeriod = getScheduleForPeriod(day.value, slotNumber);
 
+                          const parsedInfo = scheduleForPeriod ? parseScheduleInfo(scheduleForPeriod.semester || "Allocated") : null;
+
                           return (
-                            <TableCell key={period.id} className="text-center p-2 border-r">
-                              {scheduleForPeriod ? (
-                                <div className="space-y-1 relative group flex flex-col items-center">
-                                  <div className="font-bold text-xs text-black text-center leading-tight">
-                                    {scheduleForPeriod.semester || "Allocated"}
-                                  </div>
+                            <TableCell key={period.id} className="text-center p-2 border-r text-xs align-middle">
+                              {scheduleForPeriod && parsedInfo ? (
+                                <div className="relative group w-full h-full min-h-[50px] flex flex-col items-center justify-center">
+                                  {parsedInfo.year ? (
+                                    <>
+                                      <div className="text-[10px] font-medium text-muted-foreground leading-tight mb-1">
+                                        {parsedInfo.year} {parsedInfo.section ? `• ${parsedInfo.section}` : ''}
+                                      </div>
+                                      <div className="font-bold text-foreground text-center leading-tight px-1">
+                                        {parsedInfo.subject}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="font-bold text-foreground text-center leading-tight px-1 text-[11px]">
+                                      {parsedInfo.raw}
+                                    </div>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="absolute -top-2 -right-2 h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => handleRemoveSchedule(scheduleForPeriod.id)}
+                                    className="absolute -top-1 -right-1 h-5 w-5 bg-background/80 hover:bg-destructive hover:text-white text-destructive shadow-sm rounded-full opacity-0 group-hover:opacity-100 transition-all z-10"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveSchedule(scheduleForPeriod.id);
+                                    }}
                                   >
                                     <Trash2 className="h-3 w-3" />
                                   </Button>
@@ -784,9 +1363,64 @@ const Lab = () => {
                                               }}
                                               className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
                                             >
-                                              <div className="flex flex-col text-left">
-                                                <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
-                                                <span className="text-[11px] text-muted-foreground">Year {subj.year}</span>
+                                              <div className="flex flex-col text-left w-full group/item">
+                                                <div className="flex justify-between items-center mb-1">
+                                                  <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
+                                                      {subj.hours_per_week || 1}h
+                                                    </span>
+                                                    <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
+                                                  </div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
+                                                  {(() => {
+                                                    // Get allowed sections for this subject's year from the lab's allowed_classes
+                                                    const allowedClasses = selectedLabForSchedule.allowed_classes || [];
+                                                    const allowedSectionsForYear = allowedClasses
+                                                      .filter(c => c.year === subj.year)
+                                                      .map(c => c.section);
+                                                    // All possible sections to display
+                                                    const allSections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+                                                    // If no allowed_classes defined, show all sections (no restriction)
+                                                    const hasRestriction = allowedClasses.length > 0;
+                                                    return allSections.map((section) => {
+                                                      const isAllowed = !hasRestriction || 
+                                                        allowedSectionsForYear.includes(section) || 
+                                                        allowedSectionsForYear.includes('All Sections');
+                                                      return (
+                                                        <Button
+                                                          key={section}
+                                                          size="sm"
+                                                          variant="outline"
+                                                          disabled={!isAllowed}
+                                                          title={!isAllowed ? `Sec ${section} is not allowed in this lab` : `Assign to Sec ${section}`}
+                                                          className={`h-7 w-7 p-0 text-[10px] font-bold transition-colors ${
+                                                            isAllowed
+                                                              ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
+                                                              : 'opacity-30 cursor-not-allowed'
+                                                          }`}
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (!isAllowed) return;
+                                                            const slot = {
+                                                              day: day.value,
+                                                              startTime: period.startTime,
+                                                              endTime: period.endTime,
+                                                              slotNumber: parseInt(period.id.replace('P', '')),
+                                                              labId: selectedLabForSchedule.id
+                                                            };
+                                                            const allocationInfo = `Year ${subj.year} Sec ${section} - ${subj.name}`;
+                                                            handleAddSchedule(slot, subj.id, allocationInfo);
+                                                            setOpenPopoverId(null);
+                                                          }}
+                                                        >
+                                                          {section}
+                                                        </Button>
+                                                      );
+                                                    });
+                                                  })()}
+                                                </div>
                                               </div>
                                             </CommandItem>
                                           ))}
@@ -822,7 +1456,6 @@ const Lab = () => {
               </div>
             </div>
           )}
-
           <DialogFooter>
             <Button onClick={() => setScheduleViewDialog(false)}>
               Close
@@ -831,7 +1464,99 @@ const Lab = () => {
         </DialogContent>
       </Dialog>
 
-    </div >
+      {/* Add Extra Class Dialog */}
+      <Dialog open={extraClassDialog} onOpenChange={setExtraClassDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Extra Class</DialogTitle>
+            <CardDescription>Manually book a slot for a special session or extra class.</CardDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Day</Label>
+                <Select value={extraClassForm.day} onValueChange={(v) => setExtraClassForm({ ...extraClassForm, day: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DAYS.map((d, i) => (
+                      <SelectItem key={d} value={(i + 1).toString()}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Period</Label>
+                <Select value={extraClassForm.period} onValueChange={(v) => setExtraClassForm({ ...extraClassForm, period: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {periods.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.id} ({p.time})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Subject / Activity</Label>
+              {/* Allow selecting existing subject OR typing custom */}
+              <div className="relative">
+                  <Select 
+                  value={
+                    extraClassForm.subject && !itAdsLabs.find(s => s.id === extraClassForm.subject) 
+                    ? 'custom' 
+                    : (extraClassForm.subject || '')
+                  } 
+                  onValueChange={(v) => {
+                    if (v === 'custom') {
+                        setExtraClassForm({ ...extraClassForm, subject: '' });
+                    } else {
+                        setExtraClassForm({ ...extraClassForm, subject: v });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Subject or Type Custom" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom" className="font-semibold text-emerald-600">Custom Entry (Type Below)</SelectItem>
+                      {itAdsLabs.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name} (Year {s.year})</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+                <Input 
+                className="mt-2"
+                placeholder="Enter Custom Subject/Activity Name" 
+                value={
+                  itAdsLabs.find(s => s.id === extraClassForm.subject) 
+                  ? '' 
+                  : extraClassForm.subject
+                }
+                onChange={(e) => setExtraClassForm({ ...extraClassForm, subject: e.target.value })}
+                disabled={!!itAdsLabs.find(s => s.id === extraClassForm.subject)}
+                />
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (Optional)</Label>
+              <Input 
+                placeholder="e.g. Makeup Class, Exam, etc." 
+                value={extraClassForm.notes} 
+                onChange={(e) => setExtraClassForm({ ...extraClassForm, notes: e.target.value })} 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtraClassDialog(false)}>Cancel</Button>
+            <Button onClick={handleManualAddSchedule} className="bg-emerald-600 hover:bg-emerald-700 text-white">Add Class</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 };
 

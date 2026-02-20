@@ -126,7 +126,7 @@ const LabManagement = () => {
     const loggedIn = localStorage.getItem("superAdmin") === "true";
     setIsLoggedIn(loggedIn);
     if (!loggedIn) {
-      navigate("/super-admin-login", { replace: true });
+      navigate("/", { replace: true });
     }
   };
 
@@ -397,7 +397,8 @@ const LabManagement = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="container py-10 md:pt-16">
         <header className="mb-8 flex justify-end">
           <div className="flex items-center gap-4">
             <div className="w-48">
@@ -566,7 +567,7 @@ const LabManagement = () => {
                         className="flex-1 h-8"
                       >
                         <Eye className="h-3 w-3 mr-1" />
-                        View Schedule
+                        Edit
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
                         <Trash2 className="h-4 w-4" />
@@ -624,7 +625,8 @@ const LabManagement = () => {
             </div>
           </TabsContent>
         </Tabs>
-      </section>
+        </section>
+      </div>
 
       {/* Schedule View Modal */}
       <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>

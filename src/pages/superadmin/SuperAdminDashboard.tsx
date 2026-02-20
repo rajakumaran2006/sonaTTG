@@ -58,7 +58,7 @@ const SuperAdminDashboard = () => {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      navigate("/super-admin-login", { replace: true });
+      navigate("/", { replace: true });
       return;
     }
     (async () => {
