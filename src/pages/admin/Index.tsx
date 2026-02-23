@@ -146,15 +146,15 @@ const Index = () => {
   }, [selection.department, selection.year, selection.section]);
 
   // ── Theme tokens ────────────────────────────────────────────────────────────
-  const bg       = isDark ? "bg-[#0a0a0a]"       : "bg-[#f5f5f7]";
-  const cardBg   = isDark ? "bg-[#141414]"        : "bg-white";
+  const bg = isDark ? "bg-[#0a0a0a]" : "bg-[#f5f5f7]";
+  const cardBg = isDark ? "bg-[#141414]" : "bg-white";
   const cardBorder = isDark ? "border-white/[0.06]" : "border-slate-200/80";
-  const divider  = isDark ? "border-white/[0.06]" : "border-slate-100";
-  const textPrimary   = isDark ? "text-white"         : "text-slate-900";
-  const textSecondary = isDark ? "text-white/50"       : "text-slate-500";
-  const textMuted     = isDark ? "text-white/30"       : "text-slate-400";
-  const inputBg  = isDark ? "bg-white/[0.05] border-white/10 text-white" : "bg-slate-50 border-slate-200 text-slate-900";
-  const editBtn  = isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-slate-100 text-slate-700 hover:bg-slate-200";
+  const divider = isDark ? "border-white/[0.06]" : "border-slate-100";
+  const textPrimary = isDark ? "text-white" : "text-slate-900";
+  const textSecondary = isDark ? "text-white/50" : "text-slate-500";
+  const textMuted = isDark ? "text-white/30" : "text-slate-400";
+  const inputBg = isDark ? "bg-white/[0.05] border-white/10 text-white" : "bg-slate-50 border-slate-200 text-slate-900";
+  const editBtn = isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-slate-100 text-slate-700 hover:bg-slate-200";
   const actionHoverBg = isDark ? "hover:bg-white/[0.04]" : "";
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -208,17 +208,17 @@ const Index = () => {
   ];
 
   const quickActions = [
-    { label: "Add Subjects",    icon: BookOpen, path: "/admin/subjects", color: "emerald" },
-    { label: "Manage Faculty",  icon: Users,    path: "/admin/faculty",  color: "sky"     },
-    { label: "Bulk Import",     icon: Upload,   path: "/csv-upload",     color: "amber"   },
-    { label: "Lab Allocation",  icon: Database, path: "/lab",            color: "violet"  },
+    { label: "Add Subjects", icon: BookOpen, path: "/admin/subjects", color: "emerald" },
+    { label: "Manage Faculty", icon: Users, path: "/admin/faculty", color: "sky" },
+    { label: "Bulk Import", icon: Upload, path: "/csv-upload", color: "amber" },
+    { label: "Lab Allocation", icon: Database, path: "/lab", color: "violet" },
   ];
 
   const colorMap: Record<string, { icon: string; bg: string; border: string }> = {
     emerald: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
-    sky:     { icon: "text-black",     bg: "bg-gray-300",     border: "border-gray-500 hover:border-gray-600"     },
-    amber:   { icon: "text-black",   bg: "bg-gray-300",   border: "border-gray-500 hover:border-gray-600"   },
-    violet:  { icon: "text-black",  bg: "bg-gray-300",  border: "border-gray-500 hover:border-gray-600"  },
+    sky: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
+    amber: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
+    violet: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
   };
 
   return (
@@ -231,7 +231,7 @@ const Index = () => {
         <div className="container pt-2 pb-4 space-y-6">
 
           {/* Stats Row */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {statCards.map((card) => (
               <div
                 key={card.label}
