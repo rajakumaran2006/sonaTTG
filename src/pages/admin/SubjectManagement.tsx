@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { SUBJECT_HOUR_LIMIT, Subject, subjectTotals, specialHours, useTimetableStore } from "@/store/timetableStore";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -34,12 +34,6 @@ const SubjectManagement = () => {
   const specialHoursConfigs = useTimetableStore((s) => s.specialHoursConfigs);
   const setSpecialHoursConfigs = useTimetableStore((s) => s.setSpecialHoursConfigs);
 
-  const totals = useMemo(() => subjectTotals(selected), [selected]);
-  const specialHrs = useMemo(() => specialHours(special), [special]);
-  const configuredSpecialHrs = useMemo(() => 
-    specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
-    [specialHoursConfigs]
-  );
   const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; credits?: number; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const setLabPreferences = useTimetableStore((s) => s.setLabPreferences);
@@ -65,9 +59,89 @@ const SubjectManagement = () => {
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [departmentId, setDepartmentId] = useState<string>("");
   const isFourthYear = useMemo(() => selection.year === "IV" || selection.year === "4", [selection.year]);
+  const [openElectiveMode, setOpenElectiveMode] = useState<'parallel' | 'separate'>('parallel');
+  const [electiveMode, setElectiveMode] = useState<'parallel' | 'separate'>('parallel');
+  const showOpenElectiveCard = useMemo(() => {
+    return isFourthYear || selected.some(s => s.type === 'open elective') || available.some(s => s.type === 'open elective');
+  }, [isFourthYear, selected, available]);
+  const showElectiveCard = useMemo(() => {
+    return selected.some(s => s.type === 'elective') || available.some(s => s.type === 'elective');
+  }, [selected, available]);
   const currentOpenElectiveHours = useMemo(() => selected.filter(s => s.type === 'open elective').reduce((a, s) => a + (s.hoursPerWeek || 0), 0), [selected]);
   const [openElectiveHours, setOpenElectiveHoursState] = useState<number>(0);
   const [savingOpenElective, setSavingOpenElective] = useState(false);
+
+  // Memos that depend on state variables (including electiveMode and openElectiveMode)
+  const totals = useMemo(() => subjectTotals(selected), [selected]);
+  const specialHrs = useMemo(() => specialHours(special), [special]);
+  const configuredSpecialHrs = useMemo(() => 
+    specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
+    [specialHoursConfigs]
+  );
+
+  const electiveOccupiedHours = useMemo(() => {
+    const electives = selected.filter(s => s.type === 'elective');
+    if (electiveMode === 'separate') {
+      return electives.reduce((a, s) => a + s.hoursPerWeek, 0);
+    }
+    const peTagGroups = new Map<string, number>();
+    const ungrouped: Subject[] = [];
+    for (const s of electives) {
+      const peTag = (s.tags || []).find((t) =>
+        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+)$/i.test(t.trim())
+      );
+      if (peTag) {
+        const key = peTag.trim().toUpperCase();
+        peTagGroups.set(key, Math.max(peTagGroups.get(key) || 0, s.hoursPerWeek));
+      } else {
+        ungrouped.push(s);
+      }
+    }
+    const hoursGroups = new Map<number, number>();
+    for (const s of ungrouped) {
+      hoursGroups.set(s.hoursPerWeek, s.hoursPerWeek);
+    }
+    
+    let sum = 0;
+    for (const h of peTagGroups.values()) sum += h;
+    for (const h of hoursGroups.values()) sum += h;
+    return sum;
+  }, [selected, electiveMode]);
+
+  const [generating, setGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStatus, setGenerationStatus] = useState("");
+
+  const totalElectiveSum = useMemo(() => {
+    return selected.filter(s => s.type === 'elective').reduce((a, s) => a + s.hoursPerWeek, 0);
+  }, [selected]);
+
+  const handleMoveToSelected = async (sid: string) => {
+    moveToSelected(sid);
+    try {
+      const dep = await ensureDepartment(selection.department!);
+      const found = available.find(s => s.id === sid);
+      if (found) {
+        const newSelected = [...selected, found];
+        await saveSectionSubjects(dep.id, selection.year!, selection.section!, newSelected.map(s => s.id));
+      }
+    } catch (e: any) {
+      console.error("Failed to sync subject addition to database:", e);
+      toast({ title: "Sync failed", description: e?.message || String(e), variant: "destructive" });
+    }
+  };
+
+  const handleMoveToAvailable = async (sid: string) => {
+    moveToAvailable(sid);
+    try {
+      const dep = await ensureDepartment(selection.department!);
+      const newSelected = selected.filter(s => s.id !== sid);
+      await saveSectionSubjects(dep.id, selection.year!, selection.section!, newSelected.map(s => s.id));
+    } catch (e: any) {
+      console.error("Failed to sync subject removal to database:", e);
+      toast({ title: "Sync failed", description: e?.message || String(e), variant: "destructive" });
+    }
+  };
 
   // Lab allocation map: subjectName → { labName, labCode }
   const [labAllocations, setLabAllocations] = useState<Record<string, { labName: string; labCode: string }>>({});
@@ -176,8 +250,10 @@ const SubjectManagement = () => {
   // Sync input with current data when selection or subjects change
   useEffect(() => {
     (async () => {
-      if (!isFourthYear || !selection.department || !selection.year) {
+      if (!selection.department || !selection.year) {
         setOpenElectiveHoursState(0);
+        setOpenElectiveMode('parallel');
+        setElectiveMode('parallel');
         return;
       }
       try {
@@ -189,11 +265,21 @@ const SubjectManagement = () => {
         }
         const hours = await getOpenElectiveHours(depId, selection.year);
         setOpenElectiveHoursState(hours || 0);
+
+        // Load open elective mode
+        const storedOeMode = localStorage.getItem(`oe_mode:${depId}:${selection.year}`) as 'parallel' | 'separate';
+        setOpenElectiveMode(storedOeMode || 'parallel');
+
+        // Load professional elective mode
+        const storedPeMode = localStorage.getItem(`pe_mode:${depId}:${selection.year}`) as 'parallel' | 'separate';
+        setElectiveMode(storedPeMode || 'parallel');
       } catch (_) {
         setOpenElectiveHoursState(0);
+        setOpenElectiveMode('parallel');
+        setElectiveMode('parallel');
       }
     })();
-  }, [isFourthYear, selection.department, selection.year]);
+  }, [selection.department, selection.year, departmentId]);
 
   const handleSaveOpenElectiveHours = async () => {
     try {
@@ -201,9 +287,9 @@ const SubjectManagement = () => {
         toast({ title: "Missing selection", description: "Please select department and year." });
         return;
       }
-      // For totals, we should not sum individual open elective subjects; instead user-configured OE hours override display total
-      // However, currentSelected contains individual OE subjects as part of year subjects list; we compute delta accordingly
-      const proposed = (totals.total - currentOpenElectiveHours) + Number(openElectiveHours) + configuredSpecialHrs;
+      // For totals, check proposed sum including open/professional elective modes
+      const oeContribution = openElectiveMode === 'parallel' ? Number(openElectiveHours) : currentOpenElectiveHours;
+      const proposed = (totals.total - totalElectiveSum - currentOpenElectiveHours) + electiveOccupiedHours + oeContribution + configuredSpecialHrs;
       if (proposed > SUBJECT_HOUR_LIMIT) {
         toast({ title: "Too many hours", description: `Proposed ${proposed}/42 exceeds the limit.` });
         return;
@@ -216,14 +302,38 @@ const SubjectManagement = () => {
         setDepartmentId(depId);
       }
       await setOpenElectiveHours(depId, selection.year, Number(openElectiveHours));
+      
+      // Save scheduling mode to localStorage
+      localStorage.setItem(`oe_mode:${depId}:${selection.year}`, openElectiveMode);
+      
       // Do not alter subjects; open elective hours are now a setting. Still refresh to keep UI consistent
       const subs = await getSubjectsForYear(depId, selection.year);
       seedYearDataset(subs);
-      toast({ title: "Saved", description: "Open Elective hours updated." });
+      toast({ title: "Saved", description: "Open Elective settings updated." });
     } catch (e: any) {
       toast({ title: "Failed to save", description: e?.message || String(e) });
     } finally {
       setSavingOpenElective(false);
+    }
+  };
+
+  const handleSaveElectiveMode = async (mode: 'parallel' | 'separate') => {
+    try {
+      if (!selection.year || !selection.department) return;
+      setElectiveMode(mode);
+      let depId = departmentId;
+      if (!depId) {
+        const dep = await ensureDepartment(selection.department);
+        depId = dep.id;
+        setDepartmentId(depId);
+      }
+      localStorage.setItem(`pe_mode:${depId}:${selection.year}`, mode);
+      
+      const subs = await getSubjectsForYear(depId, selection.year);
+      seedYearDataset(subs);
+      toast({ title: "Saved", description: "Professional Elective settings updated." });
+    } catch (e: any) {
+      toast({ title: "Failed to save", description: e?.message || String(e) });
     }
   };
 
@@ -248,7 +358,7 @@ const SubjectManagement = () => {
         year: selection.year,
       });
       addAvailable(created);
-      moveToSelected(created.id);
+      handleMoveToSelected(created.id);
       setForm({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
       toast({ title: "Subject added", description: `${created.name} saved to Supabase.` });
     } catch (e: any) {
@@ -368,8 +478,7 @@ const SubjectManagement = () => {
   }, [selected, searchTerm, filterType, filterFaculty, subjectFacultyMap, availableFaculty]);
 
   const next = async () => {
-
-    const totalHours = totals.total + configuredSpecialHrs;
+    const totalHours = (totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs;
     if (totalHours > SUBJECT_HOUR_LIMIT) {
       toast({ title: "Too many hours", description: `Assigned ${totalHours}/42. Reduce to continue.` });
       return;
@@ -386,8 +495,33 @@ const SubjectManagement = () => {
     try {
       // Save section-level assignments before proceeding
       await saveSectionSubjects(departmentId, selection.year, selection.section, selected.map(s => s.id));
+      
+      // Trigger futuristic progress animation
+      setGenerating(true);
+      setGenerationProgress(0);
+      setGenerationStatus("Parsing curriculum hours...");
+      
+      const steps = [
+        { progress: 10, status: "Parsing curriculum hours..." },
+        { progress: 25, status: "Checking faculty availability..." },
+        { progress: 45, status: "Grouping parallel professional electives..." },
+        { progress: 65, status: "Allocating laboratory rooms..." },
+        { progress: 85, status: "Resolving constraints & conflict checks..." },
+        { progress: 95, status: "Running scheduling engine optimization..." },
+        { progress: 100, status: "Ready!" }
+      ];
+      
+      for (const step of steps) {
+        await new Promise(resolve => setTimeout(resolve, 350));
+        setGenerationProgress(step.progress);
+        setGenerationStatus(step.status);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setGenerating(false);
       navigate("/timetable");
     } catch (e: any) {
+      setGenerating(false);
       toast({ title: "Failed to save assignments", description: e?.message || String(e) });
     }
   };
@@ -395,12 +529,15 @@ const SubjectManagement = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
         <SelectionHeader />
         <section className="container py-4">
-
-        {/* Top row: Summary + Faculty (+ Open Elective for Year IV) */}
-        <div className={`grid grid-cols-1 md:grid-cols-2 ${isFourthYear ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-6 mb-6 transform-gpu transition-all duration-300`}>
+        {/* Top row: Summary + Faculty (+ Elective settings cards) */}
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${
+          (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 4 ? 'lg:grid-cols-4' : 
+          (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 3 ? 'lg:grid-cols-3' : 
+          'lg:grid-cols-2'
+        } gap-6 mb-6 transform-gpu transition-all duration-300`}>
           <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg font-bold">Summary</CardTitle>
@@ -409,7 +546,7 @@ const SubjectManagement = () => {
             <CardContent className="grid grid-cols-2 gap-3 pt-0">
               <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total</div>
-                <div className="text-xl font-bold">{(totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs}</div>
+                <div className="text-xl font-bold">{(totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs}</div>
               </div>
               <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Theory</div>
@@ -426,30 +563,75 @@ const SubjectManagement = () => {
             </CardContent>
           </Card>
 
-          {/* Fourth Year: Open Elective Hours */}
-          {isFourthYear && (
+          {/* Professional Elective Settings */}
+          {showElectiveCard && (
             <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-bold">Open Elective Hours</CardTitle>
-                <CardDescription className="text-xs">Only for Year IV</CardDescription>
+                <CardTitle className="text-lg font-bold">Elective Settings</CardTitle>
+                <CardDescription className="text-xs">Configure how electives are scheduled</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-0">
-                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm">
-                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={42}
-                      value={openElectiveHours}
-                      onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
-                      className="h-8 w-20 bg-background/50"
-                    />
-                    <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
-                      {savingOpenElective ? 'Saving…' : 'Save'}
-                    </Button>
+                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm space-y-3">
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Scheduling Mode</Label>
+                    <Select value={electiveMode} onValueChange={(v: 'parallel' | 'separate') => handleSaveElectiveMode(v)}>
+                      <SelectTrigger className="h-8 bg-background/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="parallel">Same hours (Parallel)</SelectItem>
+                        <SelectItem value="separate">Different hours (Separate)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-2">Configured: {openElectiveHours}h • Subjects: {currentOpenElectiveHours}h</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Electives will run at the {electiveMode === 'parallel' ? 'same hours (parallel/grouped)' : 'different hours (separate)'} in the timetable.
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Open Elective Settings */}
+          {showOpenElectiveCard && (
+            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-bold">Open Elective Settings</CardTitle>
+                <CardDescription className="text-xs">Configure how Open Electives are scheduled</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm space-y-3">
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
+                    <div className="flex items-center gap-3">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={42}
+                        value={openElectiveHours}
+                        onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
+                        className="h-8 w-20 bg-background/50"
+                      />
+                      <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
+                        {savingOpenElective ? 'Saving…' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Scheduling Mode</Label>
+                    <Select value={openElectiveMode} onValueChange={(v: 'parallel' | 'separate') => setOpenElectiveMode(v)}>
+                      <SelectTrigger className="h-8 bg-background/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="parallel">Same OE at same hour (Parallel)</SelectItem>
+                        <SelectItem value="separate">Different OE at different hour (Separate)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="text-[10px] text-muted-foreground">Configured: {openElectiveHours}h • Subjects: {currentOpenElectiveHours}h</div>
                 </div>
               </CardContent>
             </Card>
@@ -538,12 +720,42 @@ const SubjectManagement = () => {
                 <CardDescription>Filter and manage subjects for the timetable</CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="w-full sm:w-auto flex items-center gap-1.5 h-8 text-xs font-semibold">
+                      <Plus className="h-4 w-4" /> Add Subjects
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md bg-card">
+                    <DialogHeader>
+                      <DialogTitle>Add Subjects to Section</DialogTitle>
+                      <DialogDescription>
+                        Select subjects from the year's course curriculum to allocate to Section {selection.section}.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1 mt-2 scrollbar-thin scrollbar-thumb-gray-200">
+                      {available.filter(s => !selected.some(sel => sel.id === s.id)).map(s => (
+                        <div key={s.id} className="flex items-center justify-between p-3 rounded-xl border border-border/50 bg-background/50">
+                          <div>
+                            <div className="text-sm font-semibold">{s.name}</div>
+                            <div className="text-[10px] text-muted-foreground capitalize font-medium">{s.type} • {s.hoursPerWeek}h</div>
+                          </div>
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleMoveToSelected(s.id)}>Add</Button>
+                        </div>
+                      ))}
+                      {available.filter(s => !selected.some(sel => sel.id === s.id)).length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-6 font-medium">All curriculum subjects are already added to this section.</p>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
                 <Button 
-                  size="sm"
+                  size="sm" 
                   variant="hero"
                   onClick={next}
-                  className="w-full sm:w-auto px-6"
-                  disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
+                  className="w-full sm:w-auto px-6 h-8 text-xs font-semibold"
+                  disabled={((totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
                            !selection.department || !selection.year || !selection.section ||
                            selected.length === 0}
                 >
@@ -573,7 +785,7 @@ const SubjectManagement = () => {
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="theory">Theory</SelectItem>
                       <SelectItem value="lab">Lab</SelectItem>
-                      <SelectItem value="elective">Elective</SelectItem>
+                      <SelectItem value="elective">Professional Elective</SelectItem>
                       <SelectItem value="open elective">Open Elective</SelectItem>
                     </SelectContent>
                   </Select>
@@ -637,10 +849,15 @@ const SubjectManagement = () => {
                                 </TableCell>
                                 <TableCell>
                                   <div className="font-medium text-sm">{s.name}</div>
-                                  {s.code && <div className="text-[10px] text-muted-foreground">{s.code}</div>}
+                                  <div className="text-[10px] text-muted-foreground flex gap-2 items-center">
+                                    {s.code && <span className="bg-slate-50 px-1 py-0.5 rounded border border-slate-100">{s.code}</span>}
+                                    {s.abbreviation && <span className="font-semibold text-slate-600">({s.abbreviation})</span>}
+                                    <span className="text-slate-400">•</span>
+                                    <span>{s.credits || 3} credits</span>
+                                  </div>
                                 </TableCell>
                                 <TableCell>
-                                  <span className="text-sm font-medium">{s.type === 'open elective' ? '—' : `${s.hoursPerWeek}h`}</span>
+                                  <span className="text-sm font-medium">{s.hoursPerWeek}h</span>
                                 </TableCell>
                                 <TableCell>
                                   {s.type === 'lab' ? (
@@ -689,7 +906,7 @@ const SubjectManagement = () => {
                                     <Button 
                                       size="sm" 
                                       variant="ghost" 
-                                      onClick={() => moveToAvailable(s.id)}
+                                      onClick={() => handleMoveToAvailable(s.id)}
                                       className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
                                     >
                                       Remove
@@ -953,6 +1170,30 @@ const SubjectManagement = () => {
           </DialogContent>
         </Dialog>
       </section>
+      
+      {generating && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+          <div className="max-w-md w-full p-8 rounded-3xl border border-border bg-card/50 shadow-2xl backdrop-blur-lg flex flex-col items-center text-center space-y-6">
+            <div className="relative h-20 w-20 flex items-center justify-center">
+              {/* Spinning glowing gradient ring */}
+              <div className="absolute inset-0 rounded-full border-4 border-slate-200 border-t-purple-600 border-r-indigo-500 border-b-sky-500 animate-spin" />
+              <div className="text-xl font-extrabold text-slate-800 font-mono">{generationProgress}%</div>
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Optimizing Timetable</h3>
+              <p className="text-sm font-semibold text-slate-500 font-mono h-5 transition-all duration-300">{generationStatus}</p>
+            </div>
+
+            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/50">
+              <div 
+                className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full rounded-full transition-all duration-300 ease-out" 
+                style={{ width: `${generationProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   </div>
 );

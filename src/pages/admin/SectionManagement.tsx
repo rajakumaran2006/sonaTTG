@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import * as XLSX from "xlsx";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -100,7 +101,7 @@ const SectionManagement = () => {
   return (
     <main className="min-h-screen bg-background text-foreground">
       {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
         <SelectionHeader />
         <section className="container py-4">
         <header className="mb-6 flex items-center justify-between">
@@ -118,42 +119,61 @@ const SectionManagement = () => {
           <Card className="rounded-xl md:col-span-2">
             <CardHeader><CardTitle className="text-base">Subject assignments</CardTitle></CardHeader>
             <CardContent>
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2">
                 {subjects.map((s) => (
-                  <label key={s.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
-                    <input
-                      type="checkbox"
+                  <label 
+                    key={s.id} 
+                    className={`flex items-center gap-3 border rounded-xl px-4 py-3 cursor-pointer transition-all hover:bg-slate-50 hover:shadow-sm ${
+                      selected.has(s.id) 
+                        ? 'bg-olive-50/20 border-olive-500 shadow-sm' 
+                        : 'bg-card/50 border-slate-200'
+                    }`}
+                  >
+                    <Checkbox
                       checked={selected.has(s.id)}
-                      onChange={(e) => {
+                      onCheckedChange={(checked) => {
                         const next = new Set(selected);
-                        if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                        if (checked) next.add(s.id); else next.delete(s.id);
                         setSelected(next);
                       }}
                     />
-                    <span className="flex-1">{s.name} <span className="text-xs text-muted-foreground">({s.type}, {s.hours_per_week}h)</span></span>
+                    <div className="flex-1 flex flex-col">
+                      <span className="font-semibold text-sm text-slate-800">{s.name}</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 capitalize">{s.type}</span>
+                        <span className="text-[10px] text-slate-400">•</span>
+                        <span className="text-[10px] font-medium text-slate-500">{s.hours_per_week} hours/week</span>
+                      </div>
+                    </div>
                   </label>
                 ))}
               </div>
-              <div className="mt-3">
+              <div className="mt-4">
                 <Button onClick={async () => { await saveAssignments(); toast.success('Assignments saved'); }}>Save assignments</Button>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl">
-            <CardHeader><CardTitle className="text-base">Timetable preview</CardTitle></CardHeader>
+          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-bold">Timetable preview</CardTitle>
+            </CardHeader>
             <CardContent>
-              <div className="text-sm text-muted-foreground">Filled periods</div>
-              <div className="text-3xl font-semibold">{timetableInfo.filled}</div>
-              <div className="text-xs text-muted-foreground mt-1">Updated: {timetableInfo.updated_at ? new Date(timetableInfo.updated_at).toLocaleString() : '-'}</div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Filled periods</div>
+              <div className="text-4xl font-extrabold text-slate-850 mt-1">{timetableInfo.filled}</div>
+              <div className="text-[10px] text-muted-foreground mt-3 font-medium">
+                Updated: {timetableInfo.updated_at ? new Date(timetableInfo.updated_at).toLocaleString() : '-'}
+              </div>
             </CardContent>
           </Card>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 mt-6">
-          <Card className="rounded-xl">
-            <CardHeader><CardTitle className="text-base">Faculty assignments</CardTitle></CardHeader>
-            <CardContent>
+          <Card className="rounded-2xl border border-slate-100 shadow-lg bg-card overflow-hidden">
+            <CardHeader className="border-b bg-slate-50/50 pb-3">
+              <CardTitle className="text-base font-bold">Faculty assignments</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4">
               <div className="grid gap-2 md:grid-cols-3">
                 <Select value={assignFacultyId} onValueChange={setAssignFacultyId}>
                   <SelectTrigger><SelectValue placeholder="Select faculty" /></SelectTrigger>

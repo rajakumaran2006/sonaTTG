@@ -70,7 +70,14 @@ const PERIODS = 7;
 
 
 export const useTimetableStore = create<TimetableState>((set, get) => ({
-  selection: {},
+  selection: (() => {
+    try {
+      const stored = localStorage.getItem("optitime_selection");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  })(),
   datasets: {},
   availableSubjects: [],
   selectedSubjects: [],
@@ -98,6 +105,13 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
     const prevKey = datasetKey(prevSelection);
     const nextSelection = { ...prevSelection, ...s };
     const nextKey = datasetKey(nextSelection);
+
+    // Save selection to localStorage
+    try {
+      localStorage.setItem("optitime_selection", JSON.stringify(nextSelection));
+    } catch (e) {
+      console.warn("Failed to save selection to localStorage:", e);
+    }
 
     const datasets = { ...state.datasets };
 

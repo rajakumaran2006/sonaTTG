@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Navbar } from "@/components/Navbar";
-import { LogIn, ShieldCheck, Building2, School } from "lucide-react";
+import { LogIn, ShieldCheck, Building2, School, Eye, EyeOff } from "lucide-react";
 
 const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -163,14 +164,27 @@ const Login = () => {
                   <div className="flex items-center justify-between ml-1">
                     <Label htmlFor="password" title="Required for Admins" className="text-sm font-semibold text-slate-700">Password</Label>
                   </div>
-                  <Input 
-                    id="password" 
-                    type="password" 
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="h-12 rounded-2xl border-slate-200 focus:ring-olive-500 focus:border-olive-500 transition-all bg-white/50"
-                  />
+                  <div className="relative">
+                    <Input 
+                      id="password" 
+                      type={showPassword ? "text" : "password"} 
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="h-12 pr-10 rounded-2xl border-slate-200 focus:ring-olive-500 focus:border-olive-500 transition-all bg-white/50 w-full"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="w-5 h-5" />
+                      ) : (
+                        <Eye className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
                   <p className="text-[10px] text-slate-400 mt-1 ml-1">
                     * Password is required for Admin and Super Admin roles.
                   </p>

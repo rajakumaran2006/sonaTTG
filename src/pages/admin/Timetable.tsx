@@ -68,6 +68,7 @@ function Timetable() {
 
   // Auto-switch to list view on small screens or just let the user toggle
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
     const checkMobile = () => {
       if (window.innerWidth < 1024) {
         // We could auto-switch, but user preference is better.
@@ -99,8 +100,13 @@ function Timetable() {
     if (name === 'BREAK' || name === 'LUNCH') return 'break';
     if (name.includes('Extra Class')) return 'extra-class';
     if (isSpecialHoursCell(name)) return 'special';
-    const found = selected.find((s) => s.name === name);
-    return found?.type || 'theory';
+    
+    const parts = name.includes(' / ') ? name.split(' / ').map(p => p.trim()) : [name];
+    for (const part of parts) {
+      const found = selected.find((s) => s.name === part);
+      if (found) return found.type;
+    }
+    return 'theory';
   };
 
   // Function to format cell content based on subject type
@@ -109,23 +115,42 @@ function Timetable() {
     if (cell === 'BREAK' || cell === 'LUNCH') return cell;
 
     const subjectName = cell.trim();
-    const subject = selected.find(s => s.name === subjectName);
+    const parts = subjectName.includes(' / ') ? subjectName.split(' / ').map(p => p.trim()) : [subjectName];
+    
+    const formattedParts = parts.map(part => {
+      const subject = selected.find(s => s.name === part);
+      if (subject?.type === 'open elective' || part === 'Open Elective') {
+        return 'Open Elective';
+      }
+      return part;
+    });
 
-    if (subject?.type === 'open elective' || subjectName === 'Open Elective') {
-      return 'Open Elective';
-    }
-
-    // For special hours cells, strip the counsellor suffix " (Name)" so the cell shows a clean label
-    if (isSpecialHoursCell(subjectName)) {
-      const parenIdx = subjectName.indexOf(' (');
-      if (parenIdx !== -1) return subjectName.slice(0, parenIdx);
-    }
-
-    return subjectName;
+    const uniqueParts = Array.from(new Set(formattedParts));
+    return uniqueParts.join(' / ');
   };
 
   const regenerate = async () => {
     try {
+      let openElectiveMode: 'parallel' | 'separate' = 'parallel';
+      let electiveMode: 'parallel' | 'separate' = 'parallel';
+      try {
+        if (selection.department && selection.year) {
+          const dep = await getDepartmentByName(selection.department);
+          if (dep) {
+            const storedOe = localStorage.getItem(`oe_mode:${dep.id}:${selection.year}`);
+            if (storedOe === 'parallel' || storedOe === 'separate') {
+              openElectiveMode = storedOe;
+            }
+            const storedPe = localStorage.getItem(`pe_mode:${dep.id}:${selection.year}`);
+            if (storedPe === 'parallel' || storedPe === 'separate') {
+              electiveMode = storedPe;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load elective modes for timetable generation:', e);
+      }
+
       const grid = await generateTimetable({
         subjects: selected,
         special,
@@ -133,7 +158,9 @@ function Timetable() {
         labPreferences,
         departmentName: selection.department,
         year: selection.year,
-        section: selection.section
+        section: selection.section,
+        openElectiveMode,
+        electiveMode
       });
       const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
       setTimetable(gridAsStrings);
@@ -364,7 +391,7 @@ function Timetable() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
         <SelectionHeader />
         <section className="container py-8">
           <div className="flex items-start justify-between mb-6">
@@ -468,14 +495,28 @@ function Timetable() {
                         const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
                         return displayRow.map((cell, i) => {
                           const type = subjectTypeByName(cell);
-                          const subj = selected.find((s) => s.name === cell);
-                          let staff = subj ? (subjectToFaculty[subj.id] || subj.staff || '') : '';
+                          
+                          let staff = '';
+                          const cellParts = cell && cell.includes(' / ') ? cell.split(' / ').map(p => p.trim()) : [cell];
+                          if (cellParts && cellParts.length > 0) {
+                            const staffList = cellParts.map(part => {
+                              const subj = selected.find((s) => s.name === part);
+                              if (subj) {
+                                return subjectToFaculty[subj.id] || subj.staff || '';
+                              }
+                              return '';
+                            }).filter(Boolean);
+                            staff = staffList.join(' / ');
+                          }
 
                           if (isSpecialHoursCell(cell)) {
                             staff = classCounselorName || staff;
                           }
 
-                          const isOpenElective = subj?.type === 'open elective';
+                          const isOpenElective = cellParts.some(part => {
+                            const subj = selected.find((s) => s.name === part);
+                            return subj?.type === 'open elective';
+                          });
                           return (
                             <td key={i} className="p-2">
                               <div className={`h-14 min-w-[100px] rounded-xl flex flex-col items-center justify-center text-center text-sm shadow-sm transition-all hover:scale-[1.02] ${cell ?
@@ -510,11 +551,25 @@ function Timetable() {
                         if (!cell || cell === 'BREAK' || cell === 'LUNCH') return null;
 
                         const type = subjectTypeByName(cell);
-                        const subj = selected.find((s) => s.name === cell);
-                        let staff = subj ? (subjectToFaculty[subj.id] || subj.staff || '') : '';
+                         
+                        let staff = '';
+                        const cellParts = cell && cell.includes(' / ') ? cell.split(' / ').map(p => p.trim()) : [cell];
+                        if (cellParts && cellParts.length > 0) {
+                          const staffList = cellParts.map(part => {
+                            const subj = selected.find((s) => s.name === part);
+                            if (subj) {
+                              return subjectToFaculty[subj.id] || subj.staff || '';
+                            }
+                            return '';
+                          }).filter(Boolean);
+                          staff = staffList.join(' / ');
+                        }
                         if (isSpecialHoursCell(cell)) staff = classCounselorName || staff;
 
-                        const isOpenElective = subj?.type === 'open elective';
+                        const isOpenElective = cellParts.some(part => {
+                          const subj = selected.find((s) => s.name === part);
+                          return subj?.type === 'open elective';
+                        });
 
                         return (
                           <div key={i} className="flex items-center justify-between p-5 bg-white/70 hover:bg-olive-50/30 transition-colors">
@@ -589,8 +644,8 @@ function Timetable() {
                                     <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200">{s.code || '-'}</span>
                                     <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
                                     <span className="font-medium">{s.name}</span>
-                                    <span className="text-xs text-muted-foreground">-</span>
-                                    <span className="text-xs text-muted-foreground">•</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-purple-50 px-1 py-0.5 rounded border border-purple-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-bold">•</span>
                                     <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
                                   </div>
                                 ))}

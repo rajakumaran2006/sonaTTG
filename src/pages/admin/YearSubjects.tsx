@@ -15,7 +15,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2 } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List } from "lucide-react";
+import * as XLSX from "xlsx";
 
 interface SubjectRow {
   id: string;
@@ -55,16 +56,36 @@ const YearSubjects = () => {
   const [code, setCode] = useState("");
   const [maxFacultyCount, setMaxFacultyCount] = useState<number>(1);
   const [credits, setCredits] = useState<number>(3);
+  const [tags, setTags] = useState("");
+  const [abbreviation, setAbbreviation] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState<boolean>(false);
+  const [schedulingMode, setSchedulingMode] = useState<'same' | 'different'>('different');
+  const [parallelSubjectId, setParallelSubjectId] = useState<string>('');
+  
+  useEffect(() => {
+    if (type !== 'elective' && type !== 'open elective') {
+      setSchedulingMode('different');
+      setParallelSubjectId('');
+    }
+  }, [type]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
 
+  const [filterType, setFilterType] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
+
   const filteredSubjects = useMemo(() => {
-    return subjects.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
-  }, [subjects, search]);
+    return subjects.filter((s) => {
+      const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
+                            (s.code && s.code.toLowerCase().includes(search.toLowerCase())) ||
+                            (s.abbreviation && s.abbreviation.toLowerCase().includes(search.toLowerCase()));
+      const matchesType = filterType === "all" || s.type === filterType;
+      return !!matchesSearch && matchesType;
+    });
+  }, [subjects, search, filterType]);
 
   const totalHours = useMemo(() => subjects.reduce((a, b) => a + (b.hours_per_week || 0), 0), [subjects]);
   
@@ -98,6 +119,8 @@ const YearSubjects = () => {
             year: year,
             code: s.code || null,
             max_faculty_count: s.maxFacultyCount || 1,
+            tags: s.tags || [],
+            abbreviation: s.abbreviation || null,
           }));
         } catch {
           return [] as SubjectRow[];
@@ -117,7 +140,65 @@ const YearSubjects = () => {
     })();
   }, [isLoggedIn, id, year]);
 
-  const resetForm = () => { setName(""); setType("theory"); setHours(1); setCode(""); setMaxFacultyCount(1); setCredits(3); setEditingId(null); };
+  const resetForm = () => {
+    setName("");
+    setType("theory");
+    setHours(1);
+    setCode("");
+    setMaxFacultyCount(1);
+    setCredits(3);
+    setTags("");
+    setAbbreviation("");
+    setEditingId(null);
+    setSchedulingMode("different");
+    setParallelSubjectId("");
+  };
+
+  const electiveSiblings = useMemo(() => {
+    return subjects.filter(s => s.id !== editingId && s.type === type);
+  }, [subjects, type, editingId]);
+
+  const resolveParallelTags = async (
+    targetType: string,
+    currentTagsList: string[],
+    targetParallelSubId: string
+  ): Promise<string[]> => {
+    if (!targetParallelSubId) {
+      // If different hour/separate, clean group tags
+      return currentTagsList.filter(t => !/^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+|oe_group_\d+)$/i.test(t.trim()));
+    }
+    
+    const pSub = subjects.find((x) => x.id === targetParallelSubId);
+    if (!pSub) return currentTagsList;
+    
+    const groupTag = (pSub.tags || []).find((t) =>
+      /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+|oe_group_\d+)$/i.test(t.trim())
+    );
+    
+    if (groupTag) {
+      return Array.from(new Set([...currentTagsList, groupTag]));
+    } else {
+      const prefix = targetType === 'elective' ? 'PE_Group_' : 'OE_Group_';
+      const randomVal = Math.floor(1000 + Math.random() * 9000);
+      const newTag = `${prefix}${randomVal}`;
+      
+      const updatedParallelTags = Array.from(new Set([...(pSub.tags || []), newTag]));
+      const { error } = await (supabase as any)
+        .from('subjects')
+        .update({ tags: updatedParallelTags })
+        .eq('id', pSub.id);
+        
+      if (error) {
+        console.error('Failed to update parallel subject tags:', error);
+      } else {
+        setSubjects((prev) =>
+          prev.map((s) => (s.id === pSub.id ? { ...s, tags: updatedParallelTags } : s))
+        );
+      }
+      
+      return Array.from(new Set([...currentTagsList, newTag]));
+    }
+  };
 
   const handleAdd = async () => {
     if (!name.trim()) { toast.error("Subject name is required"); return; }
@@ -127,6 +208,9 @@ const YearSubjects = () => {
     
     const targetDeptId = id || sessionUser?.department_id;
     try {
+      const baseTags = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+      const finalTags = await resolveParallelTags(type, baseTags, schedulingMode === 'same' ? parallelSubjectId : '');
+
       const subjectData: any = {
         department_id: targetDeptId,
         year,
@@ -135,6 +219,8 @@ const YearSubjects = () => {
         hours_per_week: hours,
         code: code.trim() || null,
         credits: credits,
+        tags: finalTags,
+        abbreviation: abbreviation.trim() || null,
       };
       
       // Add max_faculty_count for lab subjects
@@ -187,6 +273,25 @@ const YearSubjects = () => {
     }
   };
 
+  const handleExport = () => {
+    const dataToExport = filteredSubjects.map((s) => ({
+      Name: s.name,
+      Abbreviation: s.abbreviation || "",
+      Type: s.type,
+      "Hours/Week": s.hours_per_week,
+      Credits: s.credits || 3,
+      Code: s.code || "",
+      Tags: s.tags ? s.tags.join(", ") : "",
+      "Max Faculty": s.type === 'lab' ? s.max_faculty_count : 1
+    }));
+    
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    XLSX.utils.book_append_sheet(wb, ws, "Curriculum");
+    XLSX.writeFile(wb, `${deptName.replace(/\s+/g, '_')}_Year_${year}_Curriculum.xlsx`);
+    toast.success("Curriculum exported successfully");
+  };
+
   const startEdit = (s: SubjectRow) => {
     setEditingId(s.id);
     setName(s.name);
@@ -195,6 +300,32 @@ const YearSubjects = () => {
     setCode(s.code || "");
     setMaxFacultyCount(s.max_faculty_count || 1);
     setCredits(s.credits || 3);
+    setTags(s.tags ? s.tags.join(", ") : "");
+    setAbbreviation(s.abbreviation || "");
+
+    // Infer parallel mode and subject ID from tags
+    let inferredMode: 'same' | 'different' = 'different';
+    let inferredParallelId = '';
+    
+    if (s.type === 'elective' || s.type === 'open elective') {
+      const peTag = (s.tags || []).find(t => 
+        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+|oe_group_\d+)$/i.test(t.trim())
+      );
+      if (peTag) {
+        const match = subjects.find(sub => 
+          sub.id !== s.id && 
+          sub.type === s.type && 
+          (sub.tags || []).some(t => t.trim().toUpperCase() === peTag.trim().toUpperCase())
+        );
+        if (match) {
+          inferredMode = 'same';
+          inferredParallelId = match.id;
+        }
+      }
+    }
+    setSchedulingMode(inferredMode);
+    setParallelSubjectId(inferredParallelId);
+    
     setEditOpen(true);
   };
 
@@ -205,12 +336,17 @@ const YearSubjects = () => {
     if (nextTotal > 42) { toast.error("Total hours for this year cannot exceed 42"); return; }
 
     try {
+      const baseTags = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+      const finalTags = await resolveParallelTags(type, baseTags, schedulingMode === 'same' ? parallelSubjectId : '');
+
       const updateData: any = { 
         name, 
         type, 
         hours_per_week: hours, 
         code: code || null,
-        credits: credits
+        credits: credits,
+        tags: finalTags,
+        abbreviation: abbreviation.trim() || null,
       };
       
       // Update max_faculty_count for lab subjects
@@ -227,7 +363,19 @@ const YearSubjects = () => {
 
       setSubjects((list) => {
         const newList = list.map((x) =>
-          x.id === editingId ? { ...x, name, type, hours_per_week: hours, code: code || null, credits: credits, max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count } : x
+          x.id === editingId
+            ? {
+                ...x,
+                name,
+                type,
+                hours_per_week: hours,
+                code: code || null,
+                credits: credits,
+                max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count,
+                tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+                abbreviation: abbreviation.trim() || null,
+              }
+            : x
         );
         return newList.sort((a, b) => a.name.localeCompare(b.name));
       });
@@ -257,11 +405,19 @@ const YearSubjects = () => {
               <div>Total hours: {totalHours}/42</div>
               {Object.keys(hoursByType).length > 0 && (
                 <div className="flex gap-4 mt-1">
-                  {Object.entries(hoursByType).map(([type, hours]) => (
-                    <span key={type} className="capitalize">
-                      {type}: {hours}h
-                    </span>
-                  ))}
+                  {Object.entries(hoursByType).map(([type, hours]) => {
+                    let label = type;
+                    if (type === 'theory') label = 'Theory';
+                    else if (type === 'lab') label = 'Lab';
+                    else if (type === 'elective') label = 'Professional Elective';
+                    else if (type === 'open elective') label = 'Open Elective';
+                    
+                    return (
+                      <span key={type} className="font-medium text-slate-700">
+                        {label}: <span className="font-bold text-slate-900">{hours}h</span>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -278,21 +434,67 @@ const YearSubjects = () => {
               <CardTitle className="text-base">Add new subject</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-5">
-                <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-                <Select value={type} onValueChange={(v: any) => setType(v)}>
-                  <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="theory">Theory</SelectItem>
-                    <SelectItem value="lab">Lab</SelectItem>
-                    <SelectItem value="elective">Elective</SelectItem>
-                    <SelectItem value="open elective">Open Elective</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
-                <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
-                <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
-                <Button onClick={handleAdd} disabled={!name.trim()}>Add</Button>
+              <div className="grid gap-3">
+                <div className="grid gap-3 md:grid-cols-5">
+                  <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                  <Select value={type} onValueChange={(v: any) => setType(v)}>
+                    <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="theory">Theory</SelectItem>
+                      <SelectItem value="lab">Lab</SelectItem>
+                      <SelectItem value="elective">Professional Elective</SelectItem>
+                      <SelectItem value="open elective">Open Elective</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
+                  <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
+                  <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
+                </div>
+                
+                {(type === 'elective' || type === 'open elective') && (
+                  <div className="grid gap-3 md:grid-cols-2 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Scheduling Mode</label>
+                      <Select value={schedulingMode} onValueChange={(v: 'same' | 'different') => setSchedulingMode(v)}>
+                        <SelectTrigger className="bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="different">Different Hour (Separate)</SelectItem>
+                          <SelectItem value="same">Same Hour (Parallel)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {schedulingMode === 'same' && (
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Select Parallel Subject</label>
+                        <Select value={parallelSubjectId} onValueChange={setParallelSubjectId}>
+                          <SelectTrigger className="bg-background">
+                            <SelectValue placeholder="Choose parallel elective..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {electiveSiblings.map(s => (
+                              <SelectItem key={s.id} value={s.id}>{s.name} ({s.code || 'no code'})</SelectItem>
+                            ))}
+                            {electiveSiblings.length === 0 && (
+                              <SelectItem value="none" disabled>No other electives added yet</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-5 items-center">
+                  <div className="md:col-span-2">
+                    <Input placeholder="Abbreviation (optional)" value={abbreviation} onChange={(e) => setAbbreviation(e.target.value)} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Input placeholder="Tags (comma separated, e.g., PE4, SSA)" value={tags} onChange={(e) => setTags(e.target.value)} />
+                  </div>
+                  <Button onClick={handleAdd} disabled={!name.trim()} className="w-full">Add</Button>
+                </div>
               </div>
               
               {/* Max Faculty Count for Lab Subjects */}
@@ -371,32 +573,80 @@ const YearSubjects = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-xl">
-          <CardHeader>
-            <CardTitle className="text-base">Subjects</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-3 flex items-center justify-between gap-4">
-              <div className="max-w-sm flex-1">
-                <Input placeholder="Search subjects..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Card className="rounded-xl border border-border/50 shadow-sm bg-card overflow-hidden">
+          <CardHeader className="pb-3 border-b">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-lg font-bold">Subjects Curriculum</CardTitle>
+                <p className="text-xs text-muted-foreground">Manage and filter curriculum subjects</p>
               </div>
               
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Search */}
+                <Input 
+                  placeholder="Search name, code..." 
+                  value={search} 
+                  onChange={(e) => setSearch(e.target.value)} 
+                  className="h-9 w-40 text-xs"
+                />
+                
+                {/* Type Filter */}
+                <Select value={filterType} onValueChange={setFilterType}>
+                  <SelectTrigger className="h-9 w-32 text-xs bg-background">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="theory">Theory</SelectItem>
+                    <SelectItem value="lab">Lab</SelectItem>
+                    <SelectItem value="elective">Professional Elective</SelectItem>
+                    <SelectItem value="open elective">Open Elective</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* View Mode Toggle */}
+                <div className="flex bg-muted p-1 rounded-lg border border-border shadow-sm">
+                  <Button
+                    variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('table')}
+                    className={`h-7 px-2.5 gap-1.5 text-[11px] ${viewMode === 'table' ? 'bg-background shadow-sm font-semibold' : ''}`}
+                  >
+                    <LayoutGrid className="h-3 w-3" />
+                    <span className="hidden sm:inline">Table</span>
+                  </Button>
+                  <Button
+                    variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('list')}
+                    className={`h-7 px-2.5 gap-1.5 text-[11px] ${viewMode === 'list' ? 'bg-background shadow-sm font-semibold' : ''}`}
+                  >
+                    <List className="h-3 w-3" />
+                    <span className="hidden sm:inline">List</span>
+                  </Button>
+                </div>
+
+                {/* Export */}
+                <Button variant="outline" size="sm" onClick={handleExport} className="h-9 text-xs flex items-center gap-1.5">
+                  <Download className="h-3.5 w-3.5" /> Export
+                </Button>
+
+                {/* Bulk Delete */}
                 {!isSelectionMode ? (
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="text-muted-foreground hover:text-destructive"
+                    className="h-9 text-xs text-muted-foreground hover:text-destructive flex items-center gap-1.5"
                     onClick={() => setIsSelectionMode(true)}
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete Subjects
+                    <Trash2 className="h-3.5 w-3.5" /> Bulk Delete
                   </Button>
                 ) : (
-                  <>
+                  <div className="flex items-center gap-1">
                     <Button 
                       variant="ghost" 
                       size="sm" 
+                      className="h-9 text-xs"
                       onClick={() => {
                         setIsSelectionMode(false);
                         setSelectedSubjects([]);
@@ -409,11 +659,10 @@ const YearSubjects = () => {
                         <Button 
                           variant="destructive" 
                           size="sm" 
-                          className="flex items-center gap-2"
+                          className="h-9 text-xs flex items-center gap-1.5"
                           disabled={selectedSubjects.length === 0}
                         >
-                          <Trash2 className="h-4 w-4" />
-                          Delete ({selectedSubjects.length})
+                          <Trash2 className="h-3.5 w-3.5" /> Delete ({selectedSubjects.length})
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
@@ -437,61 +686,135 @@ const YearSubjects = () => {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
-            
-            <div className="rounded-xl border overflow-hidden">
-              <div className="max-h-[600px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-gray-300">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-background z-10 shadow-sm border-b">
-                    <TableRow className="hover:bg-transparent">
-                      {userType !== 'faculty' && isSelectionMode && (
-                        <TableHead className="w-[50px]">
-                          <Checkbox 
-                            checked={filteredSubjects.length > 0 && filteredSubjects.every(s => selectedSubjects.includes(s.id))}
-                            onCheckedChange={(checked) => {
-                              if (checked) {
-                                setSelectedSubjects(prev => {
+            </CardHeader>
+          <CardContent className="p-0">
+            {viewMode === 'table' ? (
+              <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-900 shadow-md">
+                <div className="max-h-[600px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-slate-700">
+                  <Table className="bg-slate-900 border-slate-800">
+                    <TableHeader className="sticky top-0 bg-slate-950 z-10 border-b border-slate-800">
+                      <TableRow className="hover:bg-transparent border-slate-800">
+                        {userType !== 'faculty' && isSelectionMode && (
+                          <TableHead className="w-[50px] bg-slate-950 text-slate-300 border-slate-800">
+                            <Checkbox 
+                              className="border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
+                              checked={filteredSubjects.length > 0 && filteredSubjects.every(s => selectedSubjects.includes(s.id))}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedSubjects(prev => {
+                                    const filteredIds = filteredSubjects.map(s => s.id);
+                                    return [...new Set([...prev, ...filteredIds])];
+                                  });
+                                } else {
                                   const filteredIds = filteredSubjects.map(s => s.id);
-                                  // Keep existing selections that aren't in the current filter, add the new ones
-                                  // valid assumption? usually bulk select applies to view.
-                                  // Let's just merge.
-                                  return [...new Set([...prev, ...filteredIds])];
-                                });
-                              } else {
-                                const filteredIds = filteredSubjects.map(s => s.id);
-                                setSelectedSubjects(prev => prev.filter(id => !filteredIds.includes(id)));
-                              }
-                            }}
-                          />
-                        </TableHead>
+                                  setSelectedSubjects(prev => prev.filter(id => !filteredIds.includes(id)));
+                                }
+                              }}
+                            />
+                          </TableHead>
+                        )}
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Name</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Abbreviation</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Type</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Hours/week</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Credits</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Code</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Tags</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Max Faculty</TableHead>
+                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        Array.from({ length: 3 }).map((_, i) => (
+                          <TableRow key={`skeleton-${i}`} className="border-slate-800">
+                            <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 10 : 9} className="border-slate-800">
+                              <Skeleton className="h-6 w-full bg-slate-800" />
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        filteredSubjects.map((s) => (
+                          <TableRow key={s.id} className={`border-slate-800 transition-colors ${selectedSubjects.includes(s.id) ? "bg-slate-800/60" : "hover:bg-slate-800/40"}`}>
+                            {userType !== 'faculty' && isSelectionMode && (
+                              <TableCell className="border-slate-800">
+                                <Checkbox 
+                                  className="border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
+                                  checked={selectedSubjects.includes(s.id)}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      setSelectedSubjects(prev => [...prev, s.id]);
+                                    } else {
+                                      setSelectedSubjects(prev => prev.filter(id => id !== s.id));
+                                    }
+                                  }}
+                                />
+                              </TableCell>
+                            )}
+                            <TableCell className="font-semibold text-white whitespace-nowrap border-slate-800">{s.name}</TableCell>
+                            <TableCell className="whitespace-nowrap text-slate-300 border-slate-800">{s.abbreviation || '-'}</TableCell>
+                            <TableCell className="capitalize text-slate-300 border-slate-800">
+                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">{s.type}</span>
+                            </TableCell>
+                            <TableCell className="text-slate-200 border-slate-800">{s.hours_per_week}h</TableCell>
+                            <TableCell className="text-slate-200 border-slate-800">{s.credits || 3}</TableCell>
+                            <TableCell className="font-mono text-xs text-slate-400 border-slate-800">{s.code || '-'}</TableCell>
+                            <TableCell className="text-xs whitespace-nowrap border-slate-800">
+                              {(s.tags || []).map(t => (
+                                <span key={t} className="inline-block bg-slate-800 text-slate-300 border border-slate-700 text-[10px] px-1.5 py-0.5 rounded-md mr-1 font-semibold">{t}</span>
+                              ))}
+                              {(!s.tags || s.tags.length === 0) && '-'}
+                            </TableCell>
+                            <TableCell className="text-slate-200 border-slate-800">{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</TableCell>
+                            <TableCell className="text-right space-x-2 border-slate-800 whitespace-nowrap">
+                              {userType !== 'faculty' && (
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-300 hover:text-white hover:bg-slate-800" onClick={() => startEdit(s)}>Edit</Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
                       )}
-                      <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Hours/week</TableHead>
-                      <TableHead>Credits</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Max Faculty</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      Array.from({ length: 3 }).map((_, i) => (
-                        <TableRow key={`skeleton-${i}`}>
-                          <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 8 : 7}>
-                            <Skeleton className="h-6 w-full" />
+                      {filteredSubjects.length === 0 && !loading && (
+                        <TableRow className="border-slate-800">
+                          <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 10 : 9} className="h-24 text-center text-slate-400 border-slate-800">
+                            No subjects found matching your filters.
                           </TableCell>
                         </TableRow>
-                      ))
-                    ) : (
-                      filteredSubjects.map((s) => (
-                        <TableRow key={s.id} className={selectedSubjects.includes(s.id) ? "bg-muted/50" : ""}>
-                          {userType !== 'faculty' && isSelectionMode && (
-                            <TableCell>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-4 p-4 md:grid-cols-2 lg:grid-cols-3 max-h-[600px] overflow-y-auto bg-slate-900 rounded-xl border border-slate-800 shadow-md scrollbar-thin scrollbar-thumb-slate-700">
+                {loading ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <div key={`card-skeleton-${i}`} className="p-4 rounded-xl border border-slate-800 bg-slate-950 flex flex-col space-y-3">
+                      <Skeleton className="h-4 w-3/4 bg-slate-800" />
+                      <Skeleton className="h-3 w-1/2 bg-slate-800" />
+                      <Skeleton className="h-3 w-full bg-slate-800" />
+                    </div>
+                  ))
+                ) : (
+                  filteredSubjects.map((s) => (
+                    <div 
+                      key={s.id} 
+                      className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                        selectedSubjects.includes(s.id) 
+                          ? 'border-olive-500 bg-slate-800 shadow-sm text-slate-100' 
+                          : 'border-slate-800 bg-slate-950 text-slate-100 shadow-sm hover:border-slate-700'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5">
+                            {userType !== 'faculty' && isSelectionMode && (
                               <Checkbox 
+                                className="mt-0.5 border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
                                 checked={selectedSubjects.includes(s.id)}
                                 onCheckedChange={(checked) => {
                                   if (checked) {
@@ -501,33 +824,43 @@ const YearSubjects = () => {
                                   }
                                 }}
                               />
-                            </TableCell>
-                          )}
-                          <TableCell className="font-medium whitespace-nowrap">{s.name}</TableCell>
-                          <TableCell className="capitalize">{s.type}</TableCell>
-                          <TableCell>{s.hours_per_week}</TableCell>
-                          <TableCell>{s.credits || 3}</TableCell>
-                          <TableCell className="font-mono text-xs">{s.code || '-'}</TableCell>
-                          <TableCell>{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</TableCell>
-                          <TableCell className="text-right space-x-2">
-                            {userType !== 'faculty' && (
-                              <Button size="sm" variant="outline" onClick={() => startEdit(s)}>Edit</Button>
                             )}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                    {filteredSubjects.length === 0 && !loading && (
-                      <TableRow>
-                        <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 8 : 7} className="h-24 text-center text-muted-foreground">
-                          No subjects found matching your search.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                            <h4 className="font-bold text-sm text-white leading-tight">{s.name}</h4>
+                          </div>
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono shrink-0">
+                            {s.type === 'open elective' ? 'OE' : s.type}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-2 font-mono flex flex-wrap items-center gap-2">
+                          {s.code && <span className="bg-slate-900 border border-slate-850 px-1 py-0.5 rounded text-slate-300">{s.code}</span>}
+                          {s.abbreviation && <span className="text-slate-300 font-semibold">({s.abbreviation})</span>}
+                        </div>
+                        {s.tags && s.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-3">
+                            {s.tags.map((t) => (
+                              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-850 text-slate-300 font-semibold border border-slate-800">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-400">
+                        <span className="font-medium">{s.hours_per_week}h/week • {s.credits || 3} credits</span>
+                        {userType !== 'faculty' && (
+                          <div className="flex gap-1.5 shrink-0">
+                            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-slate-300 hover:text-white hover:bg-slate-800" onClick={() => startEdit(s)}>Edit</Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {filteredSubjects.length === 0 && !loading && (
+                  <p className="text-xs text-slate-400 text-center py-10 col-span-full font-medium">No subjects found matching your filters.</p>
+                )}
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
@@ -542,20 +875,62 @@ const YearSubjects = () => {
           <DialogHeader>
             <DialogTitle>Edit subject</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3 md:grid-cols-4">
-            <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <Select value={type} onValueChange={(v: any) => setType(v)}>
-              <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="theory">Theory</SelectItem>
-                <SelectItem value="lab">Lab</SelectItem>
-                <SelectItem value="elective">Elective</SelectItem>
-                <SelectItem value="open elective">Open Elective</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
-            <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
-            <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
+          <div className="grid gap-3">
+            <div className="grid gap-3 md:grid-cols-5">
+              <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Select value={type} onValueChange={(v: any) => setType(v)}>
+                <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="theory">Theory</SelectItem>
+                  <SelectItem value="lab">Lab</SelectItem>
+                  <SelectItem value="elective">Professional Elective</SelectItem>
+                  <SelectItem value="open elective">Open Elective</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
+              <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
+              <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
+            </div>
+
+            {(type === 'elective' || type === 'open elective') && (
+              <div className="grid gap-3 md:grid-cols-2 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Scheduling Mode</label>
+                  <Select value={schedulingMode} onValueChange={(v: 'same' | 'different') => setSchedulingMode(v)}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="different">Different Hour (Separate)</SelectItem>
+                      <SelectItem value="same">Same Hour (Parallel)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {schedulingMode === 'same' && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Select Parallel Subject</label>
+                    <Select value={parallelSubjectId} onValueChange={setParallelSubjectId}>
+                      <SelectTrigger className="bg-background">
+                        <SelectValue placeholder="Choose parallel elective..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {electiveSiblings.map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.name} ({s.code || 'no code'})</SelectItem>
+                        ))}
+                        {electiveSiblings.length === 0 && (
+                          <SelectItem value="none" disabled>No other electives added yet</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input placeholder="Abbreviation (optional)" value={abbreviation} onChange={(e) => setAbbreviation(e.target.value)} />
+              <Input placeholder="Tags (comma separated, e.g., PE4, SSA)" value={tags} onChange={(e) => setTags(e.target.value)} />
+            </div>
           </div>
           
           {/* Max Faculty Count for Lab Subjects in Edit */}

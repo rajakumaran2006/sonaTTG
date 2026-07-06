@@ -1,13 +1,18 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
 import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection } from "./supabaseService";
-import { 
-  buildFacultyAllocationMap, 
-  findAvailableFacultyForSlot, 
+import {
+  buildFacultyAllocationMap,
+  findAvailableFacultyForSlot,
   allocateFacultyToSlot,
   validateFacultyConflicts,
-  type FacultyAllocation 
+  checkStaffAvailabilityForWeek,
+  type FacultyAllocation
 } from "./facultyAllocation";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
 
 /** Fisher-Yates shuffle — returns a new shuffled array */
 function shuffle<T>(arr: T[]): T[] {
@@ -17,12 +22,6 @@ function shuffle<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
-}
-
-/** Returns indices of all null cells in a day row, shuffled randomly */
-function randomEmptySlots(dayRow: (string | null)[]): number[] {
-  const empties = dayRow.map((c, i) => (c === null ? i : -1)).filter(i => i !== -1);
-  return shuffle(empties);
 }
 
 export type Grid = (string | null)[][]; // [day][period]
@@ -38,611 +37,781 @@ interface GenerateOptions {
   departmentName?: string;
   year?: string;
   section?: string;
+  openElectiveMode?: 'parallel' | 'separate';
+  electiveMode?: 'parallel' | 'separate';
 }
 
-const emptyGrid = (): Grid => Array.from({ length: 6 }, () => Array.from({ length: PERIODS }, () => null));
+const emptyGrid = (): Grid =>
+  Array.from({ length: 6 }, () => Array.from({ length: PERIODS }, () => null));
 
-const isSSA = (s: Subject) => (s.tags || []).includes("SSA") || /\bSSA\b/i.test(s.name);
+const isSSA = (s: Subject) =>
+  (s.tags || []).includes("SSA") || /\bSSA\b/i.test(s.name);
 
-const placeSpecialHours = async (
-  grid: Grid, 
-  flags: SpecialFlags,
-  specialHoursConfigs: SpecialHoursConfig[] = [],
-  departmentName?: string,
-  year?: string,
-  section?: string
-) => {
-  const sat = 5; // index for Saturday
-  let classCounselorName: string | null = null;
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 0 — Parallel Data Loader
+// All async database calls fire simultaneously via Promise.all
+// ─────────────────────────────────────────────────────────────────────────────
 
-  // Try to find class counselor for this class
-  if (departmentName && year && section) {
-    try {
-      const department = await getDepartmentByName(departmentName);
-      if (department) {
-        const counselor = await getClassCounselor(department.id, year, section);
-        if (counselor) {
-          const facultyDetails = await getFacultyById(counselor.faculty_id);
-          if (facultyDetails) {
-            classCounselorName = facultyDetails.name;
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('Could not fetch class counselor:', error);
-    }
+interface LoadedContext {
+  facultyMap: Map<string, FacultyAllocation>;
+  departmentId: string | undefined;
+  classCounselorName: string | null;
+  manualLabs: Array<{ day: number; period: number; labName: string }>;
+  openElectiveHours: number;
+}
+
+async function loadAllContext(
+  departmentName: string | undefined,
+  year: string | undefined,
+  section: string | undefined,
+  specialHoursConfigs: SpecialHoursConfig[]
+): Promise<LoadedContext> {
+  if (!departmentName || !year || !section) {
+    return {
+      facultyMap: new Map(),
+      departmentId: undefined,
+      classCounselorName: null,
+      manualLabs: [],
+      openElectiveHours: 0,
+    };
   }
 
-  // ONLY place special hours from active configurations - ignore legacy flags
+  // First resolve department (needed as FK for other queries)
+  const department = await getDepartmentByName(departmentName);
+  if (!department) {
+    return {
+      facultyMap: new Map(),
+      departmentId: undefined,
+      classCounselorName: null,
+      manualLabs: [],
+      openElectiveHours: 0,
+    };
+  }
+
+  const deptId = department.id;
+
+  // Fire all independent queries in parallel
+  const [facultyMap, counselorResult, manualLabs, openElectiveHours] =
+    await Promise.all([
+      // Faculty allocation map (cross-section conflict awareness)
+      buildFacultyAllocationMap(deptId, year, section).catch((err) => {
+        console.warn("[Phase 0] Could not load faculty map:", err);
+        return new Map<string, FacultyAllocation>();
+      }),
+
+      // Class counselor name (for special hours label)
+      (async () => {
+        try {
+          const counselor = await getClassCounselor(deptId, year, section);
+          if (counselor) {
+            const details = await getFacultyById(counselor.faculty_id);
+            return details?.name ?? null;
+          }
+        } catch (e) {
+          console.warn("[Phase 0] Could not load class counselor:", e);
+        }
+        return null;
+      })(),
+
+      // Static lab schedules from DB — these are NEVER moved
+      getLabSchedulesForSection(deptId, year, section).catch((err) => {
+        console.warn("[Phase 0] Could not load lab schedules:", err);
+        return [] as Array<{ day: number; period: number; labName: string }>;
+      }),
+
+      // Configured open elective hours for this year
+      getOpenElectiveHours(deptId, year).catch(() => 0),
+    ]);
+
+  return {
+    facultyMap,
+    departmentId: deptId,
+    classCounselorName: counselorResult,
+    manualLabs,
+    openElectiveHours,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 1 — Lock Static Slots
+// Special hours + DB lab schedules are placed first and never touched again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function lockSpecialHours(
+  grid: Grid,
+  specialHoursConfigs: SpecialHoursConfig[],
+  classCounselorName: string | null
+): void {
+  const sat = 5; // Saturday index
+
   for (const config of specialHoursConfigs) {
     if (!config.is_active) continue;
 
-    const label = classCounselorName 
-      ? `${config.special_type} (${classCounselorName})` 
+    const label = classCounselorName
+      ? `${config.special_type} (${classCounselorName})`
       : config.special_type;
 
-    // Place exact Saturday hours as specified in config
-    let saturdayHoursPlaced = 0;
+    // Place Saturday slots exactly as configured
+    let satPlaced = 0;
     for (const period of config.saturday_periods) {
-      if (saturdayHoursPlaced >= config.saturday_hours) break;
-      
-      const periodIndex = period - 1; // Convert to 0-based index
-      if (periodIndex >= 0 && periodIndex < 7 && grid[sat][periodIndex] === null) {
-        grid[sat][periodIndex] = label;
-        saturdayHoursPlaced++;
+      if (satPlaced >= config.saturday_hours) break;
+      const p = period - 1;
+      if (p >= 0 && p < PERIODS && grid[sat][p] === null) {
+        grid[sat][p] = label;
+        satPlaced++;
       }
     }
 
-    // Place exact weekdays hours as specified in config
-    let weekdaysHoursPlaced = 0;
+    // Place weekday slots exactly as configured
+    let wdPlaced = 0;
     let dayIndex = 0;
-    
-    while (weekdaysHoursPlaced < config.weekdays_hours && dayIndex < 5) {
+    while (wdPlaced < config.weekdays_hours && dayIndex < 5) {
       for (const period of config.weekdays_periods) {
-        if (weekdaysHoursPlaced >= config.weekdays_hours) break;
-        
-        const periodIndex = period - 1; // Convert to 0-based index
-        if (periodIndex >= 0 && periodIndex < 7) {
-          if (grid[dayIndex][periodIndex] === null) {
-            grid[dayIndex][periodIndex] = label;
-            weekdaysHoursPlaced++;
-          }
+        if (wdPlaced >= config.weekdays_hours) break;
+        const p = period - 1;
+        if (p >= 0 && p < PERIODS && grid[dayIndex][p] === null) {
+          grid[dayIndex][p] = label;
+          wdPlaced++;
         }
       }
       dayIndex++;
     }
   }
-};
+}
 
-/**
- * Calculates remaining available periods after special hours allocation
- */
-const calculateAvailablePeriods = (
+function lockStaticLabs(
   grid: Grid,
-  specialHoursConfigs: SpecialHoursConfig[] = []
-): { totalAvailable: number; dayCapacities: number[] } => {
-  const dayCapacities = Array.from({ length: 6 }, (_, d) => 
-    grid[d].filter((c) => c == null).length
-  );
-  
-  const totalAvailable = dayCapacities.reduce((sum, cap) => sum + cap, 0);
-  
-  return { totalAvailable, dayCapacities };
-};
+  manualLabs: Array<{ day: number; period: number; labName: string }>
+): void {
+  for (const slot of manualLabs) {
+    if (slot.day >= 0 && slot.day < 6 && slot.period >= 0 && slot.period < PERIODS) {
+      grid[slot.day][slot.period] = slot.labName;
+    }
+  }
+}
 
-/**
- * Reallocates subjects to fill gaps left by removed special hours
- */
-const reallocateSubjects = (
-  grid: Grid,
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 2 — Staff Pre-Check
+// Before placing anything, verify faculty have free time.
+// Subjects with NO free faculty slots are flagged but still placed (force mode).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface StaffPreCheckResult {
+  fullyUnavailable: Subject[]; // faculty has zero free slots in the week
+  warnings: string[];
+}
+
+function staffPreCheck(
   subjects: Subject[],
-  remaining: Map<string, number>,
   facultyMap: Map<string, FacultyAllocation>
-): void => {
-  // Find all empty periods
-  const emptySlots: { day: number; period: number }[] = [];
-  
-  for (let day = 0; day < 6; day++) {
-    for (let period = 0; period < PERIODS; period++) {
-      if (grid[day][period] === null) {
-        emptySlots.push({ day, period });
-      }
-    }
-  }
-  
-  // Sort subjects by remaining hours (highest first)
-  const subjectsToReallocate = subjects
-    .filter(s => (remaining.get(s.id) || 0) > 0)
-    .sort((a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0));
-  
-  // Try to fill empty slots with remaining subject hours
-  for (const subject of subjectsToReallocate) {
-    let subjectRemaining = remaining.get(subject.id) || 0;
-    const isSSASubject = (subject.tags || []).includes("SSA") || /\bSSA\b/i.test(subject.name);
+): StaffPreCheckResult {
+  const fullyUnavailable: Subject[] = [];
+  const warnings: string[] = [];
 
-    // Build a shuffled list of days so we spread subjects randomly
-    const dayOrder = shuffle([...Array(6).keys()]);
+  for (const subj of subjects) {
+    if (subj.type === "lab" || subj.type === "open elective") continue; // handled separately
 
-    for (const d of dayOrder) {
-      if (subjectRemaining <= 0) break;
-
-      // Skip Saturday for SSA subjects
-      if (isSSASubject && d === 5) continue;
-
-      // Enforce one-subject-per-day: skip if subject already placed on this day
-      if (grid[d].some((cell) => cell === subject.name)) continue;
-
-      // Pick a random empty slot on this day
-      const slots = randomEmptySlots(grid[d]);
-      for (const period of slots) {
-        if (subjectRemaining <= 0) break;
-
-        // Check faculty availability
-        const facultyResult = findAvailableFacultyForSlot(
-          subject.id, d, period, facultyMap, false
-        );
-
-        if (facultyResult.success) {
-          grid[d][period] = subject.name;
-          if (facultyResult.facultyId) {
-            allocateFacultyToSlot(facultyResult.facultyId, d, period, facultyMap);
-          }
-          subjectRemaining--;
-          remaining.set(subject.id, subjectRemaining);
-          break; // move to next day after placing one per day
-        }
-      }
-    }
-  }
-};
-
-function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)); }
-
-export async function generateTimetable({ 
-  subjects, 
-  special, 
-  specialHoursConfigs, 
-  labPreferences, 
-  departmentName, 
-  year, 
-  section 
-}: GenerateOptions): Promise<Grid> {
-  const grid = emptyGrid();
-  // Pre-lock special hours (both configured and legacy)
-  await placeSpecialHours(grid, special, specialHoursConfigs, departmentName, year, section);
-
-  // Place manually allocated labs from Lab Management
-  if (departmentName && year && section) {
-    try {
-      const department = await getDepartmentByName(departmentName);
-      if (department) {
-        const manualLabs = await getLabSchedulesForSection(department.id, year, section);
-        
-        // Place manual labs
-        for (const slot of manualLabs) {
-          if (slot.day >= 0 && slot.day < 6 && slot.period >= 0 && slot.period < PERIODS) {
-            // Only place if slot is empty (respect special hours priority if any, though manual labs might should override)
-            // For now, let's assume manual labs should fill empty slots or override
-            grid[slot.day][slot.period] = slot.labName; 
-          }
-        }
-      }
-    } catch (error) {
-       console.warn('Could not load manual lab schedules:', error);
-    }
-  }
-
-  // Initialize faculty allocation tracking
-  let facultyMap: Map<string, FacultyAllocation> = new Map();
-  let departmentId: string | undefined;
-  
-  if (departmentName && year && section) {
-    try {
-      const department = await getDepartmentByName(departmentName);
-      if (department) {
-        departmentId = department.id;
-        facultyMap = await buildFacultyAllocationMap(departmentId, year, section);
-      }
-    } catch (error) {
-      console.warn('Could not load faculty allocation map:', error);
-    }
-  }
-
-  // Labs come primarily from lab_schedules (manual allocation).
-  // However, if a lab is NOT manually allocated (or partially), we should auto-allocate the remaining hours
-  // to prevent empty slots in the timetable.
-  const labs = subjects.filter((s) => s.type === "lab");
-  const openElectiveSubjects = subjects.filter((s) => s.type === "open elective");
-  const theory = subjects.filter((s) => s.type === "theory" || s.type === "elective");
-
-  // Remaining hours tracker
-  const remaining = new Map<string, number>();
-  subjects.forEach((s) => remaining.set(s.id, s.hoursPerWeek));
-
-  // 1. DEDUCT MANUALLY PLACED LAB HOURS
-  // We need to count how many periods are already taken by each lab in the grid
-  // so we only auto-allocate the *remaining* needed hours.
-  const placedLabHours = new Map<string, number>();
-  
-  for (let d = 0; d < 6; d++) {
-    for (let p = 0; p < PERIODS; p++) {
-      const cell = grid[d][p];
-      if (cell) {
-        // Check if this cell matches a lab subject
-        const lab = labs.find(l => l.name === cell);
-        if (lab) {
-          const current = placedLabHours.get(lab.id) || 0;
-          placedLabHours.set(lab.id, current + 1);
-        }
-      }
-    }
-  }
-
-  // Update remaining hours for labs based on manual placement
-  labs.forEach((lab) => {
-    const placed = placedLabHours.get(lab.id) || 0;
-    const left = Math.max(0, lab.hoursPerWeek - placed);
-    remaining.set(lab.id, left);
-  });
-
-  // Calculate available periods after special hours placement
-  const { dayCapacities } = calculateAvailablePeriods(grid, specialHoursConfigs);
-  
-  // If we have department/year, fetch configured Open Elective hours and reserve them as 'Open Elective' placeholder periods
-  let openElectiveHours = 0;
-  if (departmentName && year) {
-    try {
-      const dept = await getDepartmentByName(departmentName);
-      if (dept) {
-        openElectiveHours = await getOpenElectiveHours(dept.id, year);
-      }
-    } catch (e) {
-      openElectiveHours = 0;
-    }
-  }
-
-  // Ensure individual Open Elective subjects are NOT scheduled directly
-  // Their hours should not be placed; they are listed only in details
-  openElectiveSubjects.forEach((s) => {
-    remaining.set(s.id, 0);
-  });
-
-  // ── SLOT-POOL PLACEMENT ──────────────────────────────────────────────────
-  // Build a flat list of every available (day, period) slot after special
-  // hours / labs are locked in.
-
-  // 1. Place Open Elective placeholders first (spread across days, max 2/day)
-  if (openElectiveHours > 0) {
-    // Collect all free slots, shuffle them
-    const oePool = shuffle(
-      [...Array(6).keys()].flatMap(d =>
-        [...Array(PERIODS).keys()]
-          .filter(p => grid[d][p] === null)
-          .map(p => ({ d, p }))
-      )
-    );
-    // Track how many OE slots placed per day
-    const oePerDay = Array(6).fill(0);
-    for (const { d, p } of oePool) {
-      if (openElectiveHours <= 0) break;
-      if (oePerDay[d] >= 2) continue;
-      grid[d][p] = 'Open Elective';
-      oePerDay[d]++;
-      openElectiveHours--;
-    }
-  }
-
-  // 2. AUTO-ALLOCATE REMAINING LABS (Greedy Block Placement)
-  // Labs prefer consecutive slots (blocks of 2, 3, or 4).
-  // We try to place them before theory subjects to ensure they find large enough gaps.
-  const activeLabs = labs.filter(l => (remaining.get(l.id) || 0) > 0);
-  
-  for (const lab of activeLabs) {
-    let hoursNeeded = remaining.get(lab.id) || 0;
-    
-    // Iterate days to find a suitable block
-    // We prefer days that don't already have this lab (though if we are here, it likely has 0 placed/remaining mismatch)
-    // We also respect "One Lab Per Day" if possible (check if day has ANY lab)
-    const availableDays = shuffle([...Array(6).keys()]);
-
-    for (const d of availableDays) {
-      if (hoursNeeded <= 0) break;
-
-      // Check if day already has a lab (ANY lab)
-      // We perform a quick check on the grid row
-      const hasLab = grid[d].some(cell => 
-        cell && (cell.toString().toUpperCase().includes('LAB') || labs.some(l => l.name === cell))
+    const check = checkStaffAvailabilityForWeek(subj.id, facultyMap);
+    if (!check.hasSlots && check.facultyNames.length === 0) {
+      // Faculty is assigned but fully booked across all sections
+      warnings.push(
+        `[Staff Pre-Check] Faculty for "${subj.name}" appears fully booked across all sections. ` +
+        `Will force-place subject (conflict may appear in validation).`
       );
-      if (hasLab) continue; // Skip this day to enforce 1 lab/day
-
-      // Try to find a continuous block of 'hoursNeeded' (capped at 4 for a single session usually, but let's take what we can)
-      // If we need 4 hours, try to find 4 empty slots. If we only find 2, take 2.
-      // We scan the day for the largest empty block.
-      let bestBlockStart = -1;
-      let maxBlockSize = 0;
-      
-      let currentBlockStart = -1;
-      let currentBlockSize = 0;
-
-      for (let p = 0; p < PERIODS; p++) {
-        if (grid[d][p] === null) {
-          if (currentBlockStart === -1) currentBlockStart = p;
-          currentBlockSize++;
-        } else {
-          if (currentBlockSize > maxBlockSize) {
-            maxBlockSize = currentBlockSize;
-            bestBlockStart = currentBlockStart;
-          }
-          currentBlockStart = -1;
-          currentBlockSize = 0;
-        }
-      }
-      // Check last block
-      if (currentBlockSize > maxBlockSize) {
-        maxBlockSize = currentBlockSize;
-        bestBlockStart = currentBlockStart;
-      }
-
-      // If we found a block, place as many hours as we can/need
-      if (maxBlockSize > 0) {
-        const placeCount = Math.min(hoursNeeded, maxBlockSize);
-        // We typically want labs to be at least 2 hours. If we only have 1 hour slot, maybe skip? 
-        // But for avoiding empty slots, we better take it.
-        
-        for (let i = 0; i < placeCount; i++) {
-          const p = bestBlockStart + i;
-          
-          // Check faculty (optional but good practice)
-          const facultyResult = findAvailableFacultyForSlot(lab.id, d, p, facultyMap, true);
-          
-          // We force placement even if faculty check fails to avoid empty slots (priority is filling the grid)
-          // But if we can assign valid faculty, do so.
-          grid[d][p] = lab.name;
-          if (facultyResult.success && facultyResult.facultyId) {
-            allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap);
-          }
-        }
-        
-        hoursNeeded -= placeCount;
-        remaining.set(lab.id, hoursNeeded);
-      }
-    }
-
-    // fallback: if we still have hours needed after trying to respect one-lab-per-day,
-    // just put them anywhere valid constraints allow (or empty slots)
-    if (hoursNeeded > 0) {
-       // ... (Similar loop but ignoring hasLab check, or just leave for general pool?)
-       // Labs are awkward in general pool because they might get scattered. 
-       // Let's try one more pass ignoring lab-per-day constraint
-       for (const d of availableDays) {
-        if (hoursNeeded <= 0) break;
-        // Same block finding logic...
-         let bestBlockStart = -1;
-         let maxBlockSize = 0;
-         let currentBlockStart = -1;
-         let currentBlockSize = 0;
-         for (let p = 0; p < PERIODS; p++) {
-           if (grid[d][p] === null) {
-             if (currentBlockStart === -1) currentBlockStart = p;
-             currentBlockSize++;
-           } else {
-             if (currentBlockSize > maxBlockSize) { maxBlockSize = currentBlockSize; bestBlockStart = currentBlockStart; }
-             currentBlockStart = -1; currentBlockSize = 0;
-           }
-         }
-         if (currentBlockSize > maxBlockSize) { maxBlockSize = currentBlockSize; bestBlockStart = currentBlockStart; }
-
-         if (maxBlockSize > 0) {
-            const placeCount = Math.min(hoursNeeded, maxBlockSize);
-            for (let i = 0; i < placeCount; i++) {
-                const p = bestBlockStart + i;
-                grid[d][p] = lab.name;
-                // Faculty check...
-                const fac = findAvailableFacultyForSlot(lab.id, d, p, facultyMap, true);
-                if (fac.success && fac.facultyId) allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
-            }
-            hoursNeeded -= placeCount;
-            remaining.set(lab.id, hoursNeeded);
-         }
-       }
+      fullyUnavailable.push(subj);
     }
   }
 
-  // 3. Build the full slot pool for theory subjects (all remaining null slots)
-  //    and shuffle it completely — this is the key to random column placement.
-  const slotPool: { d: number; p: number }[] = shuffle(
-    [...Array(6).keys()].flatMap(d =>
+  if (warnings.length > 0) {
+    console.warn(warnings.join("\n"));
+  }
+
+  return { fullyUnavailable, warnings };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 3 — Theory Placement (Multi-Pass Constraint-Satisfying)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function placeOpenElectives(
+  grid: Grid,
+  openElectiveHours: number
+): void {
+  if (openElectiveHours <= 0) return;
+
+  const pool = shuffle(
+    [...Array(6).keys()].flatMap((d) =>
       [...Array(PERIODS).keys()]
-        .filter(p => grid[d][p] === null)
-        .map(p => ({ d, p }))
+        .filter((p) => grid[d][p] === null)
+        .map((p) => ({ d, p }))
     )
   );
 
-  // 4. IMPROVED PRIORITIZATION
-  // Instead of a pure random shuffle, we prioritize:
-  // - SSA subjects (MUST be Mon-Fri, so hard constraint)
-  // - High volume subjects (easier to place early)
-  
-  // Flatten assignments
-  let allAssignments: Subject[] = theory.flatMap(s => Array(remaining.get(s.id) || 0).fill(s));
-  
-  // Categorize
-  const ssaAssignments = allAssignments.filter(s => isSSA(s));
-  const otherAssignments = allAssignments.filter(s => !isSSA(s));
-  
-  // Shuffle categories internally to maintain randomness within priority groups
-  const sortedAssignments = [
+  const oePerDay = Array(6).fill(0);
+  for (const { d, p } of pool) {
+    if (openElectiveHours <= 0) break;
+    if (oePerDay[d] >= 2) continue;
+    grid[d][p] = "Open Elective";
+    oePerDay[d]++;
+    openElectiveHours--;
+  }
+}
+
+function placeTheorySubjects(
+  grid: Grid,
+  theory: Subject[],
+  remaining: Map<string, number>,
+  facultyMap: Map<string, FacultyAllocation>
+): void {
+  // Build flat assignment list: one entry per needed hour
+  const ssaAssignments = theory
+    .filter((s) => isSSA(s) && (remaining.get(s.id) || 0) > 0)
+    .flatMap((s) => Array(remaining.get(s.id) || 0).fill(s));
+
+  const otherAssignments = theory
+    .filter((s) => !isSSA(s) && (remaining.get(s.id) || 0) > 0)
+    .sort((a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0))
+    .flatMap((s) => Array(remaining.get(s.id) || 0).fill(s));
+
+  // Priority order: SSA first, then highest-hour subjects
+  const allAssignments: Subject[] = [
     ...shuffle(ssaAssignments),
-    ...shuffle(otherAssignments)
+    ...shuffle(otherAssignments),
   ];
 
-  // 5. Assign subjects
-  //    We use a multi-pass approach:
-  //    Pass A: Strict (One per day, valid faculty)
-  //    Pass B: Relaxed (Allow multiple per day if needed, valid faculty)
-  //    Pass C: Force (Fill empty slots no matter what, prioritizing avoiding duplicates if possible)
+  // Build shuffled slot pool from all currently empty cells
+  const slotPool: { d: number; p: number }[] = shuffle(
+    [...Array(6).keys()].flatMap((d) =>
+      [...Array(PERIODS).keys()]
+        .filter((p) => grid[d][p] === null)
+        .map((p) => ({ d, p }))
+    )
+  );
 
-  const usedSlots = new Set<number>(); // index into slotPool
+  const usedSlotIndices = new Set<number>();
 
-  const tryPlace = (subj: Subject, mode: 'strict' | 'relaxed' | 'force'): boolean => {
+  type PlacementMode = "strict" | "relaxed" | "force";
+
+  /**
+   * Try to place a subject assignment into one pool slot.
+   * BUGFIX: force mode now also scans the live grid for any null cell
+   * that the pool may have missed (overflow scenario where all pool
+   * indices are exhausted but null cells still exist).
+   */
+  const tryPlace = (subj: Subject, mode: PlacementMode): boolean => {
+    // ── Pool-based placement (fast path) ──────────────────────────────
     for (let i = 0; i < slotPool.length; i++) {
-      if (usedSlots.has(i)) continue;
+      if (usedSlotIndices.has(i)) continue;
       const { d, p } = slotPool[i];
 
-      // CONSTRAINT: SSA strict Mon-Fri
+      // The pool was built from null cells; verify still null (safety check)
+      if (grid[d][p] !== null) { usedSlotIndices.add(i); continue; }
+
+      // SSA must be Mon–Fri only
       if (isSSA(subj) && d > 4) continue;
 
-      // CONSTRAINT: One per day (Skipped in relaxed/force modes)
-      if (mode === 'strict' && grid[d].some(c => c === subj.name)) continue;
+      // Strict mode: no duplicate subject on the same day
+      if (mode === "strict" && grid[d].some((c) => c === subj.name)) continue;
 
-      // FACULTY CHECK
-      const facultyResult = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
-      
-      // In Force mode, we ignore faculty unavailability if we absolutely must, 
-      // BUT `findAvailableFacultyForSlot` already acts leniently (returns success=true if no faculty assigned).
-      // The only hard fail is if allocated faculty are BUSY.
-      // In 'force' mode, we might want to override even that? 
-      // For now, let's trust the faculty check but rely on the fact that if it fails, we keep searching.
-      // If we run out of valid faculty slots, we might leave it empty.
-      // TO FIX EMPTY SLOTS: If mode is 'force', and we can't find a valid faculty slot, 
-      // we should arguably just place it anyway and let the conflict validator catch it.
-      
-      if (facultyResult.success || mode === 'force') { 
+      // Faculty availability check (always returns success:true for theory)
+      const facultyResult = findAvailableFacultyForSlot(
+        subj.id, d, p, facultyMap, false
+      );
+
+      if (facultyResult.success || mode === "force") {
         grid[d][p] = subj.name;
         if (facultyResult.success && facultyResult.facultyId) {
           allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap);
         }
-        usedSlots.add(i);
+        usedSlotIndices.add(i);
         remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
         return true;
       }
     }
+
+    // ── BUGFIX: Force-mode live-grid scan ─────────────────────────────
+    // When all pool indices are used but null cells still exist
+    // (can happen when demand > pool size due to OE/lab interactions),
+    // scan the live grid directly and claim any null cell.
+    if (mode === "force") {
+      for (let d = 0; d < 6; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (grid[d][p] !== null) continue;
+          if (isSSA(subj) && d > 4) continue;
+          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
+          grid[d][p] = subj.name;
+          if (fac.success && fac.facultyId) {
+            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+          }
+          remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
+          return true;
+        }
+      }
+    }
+
     return false;
   };
 
-  // Pass A — Strict
+  // Pass A — Strict (1 subject per day, faculty must be free)
   const unplacedA: Subject[] = [];
-  for (const subj of sortedAssignments) {
-    if (!tryPlace(subj, 'strict')) unplacedA.push(subj);
+  for (const subj of allAssignments) {
+    if (!tryPlace(subj, "strict")) unplacedA.push(subj);
   }
 
-  // Pass B — Relaxed (Multiple per day)
+  // Pass B — Relaxed (allow duplicate day, faculty must be free)
   const unplacedB: Subject[] = [];
   for (const subj of unplacedA) {
-    if (!tryPlace(subj, 'relaxed')) unplacedB.push(subj);
+    if (!tryPlace(subj, "relaxed")) unplacedB.push(subj);
   }
 
-  // Pass C — Force / Cleanup
-  // If we still have subjects and empty slots, cram them in!
+  // Pass C — Force (place no matter what; conflict flagged in validation)
   for (const subj of unplacedB) {
-    if (!tryPlace(subj, 'force')) {
-       console.warn(`Could not place ${subj.name} even in force mode.`);
+    if (!tryPlace(subj, "force")) {
+      console.warn(`[Phase 3] Could not place "${subj.name}" even in force mode.`);
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE 4 — Free Hour Fill
+// After theory placement, scan for any remaining null slots and try to fill
+// them with subjects that still have unplaced hours remaining.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fillFreeHours(
+  grid: Grid,
+  subjects: Subject[],
+  remaining: Map<string, number>,
+  facultyMap: Map<string, FacultyAllocation>
+): void {
+  // Collect all still-empty slots
+  const emptySlots: { day: number; period: number }[] = [];
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] === null) emptySlots.push({ day: d, period: p });
+    }
+  }
+
+  if (emptySlots.length === 0) return;
+
+  // Subjects that still have hours left (theory only — labs & OE handled elsewhere)
+  const theoryWithHours = subjects
+    .filter(
+      (s) =>
+        s.type !== "lab" &&
+        s.type !== "open elective" &&
+        (remaining.get(s.id) || 0) > 0
+    )
+    .sort((a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0));
+
+  // ── BUGFIX: Removed early-exit when theoryWithHours is empty. ────────────
+  // Previously: if remaining=0 for all subjects but 1 slot was null,
+  // we returned without filling it. Now we fall through to the repair pass.
+
+  if (theoryWithHours.length > 0) {
+    // Fill empty slots with subjects that still have remaining hours
+    for (const { day, period } of emptySlots) {
+      if (grid[day][period] !== null) continue;
+
+      // Prefer subjects not already placed on this day (spread constraint)
+      const preferNotOnDay = theoryWithHours.filter(
+        (s) => !grid[day].some((c) => c === s.name) && (remaining.get(s.id) || 0) > 0
+      );
+      const fallback = theoryWithHours.filter(
+        (s) => (remaining.get(s.id) || 0) > 0
+      );
+
+      const candidates = preferNotOnDay.length > 0 ? preferNotOnDay : fallback;
+
+      for (const subj of candidates) {
+        if ((remaining.get(subj.id) || 0) <= 0) continue;
+        if (isSSA(subj) && day === 5) continue;
+
+        const fac = findAvailableFacultyForSlot(subj.id, day, period, facultyMap, false);
+        if (fac.success) {
+          grid[day][period] = subj.name;
+          if (fac.facultyId) allocateFacultyToSlot(fac.facultyId, day, period, facultyMap);
+          remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
+          break;
+        }
+      }
+    }
+  }
+
+  // ── REPAIR PASS (Phase 4b) ────────────────────────────────────────────────
+  // After filling what we can with remaining hours, any STILL-empty slot is
+  // filled as an extra repeat period for the most hour-heavy subject.
+  // This covers the case where demand < capacity (e.g., 41 hrs for 42 slots)
+  // and ensures NO slot is left blank — matching the user's expectation of a
+  // fully populated timetable.
+  const allTheory = subjects
+    .filter((s) => s.type !== "lab" && s.type !== "open elective")
+    .sort((a, b) => b.hoursPerWeek - a.hoursPerWeek);
+
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] !== null) continue; // slot already filled
+
+      // Prefer a subject not already on this day
+      const preferNotOnDay = allTheory.filter(
+        (s) => !grid[d].some((c) => c === s.name)
+      );
+      const candidates = preferNotOnDay.length > 0 ? preferNotOnDay : allTheory;
+
+      // Pass 1: faculty-aware (preferred — no conflict)
+      let placed = false;
+      for (const subj of candidates) {
+        if (isSSA(subj) && d === 5) continue; // SSA can't go on Saturday
+        const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
+        if (fac.success) {
+          grid[d][p] = subj.name;
+          if (fac.facultyId) allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+          placed = true;
+          break;
+        }
+      }
+
+      // Pass 2 (force): all faculty are booked — place anyway so no slot is blank.
+      // The timetable validator will flag any conflict for the admin to review.
+      if (!placed) {
+        for (const subj of candidates) {
+          if (isSSA(subj) && d === 5) continue; // still respect SSA rule
+          console.warn(
+            `[Phase 4b Force] Slot Day ${d} P${p} — all faculty booked; ` +
+            `placing "${subj.name}" (conflict flagged for validation).`
+          );
+          grid[d][p] = subj.name;
+          break;
+        }
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-allocate remaining lab hours (only if lab has 0 DB-placed hours)
+// Labs from DB are already locked in Phase 1 — this handles edge cases where
+// a lab subject has hours configured but no DB schedule entry yet.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function autoAllocateRemainingLabs(
+  grid: Grid,
+  labs: Subject[],
+  remaining: Map<string, number>,
+  facultyMap: Map<string, FacultyAllocation>
+): void {
+  const activeLabs = labs.filter((l) => (remaining.get(l.id) || 0) > 0);
+
+  for (const lab of activeLabs) {
+    let hoursNeeded = remaining.get(lab.id) || 0;
+    const availableDays = shuffle([...Array(6).keys()]);
+
+    const tryPlaceLab = (ignoreDayConflict: boolean) => {
+      for (const d of availableDays) {
+        if (hoursNeeded <= 0) break;
+
+        // One lab per day rule (unless we're in fallback mode)
+        if (!ignoreDayConflict) {
+          const hasLab = grid[d].some(
+            (cell) =>
+              cell &&
+              (cell.toString().toUpperCase().includes("LAB") ||
+                labs.some((l) => l.name === cell))
+          );
+          if (hasLab) continue;
+        }
+
+        // Find the largest consecutive empty block on this day
+        let bestStart = -1;
+        let maxBlock = 0;
+        let curStart = -1;
+        let curBlock = 0;
+
+        for (let p = 0; p < PERIODS; p++) {
+          if (grid[d][p] === null) {
+            if (curStart === -1) curStart = p;
+            curBlock++;
+          } else {
+            if (curBlock > maxBlock) {
+              maxBlock = curBlock;
+              bestStart = curStart;
+            }
+            curStart = -1;
+            curBlock = 0;
+          }
+        }
+        if (curBlock > maxBlock) {
+          maxBlock = curBlock;
+          bestStart = curStart;
+        }
+
+        if (maxBlock > 0) {
+          const placeCount = Math.min(hoursNeeded, maxBlock);
+          for (let i = 0; i < placeCount; i++) {
+            const p = bestStart + i;
+            grid[d][p] = lab.name;
+            const fac = findAvailableFacultyForSlot(
+              lab.id, d, p, facultyMap, true
+            );
+            if (fac.success && fac.facultyId) {
+              allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+            }
+          }
+          hoursNeeded -= placeCount;
+          remaining.set(lab.id, hoursNeeded);
+        }
+      }
+    };
+
+    // First pass: respect one-lab-per-day
+    tryPlaceLab(false);
+
+    // Second pass: relax the constraint if hours still remain
+    if (hoursNeeded > 0) {
+      tryPlaceLab(true);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXPORT — generateTimetable
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function generateTimetable({
+  subjects: rawSubjects,
+  special,
+  specialHoursConfigs = [],
+  labPreferences,
+  departmentName,
+  year,
+  section,
+  openElectiveMode = 'parallel',
+  electiveMode = 'parallel',
+}: GenerateOptions): Promise<Grid> {
+  const grid = emptyGrid();
+
+  // ── Group Parallel Electives & Open Electives ──────────────────────────────
+  const electiveSubjects = rawSubjects.filter((s) => s.type === "elective");
+  
+  let openElectiveSubjects: Subject[] = [];
+  let otherSubjectsList: Subject[] = [];
+  
+  if (openElectiveMode === 'parallel') {
+    openElectiveSubjects = rawSubjects.filter((s) => s.type === "open elective");
+    otherSubjectsList = rawSubjects.filter(
+      (s) => s.type !== "elective" && s.type !== "open elective"
+    );
+  } else {
+    otherSubjectsList = rawSubjects.filter((s) => s.type !== "elective");
+  }
+
+  const subjects: Subject[] = [...otherSubjectsList];
+
+  if (electiveMode === 'parallel') {
+    const peTagGroups = new Map<string, Subject[]>();
+    const ungroupedElectives: Subject[] = [];
+
+    for (const s of electiveSubjects) {
+      const peTag = (s.tags || []).find((t) =>
+        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+)$/i.test(t.trim())
+      );
+      if (peTag) {
+        const key = peTag.trim().toUpperCase();
+        if (!peTagGroups.has(key)) peTagGroups.set(key, []);
+        peTagGroups.get(key)!.push(s);
+      } else {
+        ungroupedElectives.push(s);
+      }
+    }
+
+    const hoursGroups = new Map<number, Subject[]>();
+    for (const s of ungroupedElectives) {
+      if (!hoursGroups.has(s.hoursPerWeek)) hoursGroups.set(s.hoursPerWeek, []);
+      hoursGroups.get(s.hoursPerWeek)!.push(s);
+    }
+    
+    const addGroup = (group: Subject[]) => {
+      if (group.length === 1) {
+        subjects.push(group[0]);
+      } else if (group.length > 1) {
+        const sorted = [...group].sort((a, b) => a.name.localeCompare(b.name));
+        const combinedId = sorted.map((s) => s.id).join("_");
+        const combinedName = sorted.map((s) => s.name).join(" / ");
+        
+        subjects.push({
+          id: combinedId,
+          name: combinedName,
+          hoursPerWeek: sorted[0].hoursPerWeek,
+          type: "elective",
+          tags: Array.from(new Set(sorted.flatMap((s) => s.tags || []))),
+          credits: sorted[0].credits,
+          abbreviation: sorted.map((s) => s.abbreviation || s.name).join("/"),
+        });
+      }
+    };
+
+    for (const group of peTagGroups.values()) {
+      addGroup(group);
+    }
+    for (const group of hoursGroups.values()) {
+      addGroup(group);
+    }
+  } else {
+    // Separate mode: add all professional electives directly
+    subjects.push(...electiveSubjects);
+  }
+
+  // Group parallel open electives if in parallel mode and subjects exist
+  const hasOeSubjects = openElectiveSubjects.length > 0 || (openElectiveMode === 'separate' && rawSubjects.some((s) => s.type === "open elective"));
+  
+  if (openElectiveMode === 'parallel' && openElectiveSubjects.length > 0) {
+    const sorted = [...openElectiveSubjects].sort((a, b) => a.name.localeCompare(b.name));
+    const combinedId = sorted.map((s) => s.id).join("_");
+    const combinedName = sorted.map((s) => s.name).join(" / ");
+    
+    subjects.push({
+      id: combinedId,
+      name: combinedName,
+      hoursPerWeek: sorted[0].hoursPerWeek,
+      type: "open elective",
+      tags: Array.from(new Set(sorted.flatMap((s) => s.tags || []))),
+      credits: sorted[0].credits,
+      abbreviation: sorted.map((s) => s.abbreviation || s.name).join("/"),
+    });
+  }
+
+  // ── PHASE 0: Parallel DB Load ──────────────────────────────────────────────
+  const ctx = await loadAllContext(
+    departmentName,
+    year,
+    section,
+    specialHoursConfigs
+  );
+
+  // ── PHASE 1: Lock Static Slots ─────────────────────────────────────────────
+  // Special hours first (immutable)
+  lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorName);
+
+  // DB lab schedules second (immutable — labs are ALWAYS static from DB)
+  lockStaticLabs(grid, ctx.manualLabs);
+
+  // ── Initialize remaining-hours tracker ───────────────────────────────────
+  const remaining = new Map<string, number>();
+  subjects.forEach((s) => remaining.set(s.id, s.hoursPerWeek));
+
+  // If there are no open elective subjects in the list, zero out open elective hours so we can place placeholders
+  if (!hasOeSubjects) {
+    const openElectiveSubjectsFiltered = subjects.filter(
+      (s) => s.type === "open elective"
+    );
+    openElectiveSubjectsFiltered.forEach((s) => remaining.set(s.id, 0));
+  }
+
+  // Deduct hours already placed by static lab locks
+  const labs = subjects.filter((s) => s.type === "lab");
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      const cell = grid[d][p];
+      if (cell) {
+        const lab = labs.find((l) => l.name === cell);
+        if (lab) {
+          const placed = (lab.hoursPerWeek - (remaining.get(lab.id) ?? lab.hoursPerWeek)) + 1;
+          remaining.set(lab.id, Math.max(0, lab.hoursPerWeek - placed));
+        }
+      }
+    }
+  }
+
+  // Recompute properly: count all DB-placed lab cells
+  const placedLabCounts = new Map<string, number>();
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      const cell = grid[d][p];
+      if (cell) {
+        const lab = labs.find((l) => l.name === cell);
+        if (lab) {
+          placedLabCounts.set(lab.id, (placedLabCounts.get(lab.id) || 0) + 1);
+        }
+      }
+    }
+  }
+  labs.forEach((lab) => {
+    const placed = placedLabCounts.get(lab.id) || 0;
+    remaining.set(lab.id, Math.max(0, lab.hoursPerWeek - placed));
+  });
+
+  // ── PHASE 2: Staff Pre-Check ──────────────────────────────────────────────
+  // Include open electives in the theory check if they are being scheduled as subjects
+  const theory = subjects.filter(
+    (s) => s.type === "theory" || s.type === "elective" || (hasOeSubjects && s.type === "open elective")
+  );
+  staffPreCheck(theory, ctx.facultyMap);
+
+  // ── Open Elective placeholder slots ──────────────────────────────────────
+  // Only place generic placeholders if we have no open elective subjects in the list
+  if (!hasOeSubjects) {
+    placeOpenElectives(grid, ctx.openElectiveHours);
+  }
+
+  // ── Auto-allocate remaining lab hours (edge case: no DB entry) ───────────
+  autoAllocateRemainingLabs(grid, labs, remaining, ctx.facultyMap);
+
+  // ── PHASE 3: Theory Placement ─────────────────────────────────────────────
+  placeTheorySubjects(grid, theory, remaining, ctx.facultyMap);
+
+  // ── PHASE 4: Free Hour Fill ───────────────────────────────────────────────
+  fillFreeHours(grid, subjects, remaining, ctx.facultyMap);
 
   return grid;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Validation helpers (unchanged API — used by Timetable.tsx)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function canPlaceBlock(grid: Grid, day: number, start: number, end: number, labNames?: Set<string>) {
-  // Check if any slot in the requested range is occupied
+function canPlaceBlock(
+  grid: Grid,
+  day: number,
+  start: number,
+  end: number,
+  labNames?: Set<string>
+) {
   for (let p = start; p <= end; p++) {
     if (grid[day][p] !== null) return false;
   }
-  
-  // Ensure day has no lab already (one lab per day rule)
-  // Check all periods for any existing lab content
+
   const hasLab = grid[day].some((cell) => {
     if (cell === null) return false;
     const cellStr = String(cell);
-    
-    // If we have lab names from the current context, use them
-    if (labNames && labNames.has(cellStr)) {
-      return true;
-    }
-    
-    // Fallback: check if it looks like a lab (contains "LAB" or "L" suffix)
-    return cellStr.toUpperCase().includes("LAB") || 
-           cellStr.endsWith("L") || 
-           cellStr.endsWith(" L");
+    if (labNames && labNames.has(cellStr)) return true;
+    return (
+      cellStr.toUpperCase().includes("LAB") ||
+      cellStr.endsWith("L") ||
+      cellStr.endsWith(" L")
+    );
   });
-  
-  if (hasLab) return false;
-  return true;
+
+  return !hasLab;
 }
 
-function fillBlock(grid: Grid, day: number, start: number, end: number, name: string) {
+function fillBlock(
+  grid: Grid,
+  day: number,
+  start: number,
+  end: number,
+  name: string
+) {
   for (let p = start; p <= end; p++) grid[day][p] = name;
 }
 
-/**
- * Checks if faculty is available for a block of periods (for labs)
- */
-function checkFacultyAvailabilityForBlock(
-  subject: Subject,
-  day: number,
-  startPeriod: number,
-  endPeriod: number,
-  facultyMap: Map<string, FacultyAllocation>,
-  isLabSubject: boolean
-): { success: boolean; facultyId?: string; facultyName?: string } {
-  // Check each period in the block
-  for (let period = startPeriod; period <= endPeriod; period++) {
-    const result = findAvailableFacultyForSlot(
-      subject.id, day, period, facultyMap, isLabSubject
-    );
-    
-    if (!result.success) {
-      return { success: false };
-    }
-  }
-  
-  // If we reach here, all periods are available
-  const firstPeriodResult = findAvailableFacultyForSlot(
-    subject.id, day, startPeriod, facultyMap, isLabSubject
-  );
-  
-  return {
-    success: true,
-    facultyId: firstPeriodResult.facultyId,
-    facultyName: firstPeriodResult.facultyName
-  };
-}
-
-/**
- * Allocates faculty for a block of periods (for labs)
- */
-function allocateFacultyForBlock(
-  subject: Subject,
-  day: number,
-  startPeriod: number,
-  endPeriod: number,
-  facultyMap: Map<string, FacultyAllocation>
-): void {
-  // Find the faculty for this subject
-  const result = findAvailableFacultyForSlot(
-    subject.id, day, startPeriod, facultyMap, true
-  );
-  
-  if (result.success && result.facultyId) {
-    // Allocate all periods in the block to this faculty
-    for (let period = startPeriod; period <= endPeriod; period++) {
-      allocateFacultyToSlot(result.facultyId, day, period, facultyMap);
-    }
-  }
-}
-
-export function validateTotalHours(subjects: Subject[]): { ok: boolean; total: number; } {
+export function validateTotalHours(subjects: Subject[]): {
+  ok: boolean;
+  total: number;
+} {
   const total = subjects.reduce((a, s) => a + s.hoursPerWeek, 0);
   return { ok: total <= 42, total };
 }
 
-/**
- * Validates that the generated timetable follows lab placement rules
- * - Only one lab per day
- * - Morning labs are placed in P1-P4 when enabled
- * - Evening labs respect their time preferences
- */
 /**
  * Validates faculty allocations and conflicts in a timetable
  */
@@ -656,37 +825,41 @@ export async function validateTimetableFacultyConflicts(
   return await validateFacultyConflicts(grid, subjects, departmentId, year, section);
 }
 
-export function validateLabPlacement(grid: Grid, subjects: Subject[], labPreferences?: LabPrefsMap): { 
-  valid: boolean; 
-  errors: string[]; 
-  labDays: Record<string, number[]>; 
+export function validateLabPlacement(
+  grid: Grid,
+  subjects: Subject[],
+  labPreferences?: LabPrefsMap
+): {
+  valid: boolean;
+  errors: string[];
+  labDays: Record<string, number[]>;
 } {
   const errors: string[] = [];
   const labDays: Record<string, number[]> = {};
-  const labs = subjects.filter(s => s.type === "lab");
-  const labNames = new Set(labs.map(l => l.name));
+  const labs = subjects.filter((s) => s.type === "lab");
+  const labNames = new Set(labs.map((l) => l.name));
 
-  // Check each day for lab placement violations
   for (let day = 0; day < 6; day++) {
     const dayLabs: string[] = [];
-    
+
     for (let period = 0; period < PERIODS; period++) {
       const cell = grid[day][period];
       if (cell && labNames.has(cell)) {
         dayLabs.push(cell);
-        
-        // Track which days each lab appears on
+
         if (!labDays[cell]) labDays[cell] = [];
         if (!labDays[cell].includes(day)) {
           labDays[cell].push(day);
         }
       }
     }
-    
-    // Check one lab per day rule
+
+    // One lab per day rule
     const uniqueLabs = new Set(dayLabs);
     if (uniqueLabs.size > 1) {
-      errors.push(`Day ${DAYS[day]} has multiple labs: ${Array.from(uniqueLabs).join(", ")}`);
+      errors.push(
+        `Day ${DAYS[day]} has multiple labs: ${Array.from(uniqueLabs).join(", ")}`
+      );
     }
   }
 
@@ -696,24 +869,26 @@ export function validateLabPlacement(grid: Grid, subjects: Subject[], labPrefere
       const pref = labPreferences[lab.id];
       if (pref?.morningEnabled && labDays[lab.name]) {
         for (const day of labDays[lab.name]) {
-          // Find the periods where this lab appears on this day
-          const labPeriods = [];
+          const labPeriods: number[] = [];
           for (let p = 0; p < PERIODS; p++) {
             if (grid[day][p] === lab.name) {
-              labPeriods.push(p + 1); // Convert to 1-based
+              labPeriods.push(p + 1);
             }
           }
-          
-          // Check if it's in morning periods (P1-P4)
-          const inMorning = labPeriods.some(p => p <= 4);
-          const inEvening = labPeriods.some(p => p > 4);
-          
+
+          const inMorning = labPeriods.some((p) => p <= 4);
+          const inEvening = labPeriods.some((p) => p > 4);
+
           if (!inMorning && pref.morningEnabled) {
-            errors.push(`Lab ${lab.name} should be in morning (P1-P4) but found in periods: P${labPeriods.join(", P")}`);
+            errors.push(
+              `Lab ${lab.name} should be in morning (P1-P4) but found in periods: P${labPeriods.join(", P")}`
+            );
           }
-          
+
           if (inMorning && inEvening) {
-            errors.push(`Lab ${lab.name} spans both morning and evening periods: P${labPeriods.join(", P")}`);
+            errors.push(
+              `Lab ${lab.name} spans both morning and evening periods: P${labPeriods.join(", P")}`
+            );
           }
         }
       }
@@ -723,6 +898,6 @@ export function validateLabPlacement(grid: Grid, subjects: Subject[], labPrefere
   return {
     valid: errors.length === 0,
     errors,
-    labDays
+    labDays,
   };
 }
