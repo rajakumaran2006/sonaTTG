@@ -17,6 +17,7 @@ export interface FilterConfig {
   key: string;
   label: string;
   options: FilterOption[];
+  match?: (item: any, value: string) => boolean;
 }
 
 export interface ColumnConfig<T> {
@@ -77,10 +78,16 @@ export function CustomTable<T>({
       for (const filter of filters) {
         const selectedValue = filterValues[filter.key];
         if (selectedValue && selectedValue !== "all") {
-          // Check property value
-          const propVal = String((item as any)[filter.key] || "");
-          if (propVal.toLowerCase() !== selectedValue.toLowerCase()) {
-            return false;
+          if (filter.match) {
+            if (!filter.match(item, selectedValue)) {
+              return false;
+            }
+          } else {
+            // Check property value
+            const propVal = String((item as any)[filter.key] || "");
+            if (propVal.toLowerCase() !== selectedValue.toLowerCase()) {
+              return false;
+            }
           }
         }
       }

@@ -147,7 +147,11 @@ const SectionManagement = () => {
   return (
     <main className="min-h-screen bg-background text-foreground">
       {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className={`${userType === 'faculty' ? '' : 'md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80'} animate-fade-in-up`}>
+      <div className={`${
+        userType === 'faculty' ? '' : 'md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80'
+      } animate-fade-in-up pt-16 ${
+        userType === 'super' ? 'md:pt-14' : 'md:pt-0'
+      } transition-all duration-300`}>
         <SelectionHeader />
         <section className="container py-4">
         <header className="mb-6 flex items-center justify-between">

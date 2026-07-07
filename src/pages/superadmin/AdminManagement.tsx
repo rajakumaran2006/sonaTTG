@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/navbar/Navbar";
 import { Plus, Edit, Trash2, UserCheck, UserX } from "lucide-react";
 import { CustomTable } from "@/components/ui/CustomTable";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AdminUser {
   id: string;
@@ -401,7 +402,7 @@ const AdminManagement = () => {
     <main className="min-h-screen bg-background">
       <Navbar />
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <section className="container py-10 md:pt-16">
+        <section className="container py-10 md:pt-24">
         <header className="mb-6 flex items-center justify-between">
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate('/admin-login')}>

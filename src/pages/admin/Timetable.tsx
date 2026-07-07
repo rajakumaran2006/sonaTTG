@@ -391,7 +391,7 @@ function Timetable() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
         <SelectionHeader />
         <section className="container py-8">
           <div className="flex items-start justify-between mb-6">

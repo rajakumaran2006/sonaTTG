@@ -610,7 +610,7 @@ const SubjectManagement = () => {
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
         <SelectionHeader />
         <section className="container py-4">
         {/* Top row: Summary + Faculty (+ Elective settings cards) */}
@@ -1303,31 +1303,31 @@ const SubjectManagement = () => {
           </DialogContent>
         </Dialog>
       </section>
-      
-      {generating && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
-          <div className="max-w-md w-full p-8 rounded-3xl border border-border bg-card/50 shadow-2xl backdrop-blur-lg flex flex-col items-center text-center space-y-6">
-            <div className="relative h-20 w-20 flex items-center justify-center">
-              {/* Spinning glowing gradient ring */}
-              <div className="absolute inset-0 rounded-full border-4 border-slate-200 border-t-purple-600 border-r-indigo-500 border-b-sky-500 animate-spin" />
-              <div className="text-xl font-extrabold text-slate-800 font-mono">{generationProgress}%</div>
-            </div>
-            
-            <div className="space-y-2">
-              <h3 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Optimizing Timetable</h3>
-              <p className="text-sm font-semibold text-slate-500 font-mono h-5 transition-all duration-300">{generationStatus}</p>
-            </div>
+    </main>
+    
+    {generating && (
+      <div className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+        <div className="max-w-md w-full p-8 rounded-3xl border border-border bg-card/50 shadow-2xl backdrop-blur-lg flex flex-col items-center text-center space-y-6">
+          <div className="relative h-20 w-20 flex items-center justify-center">
+            {/* Spinning glowing gradient ring */}
+            <div className="absolute inset-0 rounded-full border-4 border-slate-200 border-t-purple-600 border-r-indigo-500 border-b-sky-500 animate-spin" />
+            <div className="text-xl font-extrabold text-slate-800 font-mono">{generationProgress}%</div>
+          </div>
+          
+          <div className="space-y-2">
+            <h3 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Optimizing Timetable</h3>
+            <p className="text-sm font-semibold text-slate-500 font-mono h-5 transition-all duration-300">{generationStatus}</p>
+          </div>
 
-            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/50">
-              <div 
-                className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full rounded-full transition-all duration-300 ease-out" 
-                style={{ width: `${generationProgress}%` }}
-              />
-            </div>
+          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/50">
+            <div 
+              className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full rounded-full transition-all duration-300 ease-out" 
+              style={{ width: `${generationProgress}%` }}
+            />
           </div>
         </div>
-      )}
-    </main>
+      </div>
+    )}
   </div>
 );
 };

@@ -136,6 +136,7 @@ const Navbar = () => {
           <NavLink
             key={item.href}
             to={item.href}
+            end={item.href === "/super-admin" || item.href === "/admin" || item.href === "/faculty"}
             onClick={() => setIsMobileMenuOpen(false)}
             className={({ isActive }) => 
               isActive 
@@ -183,6 +184,7 @@ const Navbar = () => {
               <NavLink
                 key={item.href}
                 to={item.href}
+                end={item.href === "/super-admin" || item.href === "/admin" || item.href === "/faculty"}
                 className={({ isActive }) => 
                   isActive 
                     ? `${linkBase} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20`
