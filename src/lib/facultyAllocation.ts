@@ -248,7 +248,8 @@ export async function buildFacultyAllocationMap(
 }
 
 /**
- * Finds available faculty for a subject at a specific time slot
+ * Finds available faculty for a subject at a specific time slot.
+ * Supports combined subject IDs (separated by '_') for parallel electives.
  */
 export function findAvailableFacultyForSlot(
   subjectId: string,
@@ -258,66 +259,69 @@ export function findAvailableFacultyForSlot(
   isLabSubject: boolean = false
 ): AllocationResult {
   const slotId = createSlotId(day, period);
+  const subjectIds = subjectId.includes('_') ? subjectId.split('_') : [subjectId];
   
-  // Find faculty who teach this subject
-  const eligibleFaculty = Array.from(facultyMap.values())
-    .filter(faculty => faculty.subjectIds.has(subjectId));
-    
-  if (eligibleFaculty.length === 0) {
-    // No faculty assigned — still allow placement so no cells are left empty.
-    // Faculty assignment is a display concern, not a scheduling blocker.
-    return {
-      success: true,
-      day,
-      period,
-    };
-  }
+  const allocatedFacultyIds: string[] = [];
+  const allocatedFacultyNames: string[] = [];
   
-  // Filter by availability and lab preference
-  const availableFaculty = eligibleFaculty.filter(faculty => {
-    // Check if slot is available
-    if (!faculty.availableSlots.has(slotId)) {
-      return false;
+  for (const subId of subjectIds) {
+    // Find faculty who teach this subject
+    const eligibleFaculty = Array.from(facultyMap.values())
+      .filter(faculty => faculty.subjectIds.has(subId));
+      
+    if (eligibleFaculty.length === 0) {
+      // No faculty assigned — allowed (continue)
+      continue;
     }
     
-    // Check lab preference for lab subjects
-    if (isLabSubject && !faculty.labPreference) {
-      return false;
+    // Filter by availability and lab preference
+    const availableFaculty = eligibleFaculty.filter(faculty => {
+      // Check if slot is available
+      if (!faculty.availableSlots.has(slotId)) {
+        return false;
+      }
+      
+      // Check lab preference for lab subjects
+      if (isLabSubject && !faculty.labPreference) {
+        return false;
+      }
+      
+      return true;
+    });
+    
+    if (availableFaculty.length === 0) {
+      // One of the electives has assigned faculty but none are available.
+      // This is a conflict slot.
+      return {
+        success: false,
+        day,
+        period,
+      };
     }
     
-    return true;
-  });
-  
-  if (availableFaculty.length === 0) {
-    // All assigned faculty are busy, but we still need to place the subject.
-    // Return success=true without a facultyId so the grid slot is filled
-    // but no faculty slot is consumed (conflict will be flagged during validation).
-    return {
-      success: true, 
-      day,
-      period,
-      // conflictReason: reasons.join('; ') // Context kept if needed later
-    };
+    // Prioritize faculty with fewer current assignments (workload balancing)
+    const selectedFaculty = availableFaculty.reduce((best, current) => {
+      const bestAssigned = best.assignedSlots.size;
+      const currentAssigned = current.assignedSlots.size;
+      return currentAssigned < bestAssigned ? current : best;
+    });
+    
+    allocatedFacultyIds.push(selectedFaculty.facultyId);
+    allocatedFacultyNames.push(selectedFaculty.facultyName);
   }
-  
-  // Prioritize faculty with fewer current assignments (workload balancing)
-  const selectedFaculty = availableFaculty.reduce((best, current) => {
-    const bestAssigned = best.assignedSlots.size;
-    const currentAssigned = current.assignedSlots.size;
-    return currentAssigned < bestAssigned ? current : best;
-  });
   
   return {
     success: true,
-    facultyId: selectedFaculty.facultyId,
-    facultyName: selectedFaculty.facultyName,
+    facultyId: allocatedFacultyIds.length > 0 ? allocatedFacultyIds.join('_') : undefined,
+    facultyName: allocatedFacultyNames.length > 0 ? allocatedFacultyNames.join(' / ') : undefined,
     day,
-    period
+    period,
   };
 }
 
 /**
- * Allocates a faculty to a time slot and updates their availability
+ * Allocates a faculty to a time slot and updates their availability.
+ * Supports combined faculty IDs (separated by '_') for parallel electives.
  */
 export function allocateFacultyToSlot(
   facultyId: string,
@@ -325,25 +329,33 @@ export function allocateFacultyToSlot(
   period: number,
   facultyMap: Map<string, FacultyAllocation>
 ): boolean {
-  const faculty = facultyMap.get(facultyId);
-  if (!faculty) return false;
-  
+  const facultyIds = facultyId.includes('_') ? facultyId.split('_') : [facultyId];
+  let allSuccess = true;
   const slotId = createSlotId(day, period);
   
-  // Check if slot is available
-  if (!faculty.availableSlots.has(slotId)) {
-    return false;
+  for (const facId of facultyIds) {
+    const faculty = facultyMap.get(facId);
+    if (!faculty) {
+      allSuccess = false;
+      continue;
+    }
+    
+    // Check if slot is available
+    if (!faculty.availableSlots.has(slotId)) {
+      allSuccess = false;
+    }
+    
+    // Allocate the slot
+    faculty.assignedSlots.add(slotId);
+    faculty.availableSlots.delete(slotId);
   }
   
-  // Allocate the slot
-  faculty.assignedSlots.add(slotId);
-  faculty.availableSlots.delete(slotId);
-  
-  return true;
+  return allSuccess;
 }
 
 /**
- * Validates that no faculty conflicts exist in a timetable grid
+ * Validates that no faculty conflicts exist in a timetable grid.
+ * Handles parallel electives represented as combined names (separated by ' / ').
  */
 export async function validateFacultyConflicts(
   grid: Grid,
@@ -375,7 +387,6 @@ export async function validateFacultyConflicts(
         if (!cellStr) return;
         
         const slotId = createSlotId(dayIndex, periodIndex);
-        let facultyInfo: { facultyId: string; facultyName: string } | undefined;
         
         // Handle special cases like "Seminar (Faculty Name)"
         const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
@@ -385,53 +396,67 @@ export async function validateFacultyConflicts(
           // Find faculty by name for special entries
           const faculty = Array.from(facultyMap.values()).find(f => f.facultyName === facultyName);
           if (faculty) {
-            facultyInfo = {
+            const facultyInfo = {
               facultyId: faculty.facultyId,
               facultyName: faculty.facultyName
             };
+            
+            // Track assignments within this timetable
+            if (!currentAssignments.has(facultyInfo.facultyId)) {
+              currentAssignments.set(facultyInfo.facultyId, []);
+            }
+            
+            const facultySlots = currentAssignments.get(facultyInfo.facultyId)!;
+            if (facultySlots.includes(slotId)) {
+              conflicts.push(`Faculty ${facultyInfo.facultyName} assigned to multiple subjects at ${slotId}`);
+            } else {
+              facultySlots.push(slotId);
+            }
           }
         } else {
-          // Regular subject
-          const subjectId = subjectNameToId.get(cellStr);
-          if (subjectId) {
-            // Find faculty for this subject
-            const eligibleFaculty = Array.from(facultyMap.values())
-              .filter(faculty => faculty.subjectIds.has(subjectId));
+          // Regular subject or parallel electives (separated by ' / ')
+          const cellParts = cellStr.includes(' / ') ? cellStr.split(' / ').map(p => p.trim()) : [cellStr];
+          
+          cellParts.forEach(part => {
+            const subjectId = subjectNameToId.get(part);
+            if (subjectId) {
+              // Find faculty for this subject
+              const eligibleFaculty = Array.from(facultyMap.values())
+                .filter(faculty => faculty.subjectIds.has(subjectId));
+                
+              if (eligibleFaculty.length === 0) {
+                warnings.push(`No faculty assigned for ${part} at ${slotId}`);
+                return;
+              }
               
-            if (eligibleFaculty.length === 0) {
-              warnings.push(`No faculty assigned for ${cellStr} at ${slotId}`);
-              return;
+              // Check for conflicts with existing assignments (other timetables)
+              const availableFaculty = eligibleFaculty.filter(faculty => 
+                faculty.availableSlots.has(slotId)
+              );
+              
+              if (availableFaculty.length === 0) {
+                conflicts.push(`Faculty conflict for ${part} at ${slotId} - all assigned faculty are busy`);
+                return;
+              }
+              
+              const facultyInfo = {
+                facultyId: availableFaculty[0].facultyId,
+                facultyName: availableFaculty[0].facultyName
+              };
+              
+              // Track assignments within this timetable
+              if (!currentAssignments.has(facultyInfo.facultyId)) {
+                currentAssignments.set(facultyInfo.facultyId, []);
+              }
+              
+              const facultySlots = currentAssignments.get(facultyInfo.facultyId)!;
+              if (facultySlots.includes(slotId)) {
+                conflicts.push(`Faculty ${facultyInfo.facultyName} assigned to multiple subjects at ${slotId}`);
+              } else {
+                facultySlots.push(slotId);
+              }
             }
-            
-            // Check for conflicts with existing assignments (other timetables)
-            const availableFaculty = eligibleFaculty.filter(faculty => 
-              faculty.availableSlots.has(slotId)
-            );
-            
-            if (availableFaculty.length === 0) {
-              conflicts.push(`Faculty conflict for ${cellStr} at ${slotId} - all assigned faculty are busy`);
-              return;
-            }
-            
-            facultyInfo = {
-              facultyId: availableFaculty[0].facultyId,
-              facultyName: availableFaculty[0].facultyName
-            };
-          }
-        }
-        
-        if (!facultyInfo) return;
-        
-        // Track assignments within this timetable
-        if (!currentAssignments.has(facultyInfo.facultyId)) {
-          currentAssignments.set(facultyInfo.facultyId, []);
-        }
-        
-        const facultySlots = currentAssignments.get(facultyInfo.facultyId)!;
-        if (facultySlots.includes(slotId)) {
-          conflicts.push(`Faculty ${facultyInfo.facultyName} assigned to multiple subjects at ${slotId}`);
-        } else {
-          facultySlots.push(slotId);
+          });
         }
       });
     });
@@ -515,4 +540,55 @@ export function findAvailableSlots(
   }
   
   return availableSlots;
+}
+
+/**
+ * Phase 2 pre-check: determines if any faculty assigned to a subject
+ * has at least one free slot across the entire week.
+ * Used to warn early rather than discovering conflicts after generation.
+ * Supports combined subject IDs (separated by '_') for parallel electives.
+ */
+export function checkStaffAvailabilityForWeek(
+  subjectId: string,
+  facultyMap: Map<string, FacultyAllocation>
+): { hasSlots: boolean; freeSlotCount: number; facultyNames: string[] } {
+  const subjectIds = subjectId.includes('_') ? subjectId.split('_') : [subjectId];
+  
+  let minFreeSlotsAcrossSubjects = Infinity;
+  let hasSlots = true;
+  const facultyNames: string[] = [];
+  
+  for (const subId of subjectIds) {
+    // Find all faculty assigned to this subject
+    const eligibleFaculty = Array.from(facultyMap.values()).filter(f =>
+      f.subjectIds.has(subId)
+    );
+
+    // No faculty assigned — we still allow placement
+    if (eligibleFaculty.length === 0) {
+      continue;
+    }
+
+    let subFreeSlots = 0;
+    for (const faculty of eligibleFaculty) {
+      const free = faculty.availableSlots.size;
+      subFreeSlots += free;
+      if (free > 0 && !facultyNames.includes(faculty.facultyName)) {
+        facultyNames.push(faculty.facultyName);
+      }
+    }
+    
+    if (subFreeSlots === 0) {
+      hasSlots = false;
+    }
+    minFreeSlotsAcrossSubjects = Math.min(minFreeSlotsAcrossSubjects, subFreeSlots);
+  }
+
+  const finalFree = minFreeSlotsAcrossSubjects === Infinity ? 42 : minFreeSlotsAcrossSubjects;
+
+  return {
+    hasSlots: hasSlots && finalFree > 0,
+    freeSlotCount: finalFree,
+    facultyNames,
+  };
 }

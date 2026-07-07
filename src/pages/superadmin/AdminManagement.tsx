@@ -11,7 +11,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/navbar/Navbar";
 import { Plus, Edit, Trash2, UserCheck, UserX } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AdminUser {
   id: string;
@@ -395,11 +396,13 @@ const AdminManagement = () => {
 
   if (!isLoggedIn) return null;
 
+  const AdminTable = CustomTable<AdminUser>;
+
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <section className="container py-10 md:pt-16">
+        <section className="container py-10 md:pt-24">
         <header className="mb-6 flex items-center justify-between">
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate('/admin-login')}>
@@ -497,79 +500,150 @@ const AdminManagement = () => {
                 No administrators found. Create your first admin to get started.
               </div>
             ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[200px]">Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="hidden md:table-cell">Created</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {admins.map((admin) => (
-                      <TableRow key={admin.id} className="group">
-                        <TableCell className="font-medium">
-                          {admin.name}
-                        </TableCell>
-                        <TableCell>{admin.email}</TableCell>
-                        <TableCell>
-                          {(() => {
-                            const dept = departments.find(d => d.id === admin.department_id);
-                            return dept?.name || 'Unknown';
-                          })()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={admin.is_active ? "default" : "secondary"}>
-                            {admin.is_active ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell text-muted-foreground whitespace-nowrap">
-                          {new Date(admin.created_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openEditDialog(admin)}
-                              className="h-8 w-8 text-slate-500 hover:text-olive-600"
-                              title="Edit Admin"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleToggleStatus(admin.id, admin.is_active)}
-                              className={`h-8 w-8 ${admin.is_active ? 'text-slate-500 hover:text-amber-600' : 'text-slate-500 hover:text-emerald-600'}`}
-                              title={admin.is_active ? "Deactivate Admin" : "Activate Admin"}
-                            >
-                              {admin.is_active ? (
-                                <UserX className="h-4 w-4" />
-                              ) : (
-                                <UserCheck className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteAdmin(admin.id)}
-                              className="h-8 w-8 text-slate-500 hover:text-destructive"
-                              title="Delete Admin"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <AdminTable
+                data={admins}
+                getRowId={(row) => row.id}
+                searchKey={(row) => `${row.name} ${row.email}`}
+                searchPlaceholder="Search admins by name or email..."
+                exportFileName="administrators-list"
+                onDeleteSelected={async (ids) => {
+                  for (const id of ids) {
+                    await handleDeleteAdmin(id);
+                  }
+                }}
+                 columns={[
+                  {
+                    key: "name",
+                    header: "Name",
+                    sortable: true,
+                    render: (row) => <span className="font-semibold text-slate-900 dark:text-slate-100">{row.name}</span>
+                  },
+                  {
+                    key: "email",
+                    header: "Email",
+                    sortable: true,
+                    render: (row) => <span className="text-slate-600 dark:text-slate-400 font-mono text-sm">{row.email}</span>
+                  },
+                  {
+                    key: "department",
+                    header: "Department",
+                    sortable: true,
+                    render: (row) => {
+                      const dept = departments.find(d => d.id === row.department_id);
+                      return <span className="text-slate-700 dark:text-slate-300">{dept?.name || 'Unknown'}</span>;
+                    }
+                  },
+                  {
+                    key: "is_active",
+                    header: "Status",
+                    sortable: true,
+                    render: (row) => (
+                      <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-green-100 text-green-800 dark:bg-emerald-950/40 dark:text-emerald-450 border border-green-200 dark:border-emerald-900/30" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800"}>
+                        {row.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    )
+                  },
+                  {
+                    key: "created_at",
+                    header: "Created",
+                    sortable: true,
+                    render: (row) => <span className="text-slate-500 dark:text-slate-400 text-xs font-mono">{new Date(row.created_at).toLocaleDateString()}</span>
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    render: (row) => (
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEditDialog(row)}
+                          className="h-8 w-8 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Edit Admin"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleToggleStatus(row.id, row.is_active)}
+                          className={`h-8 w-8 ${row.is_active ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-amber-500 dark:hover:bg-slate-800' : 'text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-slate-800'}`}
+                          title={row.is_active ? "Deactivate Admin" : "Activate Admin"}
+                        >
+                          {row.is_active ? (
+                            <UserX className="h-4 w-4" />
+                          ) : (
+                            <UserCheck className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteAdmin(row.id)}
+                          className="h-8 w-8 text-slate-500 hover:text-destructive dark:text-slate-400 dark:hover:text-destructive hover:bg-destructive/10"
+                          title="Delete Admin"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )
+                  }
+                ]}
+                renderItemCard={(row, isSelected, onToggleSelect) => (
+                  <div
+                    key={row.id}
+                    onClick={onToggleSelect}
+                    className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                      isSelected
+                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.name}</h4>
+                        <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-green-100 text-green-800 dark:bg-emerald-950/40 dark:text-emerald-455 border border-green-200 dark:border-emerald-900/30 text-[9px]" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800 text-[9px]"}>
+                          {row.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{row.email}</p>
+                      <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                        <span>Dept: {departments.find(d => d.id === row.department_id)?.name || 'Unknown'}</span>
+                        <span>•</span>
+                        <span>Created: {new Date(row.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                      />
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => openEditDialog(row)}
+                          className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(row.id, row.is_active)}
+                          className={`h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors ${row.is_active ? 'bg-amber-100 text-amber-800 dark:bg-amber-955/20 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-955/40' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-955/20 dark:text-emerald-455 hover:bg-emerald-200 dark:hover:bg-emerald-955/40'}`}
+                        >
+                          {row.is_active ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAdmin(row.id)}
+                          className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-destructive/20 hover:bg-destructive/30 text-destructive-foreground"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              />
             )}
           </CardContent>
         </Card>

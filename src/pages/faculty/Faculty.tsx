@@ -8,13 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable, FilterConfig } from "@/components/ui/CustomTable";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getDepartments, createFaculty, deleteFaculty, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
+import { getDepartments, createFaculty, deleteFaculty, deleteFacultyBulk, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 import Papa from "papaparse";
 import { Upload, FileText, AlertTriangle, CheckCircle, X, LayoutGrid, List, Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -38,12 +38,9 @@ const FacultyPage = () => {
   const [deptFilterId, setDeptFilterId] = useState<string>("ALL");
   const [faculty, setFaculty] = useState<FacultyItem[]>([]);
   const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
-  const [search, setSearch] = useState("");
-  const [yearFilter, setYearFilter] = useState<string>("ALL");
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminDeptId, setAdminDeptId] = useState<string>("");
 
-  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
 
   // Add form state
   const [addOpen, setAddOpen] = useState<boolean>(false);
@@ -103,10 +100,6 @@ const FacultyPage = () => {
   const [duplicates, setDuplicates] = useState<any[]>([]);
   const [parsedData, setParsedData] = useState<any[]>([]);
 
-  // Bulk delete state
-  const [isDeleteMode, setIsDeleteMode] = useState<boolean>(false);
-  const [selectedFacultyIds, setSelectedFacultyIds] = useState<Set<string>>(new Set());
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState<boolean>(false);
 
 
   useEffect(() => {
@@ -569,40 +562,6 @@ const FacultyPage = () => {
     }
   };
 
-  const toggleDeleteMode = () => {
-    setIsDeleteMode((prev) => !prev);
-    setSelectedFacultyIds(new Set());
-  };
-
-  const handleSelectAll = () => {
-    if (selectedFacultyIds.size === filtered.length) {
-      setSelectedFacultyIds(new Set());
-    } else {
-      setSelectedFacultyIds(new Set(filtered.map((f) => f.id)));
-    }
-  };
-
-  const handleSelectOne = (id: string) => {
-    setSelectedFacultyIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleBulkDelete = async () => {
-    try {
-      await Promise.all(Array.from(selectedFacultyIds).map((id) => deleteFaculty(id)));
-      setFaculty((list) => list.filter((x) => !selectedFacultyIds.has(x.id)));
-      toast.success(`${selectedFacultyIds.size} faculty deleted`);
-      setSelectedFacultyIds(new Set());
-      setIsDeleteMode(false);
-      setBulkDeleteOpen(false);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to delete');
-    }
-  };
 
   const openEdit = async (f: FacultyItem) => {
     setEditingId(f.id);
@@ -767,24 +726,6 @@ const FacultyPage = () => {
     }
   };
 
-  const filtered = useMemo(() => {
-    return faculty.filter((f) => {
-      // Text search filter
-      const matchesSearch = f.name.toLowerCase().includes(search.toLowerCase()) || 
-                           (f.email || '').toLowerCase().includes(search.toLowerCase());
-      
-      // Year filter - check if faculty teaches any subjects in the selected year
-      if (yearFilter === "ALL") {
-        return matchesSearch;
-      }
-      
-      // Check if faculty has assignments in the selected year
-      const facultyTeachingYears = facultyYears[f.id] || [];
-      const matchesYear = facultyTeachingYears.includes(yearFilter);
-      
-      return matchesSearch && matchesYear;
-    });
-  }, [faculty, search, yearFilter, facultyYears]);
 
   // CSV Upload functions
   const handleFileUpload = (file: File) => {
@@ -928,10 +869,46 @@ const FacultyPage = () => {
     setDuplicates([]);
   };
 
+  const FacultyTable = CustomTable<FacultyItem>;
+
+  const filtersConfig = useMemo<FilterConfig[]>(() => {
+    const configs: FilterConfig[] = [
+      {
+        key: "year",
+        label: "Year",
+        options: [
+          { label: "Year I", value: "I" },
+          { label: "Year II", value: "II" },
+          { label: "Year III", value: "III" },
+          { label: "Year IV", value: "IV" }
+        ],
+        match: (item: FacultyItem, value: string) => {
+          const teachingYears = facultyYears[item.id] || [];
+          return teachingYears.includes(value);
+        }
+      }
+    ];
+
+    if (!isAdmin) {
+      configs.push({
+        key: "departmentId",
+        label: "Department",
+        options: departments.map((d) => ({
+          label: d.name,
+          value: d.id
+        }))
+      });
+    }
+
+    return configs;
+  }, [facultyYears, isAdmin, departments]);
+
   return (
     <main className="min-h-screen bg-background">
       {isAdmin ? <AdminNavbar /> : <Navbar />}
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <div className={`md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300 pt-16 ${
+        isAdmin ? "md:pt-0" : "md:pt-14"
+      }`}>
         <SelectionHeader />
         <section className="container py-4">
 
@@ -953,75 +930,7 @@ const FacultyPage = () => {
         <Card className="rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 flex-wrap gap-2">
             <CardTitle className="text-base">Faculty list</CardTitle>
-            {/* Search + Year filter inline in card header */}
-            <div className="flex items-center gap-2 flex-1 min-w-0 max-w-lg">
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or email"
-                className="h-8 text-sm"
-              />
-              <Select value={yearFilter} onValueChange={setYearFilter}>
-                <SelectTrigger className="h-8 text-sm w-32">
-                  <SelectValue placeholder="Year" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All years</SelectItem>
-                  <SelectItem value="I">Year I</SelectItem>
-                  <SelectItem value="II">Year II</SelectItem>
-                  <SelectItem value="III">Year III</SelectItem>
-                  <SelectItem value="IV">Year IV</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div className="flex items-center gap-2">
-              {/* View mode toggle */}
-              <div className="flex items-center bg-muted rounded-md p-1">
-                <Button
-                  variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 px-2"
-                  onClick={() => setViewMode('table')}
-                >
-                  <List className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 px-2"
-                  onClick={() => setViewMode('grid')}
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </Button>
-              </div>
-              {/* Delete mode toggle */}
-              {isDeleteMode ? (
-                <>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={selectedFacultyIds.size === 0}
-                    onClick={() => setBulkDeleteOpen(true)}
-                    className="flex items-center gap-1"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete Selected ({selectedFacultyIds.size})
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={toggleDeleteMode}>
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleDeleteMode}
-                  className="flex items-center gap-1 text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </Button>
-              )}
               <Button
                 variant="outline"
                 onClick={() => setUploadOpen(true)}
@@ -1034,153 +943,114 @@ const FacultyPage = () => {
             </div>
           </CardHeader>
           <CardContent>
-            {viewMode === 'table' ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {isDeleteMode && (
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={filtered.length > 0 && selectedFacultyIds.size === filtered.length}
-                        onCheckedChange={handleSelectAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
-                  )}
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Designation</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((f) => (
-                  <TableRow
-                    key={f.id}
-                    className={`hover:bg-muted/50 ${isDeleteMode ? 'cursor-default' : 'cursor-pointer'} ${selectedFacultyIds.has(f.id) ? 'bg-destructive/10' : ''}`}
-                    onClick={() => {
-                      if (isDeleteMode) handleSelectOne(f.id);
-                      else handleFacultyClick(f);
-                    }}
-                  >
-                    {isDeleteMode && (
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={selectedFacultyIds.has(f.id)}
-                          onCheckedChange={() => handleSelectOne(f.id)}
-                          aria-label={`Select ${f.name}`}
-                        />
-                      </TableCell>
-                    )}
-                    <TableCell>{f.name}</TableCell>
-                    <TableCell>{f.email || '-'}</TableCell>
-                    <TableCell>{f.designation || '-'}</TableCell>
-                    <TableCell className="text-right space-x-2">
-                      {!isDeleteMode && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEdit(f);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFacultyClick(f);
-                            }}
-                          >
-                            View
-                          </Button>
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((f) => (
-                  <Card key={f.id} className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleFacultyClick(f)}>
-                    <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-                      <div>
-                        <CardTitle className="text-base font-medium">{f.name}</CardTitle>
-                        <div className="text-xs text-muted-foreground">{f.designation || 'No designation'}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          className="h-8 w-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(f);
-                          }}
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-2 space-y-2">
-                       <div className="text-sm truncate" title={f.email || ''}>
-                         {f.email || 'No email'}
-                       </div>
-                       <div className="text-xs text-muted-foreground">
-                         {departments.find(d => d.id === f.departmentId)?.name || 'Unknown Dept'}
-                       </div>
-                       <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="h-7 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFacultyClick(f);
-                            }}
-                          >
-                            View Details
-                          </Button>
-                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="col-span-full text-center py-8 text-muted-foreground">
-                    No faculty found matching your filters.
+            <FacultyTable
+              data={faculty}
+              getRowId={(row) => row.id}
+              searchKey={(row) => `${row.name} ${row.email || ""}`}
+              searchPlaceholder="Search faculty members by name or email..."
+              exportFileName="faculty-list"
+              filters={filtersConfig}
+              onDeleteSelected={async (ids) => {
+                try {
+                  await deleteFacultyBulk(ids);
+                  toast.success(`Successfully deleted ${ids.length} faculty member(s)`);
+                  await loadFaculty();
+                } catch (e: any) {
+                  toast.error("Error deleting faculty: " + e.message);
+                }
+              }}
+              columns={[
+                {
+                  key: "name",
+                  header: "Name",
+                  sortable: true,
+                  render: (row) => <span className="font-semibold text-slate-900 dark:text-slate-100">{row.name}</span>
+                },
+                {
+                  key: "email",
+                  header: "Email",
+                  sortable: true,
+                  render: (row) => <span className="text-slate-600 dark:text-slate-400 font-mono text-sm">{row.email || '-'}</span>
+                },
+                {
+                  key: "designation",
+                  header: "Designation",
+                  sortable: true,
+                  render: (row) => <span className="text-slate-700 dark:text-slate-300 text-sm">{row.designation || '-'}</span>
+                },
+                {
+                  key: "actions",
+                  header: "Actions",
+                  render: (row) => (
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(row);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFacultyClick(row);
+                        }}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  )
+                }
+              ]}
+              renderItemCard={(row, isSelected, onToggleSelect) => (
+                <div
+                  key={row.id}
+                  onClick={onToggleSelect}
+                  className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                    isSelected
+                      ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                      : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm"
+                  }`}
+                >
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.name}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{row.designation || 'No designation'}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-mono">{row.email || 'No email'}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{departments.find(d => d.id === row.departmentId)?.name || 'Unknown Dept'}</p>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => onToggleSelect()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                    />
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => openEdit(row)}
+                        className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleFacultyClick(row)}
+                        className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary/60 text-secondary-foreground hover:bg-secondary/70"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            />
           </CardContent>
         </Card>
 
-        {/* Bulk Delete Confirmation Dialog */}
-        <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete {selectedFacultyIds.size} faculty member{selectedFacultyIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently remove the selected faculty members. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setBulkDeleteOpen(false)}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleBulkDelete}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete {selectedFacultyIds.size} member{selectedFacultyIds.size !== 1 ? 's' : ''}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         <Dialog
           open={addOpen}

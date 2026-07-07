@@ -214,11 +214,31 @@ const Index = () => {
     { label: "Lab Allocation", icon: Database, path: "/lab", color: "violet" },
   ];
 
-  const colorMap: Record<string, { icon: string; bg: string; border: string }> = {
-    emerald: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
-    sky: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
-    amber: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
-    violet: { icon: "text-black", bg: "bg-gray-300", border: "border-gray-500 hover:border-gray-600" },
+  const colorMap: Record<string, { icon: string; bg: string; border: string; glow: string }> = {
+    emerald: { 
+      icon: "text-emerald-500 dark:text-emerald-400", 
+      bg: "bg-emerald-500/10 dark:bg-emerald-500/20", 
+      border: "border-emerald-500/20 dark:border-emerald-500/10 hover:border-emerald-500/50",
+      glow: "hover:shadow-[0_4px_20px_rgba(16,185,129,0.1)]"
+    },
+    sky: { 
+      icon: "text-sky-500 dark:text-sky-400", 
+      bg: "bg-sky-500/10 dark:bg-sky-500/20", 
+      border: "border-sky-500/20 dark:border-sky-500/10 hover:border-sky-500/50",
+      glow: "hover:shadow-[0_4px_20px_rgba(56,189,248,0.1)]"
+    },
+    amber: { 
+      icon: "text-amber-500 dark:text-amber-400", 
+      bg: "bg-amber-500/10 dark:bg-amber-500/20", 
+      border: "border-amber-500/20 dark:border-amber-500/10 hover:border-amber-500/50",
+      glow: "hover:shadow-[0_4px_20px_rgba(245,158,11,0.1)]"
+    },
+    violet: { 
+      icon: "text-violet-500 dark:text-violet-400", 
+      bg: "bg-violet-500/10 dark:bg-violet-500/20", 
+      border: "border-violet-500/20 dark:border-violet-500/10 hover:border-violet-500/50",
+      glow: "hover:shadow-[0_4px_20px_rgba(139,92,246,0.1)]"
+    },
   };
 
   return (
@@ -340,10 +360,10 @@ const Index = () => {
                       <button
                         key={action.label}
                         onClick={() => navigate(action.path)}
-                        className={`flex flex-col items-start gap-2.5 p-4 rounded-xl border border-transparent ${colors.border} ${actionHoverBg} transition-all duration-200 hover:-translate-y-0.5 group`}
+                        className={`flex flex-col items-start gap-2.5 p-4 rounded-xl border ${colors.border} ${colors.glow} bg-card/60 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:bg-slate-100/10 active:scale-[0.98] group`}
                       >
-                        <div className={`p-2 rounded-lg ${colors.bg}`}>
-                          <Icon className={`h-4 w-4 ${colors.icon}`} />
+                        <div className={`p-2.5 rounded-xl ${colors.bg} transition-transform duration-300 group-hover:scale-110`}>
+                          <Icon className={`h-4.5 w-4.5 ${colors.icon}`} />
                         </div>
                         <span className={`text-xs font-semibold leading-tight text-left ${textPrimary}`}>{action.label}</span>
                       </button>

@@ -10,10 +10,10 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { SUBJECT_HOUR_LIMIT, Subject, subjectTotals, specialHours, useTimetableStore } from "@/store/timetableStore";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
 import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName, setOpenElectiveHours, getOpenElectiveHours, getSectionSubjects, saveSectionSubjects, getLabAllocationsForSection } from "@/lib/supabaseService";
 
@@ -34,12 +34,6 @@ const SubjectManagement = () => {
   const specialHoursConfigs = useTimetableStore((s) => s.specialHoursConfigs);
   const setSpecialHoursConfigs = useTimetableStore((s) => s.setSpecialHoursConfigs);
 
-  const totals = useMemo(() => subjectTotals(selected), [selected]);
-  const specialHrs = useMemo(() => specialHours(special), [special]);
-  const configuredSpecialHrs = useMemo(() => 
-    specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
-    [specialHoursConfigs]
-  );
   const [form, setForm] = useState<{ name: string; hours: number; type: "theory" | "lab" | "elective" | "open elective"; tags: string; code?: string; abbreviation?: string; staff?: string; credits?: number; }>({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const setLabPreferences = useTimetableStore((s) => s.setLabPreferences);
@@ -65,9 +59,89 @@ const SubjectManagement = () => {
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [departmentId, setDepartmentId] = useState<string>("");
   const isFourthYear = useMemo(() => selection.year === "IV" || selection.year === "4", [selection.year]);
+  const [openElectiveMode, setOpenElectiveMode] = useState<'parallel' | 'separate'>('parallel');
+  const [electiveMode, setElectiveMode] = useState<'parallel' | 'separate'>('parallel');
+  const showOpenElectiveCard = useMemo(() => {
+    return isFourthYear || selected.some(s => s.type === 'open elective') || available.some(s => s.type === 'open elective');
+  }, [isFourthYear, selected, available]);
+  const showElectiveCard = useMemo(() => {
+    return selected.some(s => s.type === 'elective') || available.some(s => s.type === 'elective');
+  }, [selected, available]);
   const currentOpenElectiveHours = useMemo(() => selected.filter(s => s.type === 'open elective').reduce((a, s) => a + (s.hoursPerWeek || 0), 0), [selected]);
   const [openElectiveHours, setOpenElectiveHoursState] = useState<number>(0);
   const [savingOpenElective, setSavingOpenElective] = useState(false);
+
+  // Memos that depend on state variables (including electiveMode and openElectiveMode)
+  const totals = useMemo(() => subjectTotals(selected), [selected]);
+  const specialHrs = useMemo(() => specialHours(special), [special]);
+  const configuredSpecialHrs = useMemo(() => 
+    specialHoursConfigs.reduce((total, config) => total + config.total_hours, 0), 
+    [specialHoursConfigs]
+  );
+
+  const electiveOccupiedHours = useMemo(() => {
+    const electives = selected.filter(s => s.type === 'elective');
+    if (electiveMode === 'separate') {
+      return electives.reduce((a, s) => a + s.hoursPerWeek, 0);
+    }
+    const peTagGroups = new Map<string, number>();
+    const ungrouped: Subject[] = [];
+    for (const s of electives) {
+      const peTag = (s.tags || []).find((t) =>
+        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+)$/i.test(t.trim())
+      );
+      if (peTag) {
+        const key = peTag.trim().toUpperCase();
+        peTagGroups.set(key, Math.max(peTagGroups.get(key) || 0, s.hoursPerWeek));
+      } else {
+        ungrouped.push(s);
+      }
+    }
+    const hoursGroups = new Map<number, number>();
+    for (const s of ungrouped) {
+      hoursGroups.set(s.hoursPerWeek, s.hoursPerWeek);
+    }
+    
+    let sum = 0;
+    for (const h of peTagGroups.values()) sum += h;
+    for (const h of hoursGroups.values()) sum += h;
+    return sum;
+  }, [selected, electiveMode]);
+
+  const [generating, setGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStatus, setGenerationStatus] = useState("");
+
+  const totalElectiveSum = useMemo(() => {
+    return selected.filter(s => s.type === 'elective').reduce((a, s) => a + s.hoursPerWeek, 0);
+  }, [selected]);
+
+  const handleMoveToSelected = async (sid: string) => {
+    moveToSelected(sid);
+    try {
+      const dep = await ensureDepartment(selection.department!);
+      const found = available.find(s => s.id === sid);
+      if (found) {
+        const newSelected = [...selected, found];
+        await saveSectionSubjects(dep.id, selection.year!, selection.section!, newSelected.map(s => s.id));
+      }
+    } catch (e: any) {
+      console.error("Failed to sync subject addition to database:", e);
+      toast({ title: "Sync failed", description: e?.message || String(e), variant: "destructive" });
+    }
+  };
+
+  const handleMoveToAvailable = async (sid: string) => {
+    moveToAvailable(sid);
+    try {
+      const dep = await ensureDepartment(selection.department!);
+      const newSelected = selected.filter(s => s.id !== sid);
+      await saveSectionSubjects(dep.id, selection.year!, selection.section!, newSelected.map(s => s.id));
+    } catch (e: any) {
+      console.error("Failed to sync subject removal to database:", e);
+      toast({ title: "Sync failed", description: e?.message || String(e), variant: "destructive" });
+    }
+  };
 
   // Lab allocation map: subjectName → { labName, labCode }
   const [labAllocations, setLabAllocations] = useState<Record<string, { labName: string; labCode: string }>>({});
@@ -176,8 +250,10 @@ const SubjectManagement = () => {
   // Sync input with current data when selection or subjects change
   useEffect(() => {
     (async () => {
-      if (!isFourthYear || !selection.department || !selection.year) {
+      if (!selection.department || !selection.year) {
         setOpenElectiveHoursState(0);
+        setOpenElectiveMode('parallel');
+        setElectiveMode('parallel');
         return;
       }
       try {
@@ -189,11 +265,21 @@ const SubjectManagement = () => {
         }
         const hours = await getOpenElectiveHours(depId, selection.year);
         setOpenElectiveHoursState(hours || 0);
+
+        // Load open elective mode
+        const storedOeMode = localStorage.getItem(`oe_mode:${depId}:${selection.year}`) as 'parallel' | 'separate';
+        setOpenElectiveMode(storedOeMode || 'parallel');
+
+        // Load professional elective mode
+        const storedPeMode = localStorage.getItem(`pe_mode:${depId}:${selection.year}`) as 'parallel' | 'separate';
+        setElectiveMode(storedPeMode || 'parallel');
       } catch (_) {
         setOpenElectiveHoursState(0);
+        setOpenElectiveMode('parallel');
+        setElectiveMode('parallel');
       }
     })();
-  }, [isFourthYear, selection.department, selection.year]);
+  }, [selection.department, selection.year, departmentId]);
 
   const handleSaveOpenElectiveHours = async () => {
     try {
@@ -201,9 +287,9 @@ const SubjectManagement = () => {
         toast({ title: "Missing selection", description: "Please select department and year." });
         return;
       }
-      // For totals, we should not sum individual open elective subjects; instead user-configured OE hours override display total
-      // However, currentSelected contains individual OE subjects as part of year subjects list; we compute delta accordingly
-      const proposed = (totals.total - currentOpenElectiveHours) + Number(openElectiveHours) + configuredSpecialHrs;
+      // For totals, check proposed sum including open/professional elective modes
+      const oeContribution = openElectiveMode === 'parallel' ? Number(openElectiveHours) : currentOpenElectiveHours;
+      const proposed = (totals.total - totalElectiveSum - currentOpenElectiveHours) + electiveOccupiedHours + oeContribution + configuredSpecialHrs;
       if (proposed > SUBJECT_HOUR_LIMIT) {
         toast({ title: "Too many hours", description: `Proposed ${proposed}/42 exceeds the limit.` });
         return;
@@ -216,14 +302,38 @@ const SubjectManagement = () => {
         setDepartmentId(depId);
       }
       await setOpenElectiveHours(depId, selection.year, Number(openElectiveHours));
+      
+      // Save scheduling mode to localStorage
+      localStorage.setItem(`oe_mode:${depId}:${selection.year}`, openElectiveMode);
+      
       // Do not alter subjects; open elective hours are now a setting. Still refresh to keep UI consistent
       const subs = await getSubjectsForYear(depId, selection.year);
       seedYearDataset(subs);
-      toast({ title: "Saved", description: "Open Elective hours updated." });
+      toast({ title: "Saved", description: "Open Elective settings updated." });
     } catch (e: any) {
       toast({ title: "Failed to save", description: e?.message || String(e) });
     } finally {
       setSavingOpenElective(false);
+    }
+  };
+
+  const handleSaveElectiveMode = async (mode: 'parallel' | 'separate') => {
+    try {
+      if (!selection.year || !selection.department) return;
+      setElectiveMode(mode);
+      let depId = departmentId;
+      if (!depId) {
+        const dep = await ensureDepartment(selection.department);
+        depId = dep.id;
+        setDepartmentId(depId);
+      }
+      localStorage.setItem(`pe_mode:${depId}:${selection.year}`, mode);
+      
+      const subs = await getSubjectsForYear(depId, selection.year);
+      seedYearDataset(subs);
+      toast({ title: "Saved", description: "Professional Elective settings updated." });
+    } catch (e: any) {
+      toast({ title: "Failed to save", description: e?.message || String(e) });
     }
   };
 
@@ -248,7 +358,7 @@ const SubjectManagement = () => {
         year: selection.year,
       });
       addAvailable(created);
-      moveToSelected(created.id);
+      handleMoveToSelected(created.id);
       setForm({ name: "", hours: 1, type: "theory", tags: "", code: "", abbreviation: "", staff: "", credits: 3 });
       toast({ title: "Subject added", description: `${created.name} saved to Supabase.` });
     } catch (e: any) {
@@ -368,8 +478,7 @@ const SubjectManagement = () => {
   }, [selected, searchTerm, filterType, filterFaculty, subjectFacultyMap, availableFaculty]);
 
   const next = async () => {
-
-    const totalHours = totals.total + configuredSpecialHrs;
+    const totalHours = (totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs;
     if (totalHours > SUBJECT_HOUR_LIMIT) {
       toast({ title: "Too many hours", description: `Assigned ${totalHours}/42. Reduce to continue.` });
       return;
@@ -386,21 +495,130 @@ const SubjectManagement = () => {
     try {
       // Save section-level assignments before proceeding
       await saveSectionSubjects(departmentId, selection.year, selection.section, selected.map(s => s.id));
+      
+      // Trigger futuristic progress animation
+      setGenerating(true);
+      setGenerationProgress(0);
+      setGenerationStatus("Parsing curriculum hours...");
+      
+      const steps = [
+        { progress: 10, status: "Parsing curriculum hours..." },
+        { progress: 25, status: "Checking faculty availability..." },
+        { progress: 45, status: "Grouping parallel professional electives..." },
+        { progress: 65, status: "Allocating laboratory rooms..." },
+        { progress: 85, status: "Resolving constraints & conflict checks..." },
+        { progress: 95, status: "Running scheduling engine optimization..." },
+        { progress: 100, status: "Ready!" }
+      ];
+      
+      for (const step of steps) {
+        await new Promise(resolve => setTimeout(resolve, 350));
+        setGenerationProgress(step.progress);
+        setGenerationStatus(step.status);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 200));
+      setGenerating(false);
       navigate("/timetable");
     } catch (e: any) {
+      setGenerating(false);
       toast({ title: "Failed to save assignments", description: e?.message || String(e) });
     }
   };
 
+  interface SubjectRow {
+    rowType: 'subject' | 'special';
+    id: string;
+    name: string;
+    type: string;
+    code: string;
+    abbreviation: string;
+    credits: number;
+    hoursPerWeek: number;
+    assignedFacultyName: string;
+    assignedFacultyId: string;
+    isFullyReady: boolean;
+    labAllocName: string;
+    labAllocCode: string;
+    special_type?: string;
+    saturday_hours?: number;
+    saturday_periods?: number[];
+    weekdays_hours?: number;
+    weekdays_periods?: number[];
+  }
+
+  const tableData = useMemo<SubjectRow[]>(() => {
+    const subRows: SubjectRow[] = selected.map(s => {
+      const assignedFaculty = getAssignedFaculty(s.id);
+      const isAssigned = assignedFaculty !== 'Unassigned';
+      const alloc = s.type === 'lab' ? labAllocations[s.name] : null;
+      const isLabAllocated = s.type !== 'lab' || !!alloc;
+      const isFullyReady = isAssigned && isLabAllocated;
+      const facultyObj = availableFaculty.find(f => f.name === assignedFaculty);
+
+      return {
+        rowType: 'subject',
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        code: s.code || "",
+        abbreviation: s.abbreviation || "",
+        credits: s.credits || 3,
+        hoursPerWeek: s.hoursPerWeek,
+        assignedFacultyName: assignedFaculty,
+        assignedFacultyId: facultyObj ? facultyObj.id : (isAssigned ? "assigned-other" : "unassigned"),
+        isFullyReady,
+        labAllocName: alloc ? alloc.labName : "",
+        labAllocCode: alloc ? alloc.labCode : ""
+      };
+    });
+
+    const specRows: SubjectRow[] = specialHoursConfigs.filter(c => c.is_active).map(c => ({
+      rowType: 'special',
+      id: `special-${c.id}`,
+      name: c.special_type,
+      type: 'special',
+      code: "",
+      abbreviation: "",
+      credits: 0,
+      hoursPerWeek: c.total_hours,
+      assignedFacultyName: "",
+      assignedFacultyId: "",
+      isFullyReady: true,
+      labAllocName: "",
+      labAllocCode: "",
+      special_type: c.special_type,
+      saturday_hours: c.saturday_hours,
+      saturday_periods: c.saturday_periods,
+      weekdays_hours: c.weekdays_hours,
+      weekdays_periods: c.weekdays_periods
+    }));
+
+    return [...subRows, ...specRows];
+  }, [selected, specialHoursConfigs, subjectFacultyMap, availableFaculty, labAllocations]);
+
+  const facultyFilterOptions = useMemo(() => {
+    const list = availableFaculty.map(f => ({ label: f.name, value: f.id }));
+    return [
+      { label: "Unassigned", value: "unassigned" },
+      ...list
+    ];
+  }, [availableFaculty]);
+
+  const SubjectTable = CustomTable<SubjectRow>;
+
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
         <SelectionHeader />
         <section className="container py-4">
-
-        {/* Top row: Summary + Faculty (+ Open Elective for Year IV) */}
-        <div className={`grid grid-cols-1 md:grid-cols-2 ${isFourthYear ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-6 mb-6 transform-gpu transition-all duration-300`}>
+        {/* Top row: Summary + Faculty (+ Elective settings cards) */}
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${
+          (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 4 ? 'lg:grid-cols-4' : 
+          (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 3 ? 'lg:grid-cols-3' : 
+          'lg:grid-cols-2'
+        } gap-6 mb-6 transform-gpu transition-all duration-300`}>
           <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg font-bold">Summary</CardTitle>
@@ -409,7 +627,7 @@ const SubjectManagement = () => {
             <CardContent className="grid grid-cols-2 gap-3 pt-0">
               <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total</div>
-                <div className="text-xl font-bold">{(totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs}</div>
+                <div className="text-xl font-bold">{(totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs}</div>
               </div>
               <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm flex flex-col justify-center">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Theory</div>
@@ -426,30 +644,75 @@ const SubjectManagement = () => {
             </CardContent>
           </Card>
 
-          {/* Fourth Year: Open Elective Hours */}
-          {isFourthYear && (
+          {/* Professional Elective Settings */}
+          {showElectiveCard && (
             <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-bold">Open Elective Hours</CardTitle>
-                <CardDescription className="text-xs">Only for Year IV</CardDescription>
+                <CardTitle className="text-lg font-bold">Elective Settings</CardTitle>
+                <CardDescription className="text-xs">Configure how electives are scheduled</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-0">
-                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm">
-                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
-                  <div className="flex items-center gap-3">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={42}
-                      value={openElectiveHours}
-                      onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
-                      className="h-8 w-20 bg-background/50"
-                    />
-                    <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
-                      {savingOpenElective ? 'Saving…' : 'Save'}
-                    </Button>
+                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm space-y-3">
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Scheduling Mode</Label>
+                    <Select value={electiveMode} onValueChange={(v: 'parallel' | 'separate') => handleSaveElectiveMode(v)}>
+                      <SelectTrigger className="h-8 bg-background/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="parallel">Same hours (Parallel)</SelectItem>
+                        <SelectItem value="separate">Different hours (Separate)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-2">Configured: {openElectiveHours}h • Subjects: {currentOpenElectiveHours}h</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Electives will run at the {electiveMode === 'parallel' ? 'same hours (parallel/grouped)' : 'different hours (separate)'} in the timetable.
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Open Elective Settings */}
+          {showOpenElectiveCard && (
+            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-bold">Open Elective Settings</CardTitle>
+                <CardDescription className="text-xs">Configure how Open Electives are scheduled</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3 pt-0">
+                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm space-y-3">
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
+                    <div className="flex items-center gap-3">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={42}
+                        value={openElectiveHours}
+                        onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
+                        className="h-8 w-20 bg-background/50"
+                      />
+                      <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
+                        {savingOpenElective ? 'Saving…' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Scheduling Mode</Label>
+                    <Select value={openElectiveMode} onValueChange={(v: 'parallel' | 'separate') => setOpenElectiveMode(v)}>
+                      <SelectTrigger className="h-8 bg-background/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="parallel">Same OE at same hour (Parallel)</SelectItem>
+                        <SelectItem value="separate">Different OE at different hour (Separate)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="text-[10px] text-muted-foreground">Configured: {openElectiveHours}h • Subjects: {currentOpenElectiveHours}h</div>
                 </div>
               </CardContent>
             </Card>
@@ -538,12 +801,42 @@ const SubjectManagement = () => {
                 <CardDescription>Filter and manage subjects for the timetable</CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="w-full sm:w-auto flex items-center gap-1.5 h-8 text-xs font-semibold">
+                      <Plus className="h-4 w-4" /> Add Subjects
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md bg-card">
+                    <DialogHeader>
+                      <DialogTitle>Add Subjects to Section</DialogTitle>
+                      <DialogDescription>
+                        Select subjects from the year's course curriculum to allocate to Section {selection.section}.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1 mt-2 scrollbar-thin scrollbar-thumb-gray-200">
+                      {available.filter(s => !selected.some(sel => sel.id === s.id)).map(s => (
+                        <div key={s.id} className="flex items-center justify-between p-3 rounded-xl border border-border/50 bg-background/50">
+                          <div>
+                            <div className="text-sm font-semibold">{s.name}</div>
+                            <div className="text-[10px] text-muted-foreground capitalize font-medium">{s.type} • {s.hoursPerWeek}h</div>
+                          </div>
+                          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleMoveToSelected(s.id)}>Add</Button>
+                        </div>
+                      ))}
+                      {available.filter(s => !selected.some(sel => sel.id === s.id)).length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-6 font-medium">All curriculum subjects are already added to this section.</p>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
                 <Button 
-                  size="sm"
+                  size="sm" 
                   variant="hero"
                   onClick={next}
-                  className="w-full sm:w-auto px-6"
-                  disabled={((totals.total - currentOpenElectiveHours) + openElectiveHours + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
+                  className="w-full sm:w-auto px-6 h-8 text-xs font-semibold"
+                  disabled={((totals.total - totalElectiveSum) + electiveOccupiedHours + (openElectiveMode === 'parallel' ? openElectiveHours : currentOpenElectiveHours) + configuredSpecialHrs) > SUBJECT_HOUR_LIMIT || 
                            !selection.department || !selection.year || !selection.section ||
                            selected.length === 0}
                 >
@@ -552,193 +845,250 @@ const SubjectManagement = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Search and Filters */}
-              <div className="flex flex-col md:flex-row gap-3 items-end mb-4">
-                <div className="flex-1 w-full">
-                  <Label className="text-xs mb-1 block">Search Subjects</Label>
-                  <Input 
-                    placeholder="Search by name or code..." 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="h-9"
-                  />
-                </div>
-                <div className="w-full md:w-40">
-                  <Label className="text-xs mb-1 block">Type</Label>
-                  <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="theory">Theory</SelectItem>
-                      <SelectItem value="lab">Lab</SelectItem>
-                      <SelectItem value="elective">Elective</SelectItem>
-                      <SelectItem value="open elective">Open Elective</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-full md:w-48">
-                  <Label className="text-xs mb-1 block">Assigned Faculty</Label>
-                  <Select value={filterFaculty} onValueChange={setFilterFaculty}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="All Faculty" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Faculty</SelectItem>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                      {availableFaculty.map(f => (
-                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="rounded-xl border overflow-hidden">
-                <div className="max-h-[560px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-gray-300">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-card z-10 shadow-sm">
-                      <TableRow>
-                        <TableHead className="w-[90px]">Type</TableHead>
-                        <TableHead className="min-w-[160px]">Subject Name</TableHead>
-                        <TableHead className="w-[60px]">Hrs</TableHead>
-                        <TableHead className="w-[130px]">Lab Room</TableHead>
-                        <TableHead className="min-w-[160px]">Assigned Faculty</TableHead>
-                        <TableHead className="w-[80px] text-center">Status</TableHead>
-                        <TableHead className="text-right w-[120px]">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredSubjects.length === 0 && specialHoursConfigs.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
-                            No subjects found matching your filters.
-                          </TableCell>
-                        </TableRow>
+              <SubjectTable
+                data={tableData}
+                getRowId={(row) => row.id}
+                searchKey={(row) => `${row.name} ${row.code} ${row.abbreviation}`}
+                searchPlaceholder="Search subjects by name, code or abbreviation..."
+                exportFileName="subjects-curriculum"
+                filters={[
+                  {
+                    key: "type",
+                    label: "Subject Type",
+                    options: [
+                      { label: "Theory", value: "theory" },
+                      { label: "Lab", value: "lab" },
+                      { label: "Professional Elective", value: "elective" },
+                      { label: "Open Elective", value: "open elective" },
+                      { label: "Special", value: "special" },
+                    ]
+                  },
+                  {
+                    key: "assignedFacultyId",
+                    label: "Assigned Faculty",
+                    options: facultyFilterOptions
+                  }
+                ]}
+                onDeleteSelected={async (ids) => {
+                  for (const id of ids) {
+                    if (!id.startsWith("special-")) {
+                      await handleMoveToAvailable(id);
+                    }
+                  }
+                  toast({ title: "Removed from selection", description: "Selected subjects have been removed." });
+                }}
+                columns={[
+                  {
+                    key: "type",
+                    header: "Type",
+                    sortable: true,
+                    render: (row) => (
+                      <Badge 
+                        variant={row.type === 'lab' ? 'default' : row.type === 'elective' || row.type === 'open elective' ? 'outline' : 'secondary'} 
+                        className="uppercase text-[10px] whitespace-nowrap"
+                      >
+                        {row.type === 'open elective' ? 'OE' : row.type === 'special' ? 'SPECIAL' : row.type}
+                      </Badge>
+                    )
+                  },
+                  {
+                    key: "name",
+                    header: "Subject Name",
+                    sortable: true,
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <div>
+                          <div className="font-semibold text-sm capitalize text-slate-900 dark:text-slate-100">{row.name}</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {row.saturday_hours && row.saturday_hours > 0 && `Sat: P${row.saturday_periods?.join(', P')}`}
+                            {row.saturday_hours && row.saturday_hours > 0 && row.weekdays_hours && row.weekdays_hours > 0 && ' • '}
+                            {row.weekdays_hours && row.weekdays_hours > 0 && `Weekdays: P${row.weekdays_periods?.join(', P')}`}
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                          {filteredSubjects.map((s) => {
-                            const assignedFaculty = getAssignedFaculty(s.id);
-                            const isAssigned = assignedFaculty !== 'Unassigned';
-                            const alloc = s.type === 'lab' ? labAllocations[s.name] : null;
-                            const isLabAllocated = s.type !== 'lab' || !!alloc;
-                            const isFullyReady = isAssigned && isLabAllocated;
+                        <div>
+                          <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">{row.name}</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex gap-2 items-center flex-wrap">
+                            {row.code && <span className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-1 py-0.5 rounded font-mono">{row.code}</span>}
+                            {row.abbreviation && <span className="font-semibold text-slate-600 dark:text-slate-400">({row.abbreviation})</span>}
+                            <span className="text-slate-300 dark:text-slate-600">•</span>
+                            <span>{row.credits || 3} credits</span>
+                          </div>
+                        </div>
+                      )
+                    )
+                  },
+                  {
+                    key: "hoursPerWeek",
+                    header: "Hrs",
+                    sortable: true,
+                    render: (row) => <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{row.hoursPerWeek}h</span>
+                  },
+                  {
+                    key: "labAllocName",
+                    header: "Lab Room",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      ) : row.type === 'lab' ? (
+                        row.labAllocName ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Badge variant="default" className="text-[10px] bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-400 border border-green-200 dark:border-green-800/30 w-fit">
+                              {row.labAllocName}
+                            </Badge>
+                            {row.labAllocCode && <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{row.labAllocCode}</span>}
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-200 dark:text-orange-500 dark:border-orange-900/30 w-fit bg-orange-100 dark:bg-orange-950/10">
+                            Not Allocated
+                          </Badge>
+                        )
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      )
+                    )
+                  },
+                  {
+                    key: "assignedFacultyName",
+                    header: "Assigned Faculty",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      ) : (
+                        <span className={`text-sm flex items-center gap-1.5 ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-655 dark:text-orange-400'}`}>
+                          {row.assignedFacultyName !== 'Unassigned' ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
+                          <span className="truncate max-w-[140px]">{row.assignedFacultyName}</span>
+                        </span>
+                      )
+                    )
+                  },
+                  {
+                    key: "isFullyReady",
+                    header: "Status",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">Auto-scheduled</span>
+                      ) : !row.isFullyReady ? (
+                        <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-250 dark:text-orange-500 dark:border-orange-900/30 bg-orange-100 dark:bg-orange-950/10">
+                          ⚠ Pending
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-250 dark:text-emerald-450 dark:border-emerald-900/30 bg-emerald-100 dark:bg-emerald-950/10">
+                          ✓ Ready
+                        </Badge>
+                      )
+                    )
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => openFacultyAssignment(selected.find(s => s.id === row.id)!)}
+                            className="h-7 text-[11px] px-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Assign
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => handleMoveToAvailable(row.id)}
+                            className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )
+                    )
+                  }
+                ]}
+                renderItemCard={(row, isSelected, onToggleSelect) => (
+                  <div
+                    key={row.id}
+                    onClick={onToggleSelect}
+                    className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                      isSelected
+                        ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30"
+                        : "border-border hover:border-muted-foreground/35 hover:bg-muted/10"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <Badge 
+                            variant={row.type === 'lab' ? 'default' : row.type === 'elective' || row.type === 'open elective' ? 'outline' : 'secondary'} 
+                            className="uppercase text-[9px]"
+                          >
+                            {row.type === 'open elective' ? 'OE' : row.type === 'special' ? 'SPECIAL' : row.type}
+                          </Badge>
+                          {row.rowType !== 'special' && row.code && (
+                            <span className="text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700">{row.code}</span>
+                          )}
+                          {row.rowType === 'special' && (
+                            <span className="text-[10px] text-purple-700 bg-purple-100 dark:bg-purple-950/20 dark:text-purple-400 border border-purple-200 dark:border-purple-900/20 px-1 rounded">Auto</span>
+                          )}
+                        </div>
+                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-snug">{row.name}</h3>
+                        
+                        {row.rowType === 'special' ? (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-450 mt-2 space-y-0.5">
+                            {row.saturday_hours && row.saturday_hours > 0 && <div>Sat: P${row.saturday_periods?.join(', P')} ({row.saturday_hours}h)</div>}
+                            {row.weekdays_hours && row.weekdays_hours > 0 && <div>Weekdays: P${row.weekdays_periods?.join(', P')} ({row.weekdays_hours}h)</div>}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-450 mt-2 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{row.hoursPerWeek} hours/week</span>
+                              <span>•</span>
+                              <span>{row.credits || 3} credits</span>
+                              {row.abbreviation && <><span>•</span><span className="font-semibold text-slate-700 dark:text-slate-300">{row.abbreviation}</span></>}
+                            </div>
                             
-                            return (
-                              <TableRow key={s.id} className="group hover:bg-muted/50 transition-colors">
-                                <TableCell>
-                                  <Badge 
-                                    variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} 
-                                    className="uppercase text-[10px] whitespace-nowrap"
-                                  >
-                                    {s.type === 'open elective' ? 'OE' : s.type}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="font-medium text-sm">{s.name}</div>
-                                  {s.code && <div className="text-[10px] text-muted-foreground">{s.code}</div>}
-                                </TableCell>
-                                <TableCell>
-                                  <span className="text-sm font-medium">{s.type === 'open elective' ? '—' : `${s.hoursPerWeek}h`}</span>
-                                </TableCell>
-                                <TableCell>
-                                  {s.type === 'lab' ? (
-                                    alloc ? (
-                                      <div className="flex flex-col gap-0.5">
-                                        <Badge variant="default" className="text-[10px] bg-green-600 hover:bg-green-700 w-fit">
-                                          {alloc.labName}
-                                        </Badge>
-                                        {alloc.labCode && <span className="text-[10px] text-muted-foreground">{alloc.labCode}</span>}
-                                      </div>
-                                    ) : (
-                                      <Badge variant="outline" className="text-[10px] text-orange-500 border-orange-300 w-fit">
-                                        Not Allocated
-                                      </Badge>
-                                    )
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">—</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <span className={`text-sm flex items-center gap-1.5 ${isAssigned ? 'text-green-600' : 'text-orange-500'}`}>
-                                    {isAssigned ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
-                                    <span className="truncate max-w-[140px]">{assignedFaculty}</span>
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {!isFullyReady && (
-                                    <Badge 
-                                      variant="outline" 
-                                      className="text-[10px] text-orange-500 border-orange-300 bg-orange-50"
-                                    >
-                                      ⚠ Pending
-                                    </Badge>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      onClick={() => openFacultyAssignment(s)}
-                                      className="h-7 text-[11px] px-2"
-                                    >
-                                      Assign
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      onClick={() => moveToAvailable(s.id)}
-                                      className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    >
-                                      Remove
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
+                            <div className="flex items-center gap-2 flex-wrap pt-1.5 border-t border-border">
+                              <span>Faculty:</span>
+                              <span className={`font-semibold ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-450'}`}>{row.assignedFacultyName}</span>
+                            </div>
 
-                          {/* Special Hours Rows */}
-                          {specialHoursConfigs.filter(c => c.is_active).map((config) => (
-                            <TableRow key={`special-${config.id}`} className="bg-purple-50/30 hover:bg-purple-50/50 transition-colors">
-                              <TableCell>
-                                <Badge className="uppercase text-[10px] bg-purple-600 hover:bg-purple-700 whitespace-nowrap">
-                                  special
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="font-medium text-sm capitalize">{config.special_type}</div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {config.saturday_hours > 0 && `Sat: P${config.saturday_periods.join(', P')}`}
-                                  {config.saturday_hours > 0 && config.weekdays_hours > 0 && ' • '}
-                                  {config.weekdays_hours > 0 && `Weekdays: P${config.weekdays_periods.join(', P')}`}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-sm font-medium">{config.total_hours}h</span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-muted-foreground text-sm">—</span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-muted-foreground text-sm">—</span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {/* Ready status hidden */}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <span className="text-[10px] text-muted-foreground">Auto-scheduled</span>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+                            {row.type === 'lab' && (
+                              <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border">
+                                <span>Lab:</span>
+                                {row.labAllocName ? (
+                                  <span className="font-semibold text-green-600 dark:text-green-400">{row.labAllocName} ({row.labAllocCode})</span>
+                                ) : (
+                                  <span className="font-semibold text-orange-655 dark:text-orange-450">Not Allocated</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col items-end gap-3 shrink-0">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => onToggleSelect()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                        />
+                        {row.rowType !== 'special' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openFacultyAssignment(selected.find(s => s.id === row.id)!); }}
+                            className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          >
+                            Assign
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              />
 
 
               <Separator className="my-4" />
@@ -954,6 +1304,30 @@ const SubjectManagement = () => {
         </Dialog>
       </section>
     </main>
+    
+    {generating && (
+      <div className="fixed inset-0 bg-background/80 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 animate-fade-in">
+        <div className="max-w-md w-full p-8 rounded-3xl border border-border bg-card/50 shadow-2xl backdrop-blur-lg flex flex-col items-center text-center space-y-6">
+          <div className="relative h-20 w-20 flex items-center justify-center">
+            {/* Spinning glowing gradient ring */}
+            <div className="absolute inset-0 rounded-full border-4 border-slate-200 border-t-purple-600 border-r-indigo-500 border-b-sky-500 animate-spin" />
+            <div className="text-xl font-extrabold text-slate-800 font-mono">{generationProgress}%</div>
+          </div>
+          
+          <div className="space-y-2">
+            <h3 className="text-lg font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">Optimizing Timetable</h3>
+            <p className="text-sm font-semibold text-slate-500 font-mono h-5 transition-all duration-300">{generationStatus}</p>
+          </div>
+
+          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200/50">
+            <div 
+              className="bg-gradient-to-r from-purple-600 to-indigo-500 h-full rounded-full transition-all duration-300 ease-out" 
+              style={{ width: `${generationProgress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    )}
   </div>
 );
 };

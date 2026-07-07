@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
-import { Calendar, GitPullRequest, Clock, Users, BookOpen, BarChart3 } from "lucide-react";
+import { Calendar, GitPullRequest, Clock, Users, BookOpen, BarChart3, Building2, Plus, Settings, Upload, Activity as ActivityIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Department = { id: string; name: string };
@@ -158,222 +158,276 @@ const SuperAdminDashboard = () => {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
-      <section className="container py-10 md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 md:pt-16">
-        <header className="mb-6 flex items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="secondary" onClick={() => setOpenAdd(true)}>Add Department</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')}>Manage Admins</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')}>Bulk Import</Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin/settings')}>System Settings</Button>
-          </div>
-        </header>
+      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
+        <section className="px-6 md:px-10 lg:px-12 py-10 md:pt-24 max-w-[1600px] mx-auto w-full space-y-8">
+          <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border/60 pb-6 mb-2">
+            <div>
+              <h1 className="text-3xl font-extrabold tracking-tight text-foreground" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                SUPER ADMIN CONSOLE
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Configure system settings, monitor department health, and authorize admins.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setOpenAdd(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 h-10">
+                <Plus className="h-4.5 w-4.5" />
+                <span>Add Department</span>
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                <Users className="h-4.5 w-4.5" />
+                <span>Manage Admins</span>
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                <Upload className="h-4.5 w-4.5" />
+                <span>Bulk Import</span>
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/super-admin/settings')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                <Settings className="h-4.5 w-4.5" />
+                <span>System Settings</span>
+              </Button>
+            </div>
+          </header>
 
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-1">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Overview
-            </TabsTrigger>
-          </TabsList>
+          <Tabs defaultValue="overview" className="space-y-6">
+            <TabsList className="inline-flex h-11 items-center justify-start rounded-xl bg-muted p-1 text-muted-foreground w-auto min-w-[150px]">
+              <TabsTrigger value="overview" className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Overview
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="overview" className="space-y-6">
-            <section className="mb-8">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="rounded-xl cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/super-admin/departments')}>
-                  <CardHeader>
-                    <CardTitle className="text-base">Total Departments</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold">{overview.departments}</div>
-                  </CardContent>
-                </Card>
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base">Total Faculty</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold">{overview.faculty}</div>
-                  </CardContent>
-                </Card>
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base">Active Timetables</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold">{overview.timetables}</div>
-                  </CardContent>
-                </Card>
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base">Total Subjects</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold">{overview.subjects}</div>
-                  </CardContent>
-                </Card>
-              </div>
-            </section>
+            <TabsContent value="overview" className="space-y-6">
+              <section className="mb-8">
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  {/* Total Departments */}
+                  <Card 
+                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-emerald-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    onClick={() => navigate('/super-admin/departments')}
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Total Departments</span>
+                      <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-455">
+                        <Building2 className="h-4 w-4" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.departments}</div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Manage academic branches</p>
+                    </CardContent>
+                  </Card>
 
-            {/* Timetable Summary Section */}
-            <section className="mb-8">
-              <header className="mb-4">
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Timetable Summary
-                </h2>
-                <p className="text-sm text-muted-foreground">Overview of all active timetables across departments</p>
-              </header>
+                  {/* Total Faculty */}
+                  <Card 
+                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-blue-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    onClick={() => navigate('/super-admin/faculty')}
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Total Faculty</span>
+                      <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-450">
+                        <Users className="h-4 w-4" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.faculty}</div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Active teaching staff</p>
+                    </CardContent>
+                  </Card>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Total Classes
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold text-blue-600">{timetableSummary.totalClasses}</div>
-                  </CardContent>
-                </Card>
+                  {/* Active Timetables */}
+                  <Card 
+                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-violet-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    onClick={() => navigate('/current-timetables')}
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Active Timetables</span>
+                      <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-455">
+                        <Calendar className="h-4 w-4" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.timetables}</div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Live section schedules</p>
+                    </CardContent>
+                  </Card>
 
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Clock className="h-4 w-4" />
-                      Total Periods
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold text-green-600">{timetableSummary.totalPeriods}</div>
-                  </CardContent>
-                </Card>
+                  {/* Total Subjects */}
+                  <Card 
+                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-amber-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                  >
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Total Subjects</span>
+                      <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-450">
+                        <BookOpen className="h-4 w-4" />
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.subjects}</div>
+                      <p className="text-[10px] text-muted-foreground mt-1">Curriculum courses</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </section>
 
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <BookOpen className="h-4 w-4" />
-                      Avg Periods/Class
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold text-purple-600">{timetableSummary.avgPeriodsPerClass}</div>
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      Active Departments
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-3xl font-semibold text-orange-600">{timetableSummary.departmentBreakdown.length}</div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Department Breakdown */}
-              {timetableSummary.departmentBreakdown.length > 0 && (
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base">Department Breakdown</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                      {timetableSummary.departmentBreakdown.map((dept) => (
-                        <div key={dept.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                          <span className="font-medium">{dept.name}</span>
-                          <span className="text-sm text-muted-foreground">{dept.count} classes</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </section>
-
-            <section className="grid gap-8 md:grid-cols-3">
-              <div className="md:col-span-2">
-                <header className="mb-4 flex items-center justify-between">
+              {/* Timetable Summary Section */}
+              <section className="mb-8 p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm space-y-6">
+                <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold">Department Summary</h2>
-                    <p className="text-sm text-muted-foreground">Overview of the selected department</p>
+                    <h2 className="text-xl font-bold flex items-center gap-2 text-foreground">
+                      <BarChart3 className="h-5 w-5 text-emerald-500" />
+                      Timetable Summary
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">Overview of all active timetables across departments</p>
                   </div>
-                  <Button variant="secondary" onClick={() => navigate('/super-admin/departments')}>Manage Departments</Button>
                 </header>
 
-                <div className="max-w-xl mb-6">
-                  <Select value={deptId} onValueChange={setDeptId}>
-                    <SelectTrigger className="border-2 border-black">
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent className="border-2 border-black">
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.id} className="border-b border-gray-200 last:border-b-0">{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Total Classes</span>
+                      <Calendar className="h-4 w-4 text-blue-500" />
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold text-blue-600 dark:text-blue-450">{timetableSummary.totalClasses}</div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Total Periods</span>
+                      <Clock className="h-4 w-4 text-emerald-500" />
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-455">{timetableSummary.totalPeriods}</div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Avg Periods/Class</span>
+                      <BookOpen className="h-4 w-4 text-purple-500" />
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold text-purple-600 dark:text-purple-455">{timetableSummary.avgPeriodsPerClass}</div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                      <span className="text-sm font-semibold text-muted-foreground">Active Departments</span>
+                      <Users className="h-4 w-4 text-orange-500" />
+                    </CardHeader>
+                    <CardContent className="pt-2">
+                      <div className="text-3xl font-extrabold text-orange-600 dark:text-orange-455">{timetableSummary.departmentBreakdown.length}</div>
+                    </CardContent>
+                  </Card>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3 mb-6">
-                  {stats.map((s) => (
-                    <Card key={s.label} className="rounded-xl">
-                      <CardHeader>
-                        <CardTitle className="text-base">{s.label}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="text-3xl font-semibold">{s.value}</div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                {/* Department Breakdown */}
+                {timetableSummary.departmentBreakdown.length > 0 && (
+                  <Card className="rounded-2xl border border-border/50 shadow-sm bg-card/40">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold text-muted-foreground">Department Breakdown</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                        {timetableSummary.departmentBreakdown.map((dept) => (
+                          <div key={dept.id} className="flex items-center justify-between p-3 bg-muted/30 border border-border/30 rounded-xl transition-all hover:bg-muted/50">
+                            <span className="font-semibold text-sm text-foreground">{dept.name}</span>
+                            <span className="text-xs font-medium px-2 py-1 bg-background border border-border rounded-lg text-muted-foreground">{dept.count} classes</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </section>
+
+              <section className="grid gap-8 md:grid-cols-3">
+                <div className="md:col-span-2 p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm space-y-6">
+                  <header className="flex items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-foreground">Department Summary</h2>
+                      <p className="text-xs text-muted-foreground mt-0.5">Overview of the selected department</p>
+                    </div>
+                    <Button variant="secondary" onClick={() => navigate('/super-admin/departments')} className="h-9 rounded-xl text-xs font-semibold px-4">
+                      Manage Departments
+                    </Button>
+                  </header>
+
+                  <div className="max-w-md">
+                    <Select value={deptId} onValueChange={setDeptId}>
+                      <SelectTrigger className="h-10 rounded-xl bg-background border border-input text-foreground hover:bg-muted/50 transition-colors">
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover border border-border text-popover-foreground rounded-xl">
+                        {departments.map((d) => (
+                          <SelectItem key={d.id} value={d.id} className="rounded-lg py-2 cursor-pointer">{d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {stats.map((s) => (
+                      <Card key={s.label} className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-xs font-semibold text-muted-foreground leading-tight">{s.label}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-extrabold text-foreground">{s.value}</div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  {/* Quick Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <Button
+                      onClick={() => navigate('/current-timetables')}
+                      className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground h-10 rounded-xl px-4 text-xs font-semibold transition-all shadow-sm"
+                    >
+                      <Calendar className="h-4 w-4" />
+                      View Current Timetables
+                    </Button>
+                    <Button
+                      onClick={() => navigate('/pull-requests')}
+                      variant="outline"
+                      className="flex items-center gap-2 border border-input bg-background hover:bg-muted/50 h-10 rounded-xl px-4 text-xs font-semibold transition-all"
+                    >
+                      <GitPullRequest className="h-4 w-4" />
+                      Pull Requests
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Quick Action Buttons */}
-                <div className="flex items-center gap-4 mb-4">
-                  <Button
-                    onClick={() => navigate('/current-timetables')}
-                    variant="default"
-                    className="flex items-center gap-2"
-                  >
-                    <Calendar className="h-4 w-4" />
-                    View Current Timetables
-                  </Button>
-                  <Button
-                    onClick={() => navigate('/pull-requests')}
-                    variant="outline"
-                    className="flex items-center gap-2 border-2 border-black"
-                  >
-                    <GitPullRequest className="h-4 w-4" />
-                    Pull Requests
-                  </Button>
-                </div>
-              </div>
-
-              <aside>
-                <Card className="rounded-xl">
-                  <CardHeader>
-                    <CardTitle className="text-base">Recent Activity</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-3 text-sm">
-                      {recent.length === 0 && <li className="text-muted-foreground">No recent changes</li>}
+                <aside className="p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm flex flex-col justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-foreground flex items-center gap-2 mb-4">
+                      <ActivityIcon className="h-5 w-5 text-emerald-500" />
+                      Recent Activity
+                    </h2>
+                    <ul className="space-y-4">
+                      {recent.length === 0 && (
+                        <li className="text-xs text-muted-foreground py-4 text-center">No recent changes</li>
+                      )}
                       {recent.map((a) => (
-                        <li key={a.id} className="flex items-start justify-between">
-                          <span className="pr-3">{a.title}</span>
-                          <time className="text-muted-foreground">{new Date(a.at).toLocaleString()}</time>
+                        <li key={a.id} className="flex flex-col gap-1 p-3 rounded-xl bg-muted/30 border border-border/30 hover:bg-muted/50 transition-colors">
+                          <span className="text-sm font-semibold text-foreground leading-snug">{a.title}</span>
+                          <time className="text-[10px] text-muted-foreground mt-1 self-end font-mono">
+                            {new Date(a.at).toLocaleString()}
+                          </time>
                         </li>
                       ))}
                     </ul>
-                  </CardContent>
-                </Card>
-              </aside>
-            </section>
-          </TabsContent>
+                  </div>
+                </aside>
+              </section>
+            </TabsContent>
 
-        </Tabs>
-      </section>
+          </Tabs>
+        </section>
+      </div>
 
       <Dialog open={openAdd} onOpenChange={setOpenAdd}>
         <DialogContent>
