@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as XLSX from "xlsx";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -98,10 +98,56 @@ const SectionManagement = () => {
     XLSX.writeFile(wb, `section_${section}_year_${year}.xlsx`);
   };
 
+  interface AssignmentRow {
+    id: string;
+    faculty_id: string;
+    faculty_name: string;
+    subject_id: string;
+    subject_name: string;
+  }
+
+  const assignmentRows = useMemo<AssignmentRow[]>(() => {
+    return assignments.map(a => {
+      const s = subjects.find(sub => sub.id === a.subject_id);
+      const f = faculty.find(fac => fac.id === a.faculty_id);
+      return {
+        id: a.id,
+        faculty_id: a.faculty_id,
+        faculty_name: f ? f.name : 'Unknown Faculty',
+        subject_id: a.subject_id,
+        subject_name: s ? s.name : 'Unknown Subject'
+      };
+    });
+  }, [assignments, subjects, faculty]);
+
+  interface LabPrefRow {
+    id: string;
+    subject_id: string;
+    subject_name: string;
+    priority: number;
+    morning_enabled: boolean;
+  }
+
+  const labPrefRows = useMemo<LabPrefRow[]>(() => {
+    return labPrefs.map(lp => {
+      const s = subjects.find(sub => sub.id === lp.subject_id);
+      return {
+        id: lp.id,
+        subject_id: lp.subject_id,
+        subject_name: s ? s.name : 'Unknown Subject',
+        priority: lp.priority,
+        morning_enabled: lp.morning_enabled
+      };
+    });
+  }, [labPrefs, subjects]);
+
+  const AssignmentTable = CustomTable<AssignmentRow>;
+  const LabPrefTable = CustomTable<LabPrefRow>;
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up">
+      <div className={`${userType === 'faculty' ? '' : 'md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80'} animate-fade-in-up`}>
         <SelectionHeader />
         <section className="container py-4">
         <header className="mb-6 flex items-center justify-between">
@@ -201,46 +247,109 @@ const SectionManagement = () => {
                   setAssignFacultyId(""); setAssignSubjectId("");
                 }}>Assign</Button>
               </div>
-              <Table className="mt-4">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Faculty</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assignments.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>{faculty.find(f => f.id === a.faculty_id)?.name || a.faculty_id}</TableCell>
-                      <TableCell>{subjects.find(s => s.id === a.subject_id)?.name || a.subject_id}</TableCell>
-                      <TableCell className="text-right">
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive">Remove</Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Remove assignment?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will unassign the faculty from the subject in this section.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={async () => {
-                                await (supabase as any).from('faculty_subject_assignments').delete().eq('id', a.id);
-                                setAssignments((list) => list.filter((x) => x.id !== a.id));
-                                toast.success('Assignment removed');
-                              }}>Remove</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <AssignmentTable
+                data={assignmentRows}
+                getRowId={(row) => row.id}
+                searchKey={(row) => `${row.faculty_name} ${row.subject_name}`}
+                searchPlaceholder="Search assignments..."
+                exportFileName="faculty-assignments"
+                onDeleteSelected={async (ids) => {
+                  await (supabase as any).from('faculty_subject_assignments').delete().in('id', ids);
+                  setAssignments((list) => list.filter((x) => !ids.includes(x.id)));
+                  toast.success('Assignments removed');
+                }}
+                columns={[
+                  {
+                    key: "faculty_name",
+                    header: "Faculty",
+                    sortable: true,
+                    render: (row) => <span className="font-semibold text-slate-900 dark:text-slate-100">{row.faculty_name}</span>
+                  },
+                  {
+                    key: "subject_name",
+                    header: "Subject",
+                    sortable: true,
+                    render: (row) => <span className="text-slate-600 dark:text-slate-400">{row.subject_name}</span>
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    render: (row) => (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="destructive" className="h-7 text-xs px-2.5">Remove</Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove assignment?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will unassign the faculty from the subject in this section.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={async () => {
+                              await (supabase as any).from('faculty_subject_assignments').delete().eq('id', row.id);
+                              setAssignments((list) => list.filter((x) => x.id !== row.id));
+                              toast.success('Assignment removed');
+                            }}>Remove</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )
+                  }
+                ]}
+                renderItemCard={(row, isSelected, onToggleSelect) => (
+                  <div
+                    key={row.id}
+                    onClick={onToggleSelect}
+                    className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer flex flex-col justify-between bg-card ${
+                      isSelected
+                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground"
+                    }`}
+                  >
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.faculty_name}</h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{row.subject_name}</p>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="border-border data-[state=checked]:bg-emerald-500"
+                      />
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-6 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-destructive/20 hover:bg-destructive/30 text-destructive-foreground"
+                          >
+                            Remove
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove assignment?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will unassign the faculty from the subject in this section.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={async () => {
+                              await (supabase as any).from('faculty_subject_assignments').delete().eq('id', row.id);
+                              setAssignments((list) => list.filter((x) => x.id !== row.id));
+                              toast.success('Assignment removed');
+                            }}>Remove</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                )}
+              />
             </CardContent>
           </Card>
 
@@ -271,46 +380,119 @@ const SectionManagement = () => {
                   setLabSubjectId(""); setLabPriority(1); setLabMorningEnabled(false);
                 }}>Add preference</Button>
               </div>
-              <Table className="mt-4">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Morning</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {labPrefs.map((p: any) => (
-                    <TableRow key={p.id}>
-                      <TableCell>{subjects.find(s => s.id === p.subject_id)?.name || p.subject_id}</TableCell>
-                      <TableCell>{p.priority ?? '-'}</TableCell>
-                      <TableCell>{p.morning_enabled ? 'Yes' : 'No'}</TableCell>
-                      <TableCell className="text-right">
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button size="sm" variant="destructive">Delete</Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete lab preference?</AlertDialogTitle>
-                                <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={async () => {
-                                  await (supabase as any).from('lab_preferences').delete().eq('id', p.id);
-                                  setLabPrefs((list) => list.filter((x) => x.id !== p.id));
-                                  toast.success('Preference deleted');
-                                }}>Delete</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <LabPrefTable
+                data={labPrefRows}
+                getRowId={(row) => row.id}
+                searchKey={(row) => row.subject_name}
+                searchPlaceholder="Search preferences..."
+                exportFileName="lab-preferences"
+                onDeleteSelected={async (ids) => {
+                  await (supabase as any).from('lab_preferences').delete().in('id', ids);
+                  setLabPrefs((list) => list.filter((x) => !ids.includes(x.id)));
+                  toast.success('Preferences deleted');
+                }}
+                columns={[
+                  {
+                    key: "subject_name",
+                    header: "Subject",
+                    sortable: true,
+                    render: (row) => <span className="font-semibold text-slate-900 dark:text-slate-100">{row.subject_name}</span>
+                  },
+                  {
+                    key: "priority",
+                    header: "Priority",
+                    sortable: true,
+                    render: (row) => <span className="text-slate-600 dark:text-slate-400">{row.priority ?? '-'}</span>
+                  },
+                  {
+                    key: "morning_enabled",
+                    header: "Morning",
+                    sortable: true,
+                    render: (row) => (
+                      <Badge variant={row.morning_enabled ? 'default' : 'outline'} className="text-[10px]">
+                        {row.morning_enabled ? 'Yes' : 'No'}
+                      </Badge>
+                    )
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    render: (row) => (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="destructive" className="h-7 text-xs px-2.5">Delete</Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete lab preference?</AlertDialogTitle>
+                            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={async () => {
+                              await (supabase as any).from('lab_preferences').delete().eq('id', row.id);
+                              setLabPrefs((list) => list.filter((x) => x.id !== row.id));
+                              toast.success('Preference deleted');
+                            }}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )
+                  }
+                ]}
+                renderItemCard={(row, isSelected, onToggleSelect) => (
+                  <div
+                    key={row.id}
+                    onClick={onToggleSelect}
+                    className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer flex flex-col justify-between bg-card ${
+                      isSelected
+                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground"
+                    }`}
+                  >
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.subject_name}</h4>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Priority: {row.priority ?? '-'}</span>
+                        <span className="text-slate-300 dark:text-slate-600">•</span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Morning: {row.morning_enabled ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onToggleSelect()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="border-border data-[state=checked]:bg-emerald-500"
+                      />
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-6 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-destructive/20 hover:bg-destructive/30 text-destructive-foreground"
+                          >
+                            Delete
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete lab preference?</AlertDialogTitle>
+                            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={async () => {
+                              await (supabase as any).from('lab_preferences').delete().eq('id', row.id);
+                              setLabPrefs((list) => list.filter((x) => x.id !== row.id));
+                              toast.success('Preference deleted');
+                            }}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                )}
+              />
             </CardContent>
           </Card>
         </section>

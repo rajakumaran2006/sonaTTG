@@ -139,18 +139,18 @@ const AdminNavbar = () => {
               onClick={() => setIsMobileMenuOpen(false)}
               className={({ isActive }) => 
                 isActive 
-                  ? `${linkBase} ${isDark ? 'bg-gray-900 text-emerald-400 border border-emerald-700' : 'bg-white text-emerald-700 shadow-sm border border-emerald-600'}` 
-                  : `${linkBase} ${isDark ? 'text-gray-400 hover:bg-gray-900 hover:text-gray-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'} hover:pl-5`
+                  ? `${linkBase} ${isDark ? 'bg-emerald-950/30 text-emerald-400 border border-emerald-800/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm'}` 
+                  : `${linkBase} ${isDark ? 'text-slate-450 hover:bg-slate-900/50 hover:text-slate-105 border border-transparent' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent'} hover:pl-5`
               }
             >
               {({ isActive }) => (
                 <>
-                  <span className={`transition-colors duration-300 ${isActive ? (isDark ? 'text-emerald-400' : 'text-emerald-700') : (isDark ? 'text-gray-600 group-hover:text-gray-300' : 'text-slate-400 group-hover:text-slate-600')}`}>
+                  <span className={`transition-all duration-300 ${isActive ? (isDark ? 'text-emerald-400' : 'text-emerald-700') : (isDark ? 'text-slate-500 group-hover:text-emerald-500' : 'text-slate-400 group-hover:text-emerald-700')}`}>
                     {item.icon}
                   </span>
-                  <span>{item.label}</span>
+                  <span className="relative z-10">{item.label}</span>
                   {isActive && (
-                    <div className="absolute right-3 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <div className="absolute right-3 h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
                   )}
                   {typeof item.badge === 'number' && item.badge > 0 && (
                     <Badge variant="secondary" className="ml-auto bg-emerald-100 text-emerald-700 shadow-none">

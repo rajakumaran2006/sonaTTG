@@ -13,7 +13,7 @@ import { SUBJECT_HOUR_LIMIT, Subject, subjectTotals, specialHours, useTimetableS
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Switch as Toggle } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
 import { Users, UserCheck, Plus, BookOpen } from "lucide-react";
 import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSubjectsBulk, getFacultyByDepartment, getFacultyBySection, assignFacultyToSubjectsYearWide, getSubjectFacultyMap, getDepartmentByName, setOpenElectiveHours, getOpenElectiveHours, getSectionSubjects, saveSectionSubjects, getLabAllocationsForSection } from "@/lib/supabaseService";
 
@@ -526,6 +526,87 @@ const SubjectManagement = () => {
     }
   };
 
+  interface SubjectRow {
+    rowType: 'subject' | 'special';
+    id: string;
+    name: string;
+    type: string;
+    code: string;
+    abbreviation: string;
+    credits: number;
+    hoursPerWeek: number;
+    assignedFacultyName: string;
+    assignedFacultyId: string;
+    isFullyReady: boolean;
+    labAllocName: string;
+    labAllocCode: string;
+    special_type?: string;
+    saturday_hours?: number;
+    saturday_periods?: number[];
+    weekdays_hours?: number;
+    weekdays_periods?: number[];
+  }
+
+  const tableData = useMemo<SubjectRow[]>(() => {
+    const subRows: SubjectRow[] = selected.map(s => {
+      const assignedFaculty = getAssignedFaculty(s.id);
+      const isAssigned = assignedFaculty !== 'Unassigned';
+      const alloc = s.type === 'lab' ? labAllocations[s.name] : null;
+      const isLabAllocated = s.type !== 'lab' || !!alloc;
+      const isFullyReady = isAssigned && isLabAllocated;
+      const facultyObj = availableFaculty.find(f => f.name === assignedFaculty);
+
+      return {
+        rowType: 'subject',
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        code: s.code || "",
+        abbreviation: s.abbreviation || "",
+        credits: s.credits || 3,
+        hoursPerWeek: s.hoursPerWeek,
+        assignedFacultyName: assignedFaculty,
+        assignedFacultyId: facultyObj ? facultyObj.id : (isAssigned ? "assigned-other" : "unassigned"),
+        isFullyReady,
+        labAllocName: alloc ? alloc.labName : "",
+        labAllocCode: alloc ? alloc.labCode : ""
+      };
+    });
+
+    const specRows: SubjectRow[] = specialHoursConfigs.filter(c => c.is_active).map(c => ({
+      rowType: 'special',
+      id: `special-${c.id}`,
+      name: c.special_type,
+      type: 'special',
+      code: "",
+      abbreviation: "",
+      credits: 0,
+      hoursPerWeek: c.total_hours,
+      assignedFacultyName: "",
+      assignedFacultyId: "",
+      isFullyReady: true,
+      labAllocName: "",
+      labAllocCode: "",
+      special_type: c.special_type,
+      saturday_hours: c.saturday_hours,
+      saturday_periods: c.saturday_periods,
+      weekdays_hours: c.weekdays_hours,
+      weekdays_periods: c.weekdays_periods
+    }));
+
+    return [...subRows, ...specRows];
+  }, [selected, specialHoursConfigs, subjectFacultyMap, availableFaculty, labAllocations]);
+
+  const facultyFilterOptions = useMemo(() => {
+    const list = availableFaculty.map(f => ({ label: f.name, value: f.id }));
+    return [
+      { label: "Unassigned", value: "unassigned" },
+      ...list
+    ];
+  }, [availableFaculty]);
+
+  const SubjectTable = CustomTable<SubjectRow>;
+
   return (
     <div className="min-h-screen bg-background">
       <AdminNavbar />
@@ -764,198 +845,250 @@ const SubjectManagement = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Search and Filters */}
-              <div className="flex flex-col md:flex-row gap-3 items-end mb-4">
-                <div className="flex-1 w-full">
-                  <Label className="text-xs mb-1 block">Search Subjects</Label>
-                  <Input 
-                    placeholder="Search by name or code..." 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="h-9"
-                  />
-                </div>
-                <div className="w-full md:w-40">
-                  <Label className="text-xs mb-1 block">Type</Label>
-                  <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="theory">Theory</SelectItem>
-                      <SelectItem value="lab">Lab</SelectItem>
-                      <SelectItem value="elective">Professional Elective</SelectItem>
-                      <SelectItem value="open elective">Open Elective</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-full md:w-48">
-                  <Label className="text-xs mb-1 block">Assigned Faculty</Label>
-                  <Select value={filterFaculty} onValueChange={setFilterFaculty}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="All Faculty" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Faculty</SelectItem>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                      {availableFaculty.map(f => (
-                        <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="rounded-xl border overflow-hidden">
-                <div className="max-h-[560px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-gray-300">
-                  <Table>
-                    <TableHeader className="sticky top-0 bg-card z-10 shadow-sm">
-                      <TableRow>
-                        <TableHead className="w-[90px]">Type</TableHead>
-                        <TableHead className="min-w-[160px]">Subject Name</TableHead>
-                        <TableHead className="w-[60px]">Hrs</TableHead>
-                        <TableHead className="w-[130px]">Lab Room</TableHead>
-                        <TableHead className="min-w-[160px]">Assigned Faculty</TableHead>
-                        <TableHead className="w-[80px] text-center">Status</TableHead>
-                        <TableHead className="text-right w-[120px]">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredSubjects.length === 0 && specialHoursConfigs.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
-                            No subjects found matching your filters.
-                          </TableCell>
-                        </TableRow>
+              <SubjectTable
+                data={tableData}
+                getRowId={(row) => row.id}
+                searchKey={(row) => `${row.name} ${row.code} ${row.abbreviation}`}
+                searchPlaceholder="Search subjects by name, code or abbreviation..."
+                exportFileName="subjects-curriculum"
+                filters={[
+                  {
+                    key: "type",
+                    label: "Subject Type",
+                    options: [
+                      { label: "Theory", value: "theory" },
+                      { label: "Lab", value: "lab" },
+                      { label: "Professional Elective", value: "elective" },
+                      { label: "Open Elective", value: "open elective" },
+                      { label: "Special", value: "special" },
+                    ]
+                  },
+                  {
+                    key: "assignedFacultyId",
+                    label: "Assigned Faculty",
+                    options: facultyFilterOptions
+                  }
+                ]}
+                onDeleteSelected={async (ids) => {
+                  for (const id of ids) {
+                    if (!id.startsWith("special-")) {
+                      await handleMoveToAvailable(id);
+                    }
+                  }
+                  toast({ title: "Removed from selection", description: "Selected subjects have been removed." });
+                }}
+                columns={[
+                  {
+                    key: "type",
+                    header: "Type",
+                    sortable: true,
+                    render: (row) => (
+                      <Badge 
+                        variant={row.type === 'lab' ? 'default' : row.type === 'elective' || row.type === 'open elective' ? 'outline' : 'secondary'} 
+                        className="uppercase text-[10px] whitespace-nowrap"
+                      >
+                        {row.type === 'open elective' ? 'OE' : row.type === 'special' ? 'SPECIAL' : row.type}
+                      </Badge>
+                    )
+                  },
+                  {
+                    key: "name",
+                    header: "Subject Name",
+                    sortable: true,
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <div>
+                          <div className="font-semibold text-sm capitalize text-slate-900 dark:text-slate-100">{row.name}</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                            {row.saturday_hours && row.saturday_hours > 0 && `Sat: P${row.saturday_periods?.join(', P')}`}
+                            {row.saturday_hours && row.saturday_hours > 0 && row.weekdays_hours && row.weekdays_hours > 0 && ' • '}
+                            {row.weekdays_hours && row.weekdays_hours > 0 && `Weekdays: P${row.weekdays_periods?.join(', P')}`}
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                          {filteredSubjects.map((s) => {
-                            const assignedFaculty = getAssignedFaculty(s.id);
-                            const isAssigned = assignedFaculty !== 'Unassigned';
-                            const alloc = s.type === 'lab' ? labAllocations[s.name] : null;
-                            const isLabAllocated = s.type !== 'lab' || !!alloc;
-                            const isFullyReady = isAssigned && isLabAllocated;
+                        <div>
+                          <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">{row.name}</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex gap-2 items-center flex-wrap">
+                            {row.code && <span className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-1 py-0.5 rounded font-mono">{row.code}</span>}
+                            {row.abbreviation && <span className="font-semibold text-slate-600 dark:text-slate-400">({row.abbreviation})</span>}
+                            <span className="text-slate-300 dark:text-slate-600">•</span>
+                            <span>{row.credits || 3} credits</span>
+                          </div>
+                        </div>
+                      )
+                    )
+                  },
+                  {
+                    key: "hoursPerWeek",
+                    header: "Hrs",
+                    sortable: true,
+                    render: (row) => <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{row.hoursPerWeek}h</span>
+                  },
+                  {
+                    key: "labAllocName",
+                    header: "Lab Room",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      ) : row.type === 'lab' ? (
+                        row.labAllocName ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Badge variant="default" className="text-[10px] bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-400 border border-green-200 dark:border-green-800/30 w-fit">
+                              {row.labAllocName}
+                            </Badge>
+                            {row.labAllocCode && <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{row.labAllocCode}</span>}
+                          </div>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-200 dark:text-orange-500 dark:border-orange-900/30 w-fit bg-orange-100 dark:bg-orange-950/10">
+                            Not Allocated
+                          </Badge>
+                        )
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      )
+                    )
+                  },
+                  {
+                    key: "assignedFacultyName",
+                    header: "Assigned Faculty",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                      ) : (
+                        <span className={`text-sm flex items-center gap-1.5 ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-655 dark:text-orange-400'}`}>
+                          {row.assignedFacultyName !== 'Unassigned' ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
+                          <span className="truncate max-w-[140px]">{row.assignedFacultyName}</span>
+                        </span>
+                      )
+                    )
+                  },
+                  {
+                    key: "isFullyReady",
+                    header: "Status",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">Auto-scheduled</span>
+                      ) : !row.isFullyReady ? (
+                        <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-250 dark:text-orange-500 dark:border-orange-900/30 bg-orange-100 dark:bg-orange-950/10">
+                          ⚠ Pending
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-250 dark:text-emerald-450 dark:border-emerald-900/30 bg-emerald-100 dark:bg-emerald-950/10">
+                          ✓ Ready
+                        </Badge>
+                      )
+                    )
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    render: (row) => (
+                      row.rowType === 'special' ? (
+                        <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => openFacultyAssignment(selected.find(s => s.id === row.id)!)}
+                            className="h-7 text-[11px] px-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            Assign
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => handleMoveToAvailable(row.id)}
+                            className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )
+                    )
+                  }
+                ]}
+                renderItemCard={(row, isSelected, onToggleSelect) => (
+                  <div
+                    key={row.id}
+                    onClick={onToggleSelect}
+                    className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                      isSelected
+                        ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30"
+                        : "border-border hover:border-muted-foreground/35 hover:bg-muted/10"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <Badge 
+                            variant={row.type === 'lab' ? 'default' : row.type === 'elective' || row.type === 'open elective' ? 'outline' : 'secondary'} 
+                            className="uppercase text-[9px]"
+                          >
+                            {row.type === 'open elective' ? 'OE' : row.type === 'special' ? 'SPECIAL' : row.type}
+                          </Badge>
+                          {row.rowType !== 'special' && row.code && (
+                            <span className="text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded border border-slate-200 dark:border-slate-700">{row.code}</span>
+                          )}
+                          {row.rowType === 'special' && (
+                            <span className="text-[10px] text-purple-700 bg-purple-100 dark:bg-purple-950/20 dark:text-purple-400 border border-purple-200 dark:border-purple-900/20 px-1 rounded">Auto</span>
+                          )}
+                        </div>
+                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-snug">{row.name}</h3>
+                        
+                        {row.rowType === 'special' ? (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-450 mt-2 space-y-0.5">
+                            {row.saturday_hours && row.saturday_hours > 0 && <div>Sat: P${row.saturday_periods?.join(', P')} ({row.saturday_hours}h)</div>}
+                            {row.weekdays_hours && row.weekdays_hours > 0 && <div>Weekdays: P${row.weekdays_periods?.join(', P')} ({row.weekdays_hours}h)</div>}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-450 mt-2 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{row.hoursPerWeek} hours/week</span>
+                              <span>•</span>
+                              <span>{row.credits || 3} credits</span>
+                              {row.abbreviation && <><span>•</span><span className="font-semibold text-slate-700 dark:text-slate-300">{row.abbreviation}</span></>}
+                            </div>
                             
-                            return (
-                              <TableRow key={s.id} className="group hover:bg-muted/50 transition-colors">
-                                <TableCell>
-                                  <Badge 
-                                    variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} 
-                                    className="uppercase text-[10px] whitespace-nowrap"
-                                  >
-                                    {s.type === 'open elective' ? 'OE' : s.type}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <div className="font-medium text-sm">{s.name}</div>
-                                  <div className="text-[10px] text-muted-foreground flex gap-2 items-center">
-                                    {s.code && <span className="bg-slate-50 px-1 py-0.5 rounded border border-slate-100">{s.code}</span>}
-                                    {s.abbreviation && <span className="font-semibold text-slate-600">({s.abbreviation})</span>}
-                                    <span className="text-slate-400">•</span>
-                                    <span>{s.credits || 3} credits</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  <span className="text-sm font-medium">{s.hoursPerWeek}h</span>
-                                </TableCell>
-                                <TableCell>
-                                  {s.type === 'lab' ? (
-                                    alloc ? (
-                                      <div className="flex flex-col gap-0.5">
-                                        <Badge variant="default" className="text-[10px] bg-green-600 hover:bg-green-700 w-fit">
-                                          {alloc.labName}
-                                        </Badge>
-                                        {alloc.labCode && <span className="text-[10px] text-muted-foreground">{alloc.labCode}</span>}
-                                      </div>
-                                    ) : (
-                                      <Badge variant="outline" className="text-[10px] text-orange-500 border-orange-300 w-fit">
-                                        Not Allocated
-                                      </Badge>
-                                    )
-                                  ) : (
-                                    <span className="text-muted-foreground text-sm">—</span>
-                                  )}
-                                </TableCell>
-                                <TableCell>
-                                  <span className={`text-sm flex items-center gap-1.5 ${isAssigned ? 'text-green-600' : 'text-orange-500'}`}>
-                                    {isAssigned ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
-                                    <span className="truncate max-w-[140px]">{assignedFaculty}</span>
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  {!isFullyReady && (
-                                    <Badge 
-                                      variant="outline" 
-                                      className="text-[10px] text-orange-500 border-orange-300 bg-orange-50"
-                                    >
-                                      ⚠ Pending
-                                    </Badge>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      onClick={() => openFacultyAssignment(s)}
-                                      className="h-7 text-[11px] px-2"
-                                    >
-                                      Assign
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      onClick={() => handleMoveToAvailable(s.id)}
-                                      className="h-7 text-[11px] px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    >
-                                      Remove
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
+                            <div className="flex items-center gap-2 flex-wrap pt-1.5 border-t border-border">
+                              <span>Faculty:</span>
+                              <span className={`font-semibold ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-450'}`}>{row.assignedFacultyName}</span>
+                            </div>
 
-                          {/* Special Hours Rows */}
-                          {specialHoursConfigs.filter(c => c.is_active).map((config) => (
-                            <TableRow key={`special-${config.id}`} className="bg-purple-50/30 hover:bg-purple-50/50 transition-colors">
-                              <TableCell>
-                                <Badge className="uppercase text-[10px] bg-purple-600 hover:bg-purple-700 whitespace-nowrap">
-                                  special
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="font-medium text-sm capitalize">{config.special_type}</div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {config.saturday_hours > 0 && `Sat: P${config.saturday_periods.join(', P')}`}
-                                  {config.saturday_hours > 0 && config.weekdays_hours > 0 && ' • '}
-                                  {config.weekdays_hours > 0 && `Weekdays: P${config.weekdays_periods.join(', P')}`}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-sm font-medium">{config.total_hours}h</span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-muted-foreground text-sm">—</span>
-                              </TableCell>
-                              <TableCell>
-                                <span className="text-muted-foreground text-sm">—</span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                {/* Ready status hidden */}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <span className="text-[10px] text-muted-foreground">Auto-scheduled</span>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+                            {row.type === 'lab' && (
+                              <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border">
+                                <span>Lab:</span>
+                                {row.labAllocName ? (
+                                  <span className="font-semibold text-green-600 dark:text-green-400">{row.labAllocName} ({row.labAllocCode})</span>
+                                ) : (
+                                  <span className="font-semibold text-orange-655 dark:text-orange-450">Not Allocated</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col items-end gap-3 shrink-0">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => onToggleSelect()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                        />
+                        {row.rowType !== 'special' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openFacultyAssignment(selected.find(s => s.id === row.id)!); }}
+                            className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          >
+                            Assign
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              />
 
 
               <Separator className="my-4" />

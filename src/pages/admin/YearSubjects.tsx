@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
@@ -392,10 +393,12 @@ const YearSubjects = () => {
   // Simple dialog to edit a subject row
   // Reuses the same state variables (name, type, hours, code)
 
+  const SubjectTable = CustomTable<SubjectRow>;
+
   return (
     <main className="min-h-screen bg-background">
       {userType === 'super' ? <Navbar /> : userType === 'admin' ? <AdminNavbar /> : <Navbar />}
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <div className={userType === 'faculty' ? "" : "md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80"}>
         <SelectionHeader />
         <section className="container py-4">
         <header className="mb-6 flex items-center justify-between">
@@ -573,296 +576,159 @@ const YearSubjects = () => {
           </CardContent>
         </Card>
 
-        <Card className="rounded-xl border border-border/50 shadow-sm bg-card overflow-hidden">
-          <CardHeader className="pb-3 border-b">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-lg font-bold">Subjects Curriculum</CardTitle>
-                <p className="text-xs text-muted-foreground">Manage and filter curriculum subjects</p>
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Search */}
-                <Input 
-                  placeholder="Search name, code..." 
-                  value={search} 
-                  onChange={(e) => setSearch(e.target.value)} 
-                  className="h-9 w-40 text-xs"
-                />
-                
-                {/* Type Filter */}
-                <Select value={filterType} onValueChange={setFilterType}>
-                  <SelectTrigger className="h-9 w-32 text-xs bg-background">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="theory">Theory</SelectItem>
-                    <SelectItem value="lab">Lab</SelectItem>
-                    <SelectItem value="elective">Professional Elective</SelectItem>
-                    <SelectItem value="open elective">Open Elective</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {/* View Mode Toggle */}
-                <div className="flex bg-muted p-1 rounded-lg border border-border shadow-sm">
-                  <Button
-                    variant={viewMode === 'table' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('table')}
-                    className={`h-7 px-2.5 gap-1.5 text-[11px] ${viewMode === 'table' ? 'bg-background shadow-sm font-semibold' : ''}`}
-                  >
-                    <LayoutGrid className="h-3 w-3" />
-                    <span className="hidden sm:inline">Table</span>
-                  </Button>
-                  <Button
-                    variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('list')}
-                    className={`h-7 px-2.5 gap-1.5 text-[11px] ${viewMode === 'list' ? 'bg-background shadow-sm font-semibold' : ''}`}
-                  >
-                    <List className="h-3 w-3" />
-                    <span className="hidden sm:inline">List</span>
-                  </Button>
+        <SubjectTable
+          data={subjects}
+          getRowId={(s) => s.id}
+          searchKey={(s) => `${s.name} ${s.code || ""}`}
+          searchPlaceholder="Search subjects by name or code..."
+          exportFileName={`curriculum-yr${year}`}
+          filters={[
+            {
+              key: "type",
+              label: "Subject Type",
+              options: [
+                { label: "Theory", value: "theory" },
+                { label: "Lab", value: "lab" },
+                { label: "Professional Elective", value: "elective" },
+                { label: "Open Elective", value: "open elective" },
+              ]
+            }
+          ]}
+          onDeleteSelected={userType !== 'faculty' ? async (ids) => {
+            try {
+              const { error } = await (supabase as any)
+                .from('subjects')
+                .delete()
+                .in('id', ids);
+              if (error) throw error;
+              setSubjects(prev => prev.filter(s => !ids.includes(s.id)));
+              toast.success("Subjects deleted successfully");
+            } catch (e: any) {
+              console.error(e);
+              toast.error(e?.message || "Failed to delete subjects");
+            }
+          } : undefined}          columns={[
+            {
+              key: "name",
+              header: "Name",
+              sortable: true,
+              render: (s) => <span className="font-semibold text-slate-900 dark:text-slate-100">{s.name}</span>
+            },
+            {
+              key: "abbreviation",
+              header: "Abbr",
+              sortable: true,
+              render: (s) => <span className="text-slate-700 dark:text-slate-300">{s.abbreviation || '-'}</span>
+            },
+            {
+              key: "type",
+              header: "Type",
+              sortable: true,
+              render: (s) => (
+                <Badge variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} className="uppercase text-[10px]">
+                  {s.type}
+                </Badge>
+              )
+            },
+            {
+              key: "hours_per_week",
+              header: "Hours/Week",
+              sortable: true,
+              render: (s) => <span className="text-slate-700 dark:text-slate-300">{s.hours_per_week}h</span>
+            },
+            {
+              key: "credits",
+              header: "Credits",
+              sortable: true,
+              render: (s) => <span className="text-slate-700 dark:text-slate-300">{s.credits || 3}</span>
+            },
+            {
+              key: "code",
+              header: "Code",
+              sortable: true,
+              render: (s) => <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{s.code || '-'}</span>
+            },
+            {
+              key: "tags",
+              header: "Tags",
+              render: (s) => (
+                <div className="flex flex-wrap gap-1">
+                  {(s.tags || []).map(t => (
+                    <span key={t} className="bg-muted text-muted-foreground border border-border text-[10px] px-1.5 py-0.5 rounded font-semibold">{t}</span>
+                  ))}
+                  {(!s.tags || s.tags.length === 0) && '-'}
                 </div>
-
-                {/* Export */}
-                <Button variant="outline" size="sm" onClick={handleExport} className="h-9 text-xs flex items-center gap-1.5">
-                  <Download className="h-3.5 w-3.5" /> Export
-                </Button>
-
-                {/* Bulk Delete */}
-                {!isSelectionMode ? (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-9 text-xs text-muted-foreground hover:text-destructive flex items-center gap-1.5"
-                    onClick={() => setIsSelectionMode(true)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Bulk Delete
-                  </Button>
-                ) : (
-                  <div className="flex items-center gap-1">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="h-9 text-xs"
-                      onClick={() => {
-                        setIsSelectionMode(false);
-                        setSelectedSubjects([]);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button 
-                          variant="destructive" 
-                          size="sm" 
-                          className="h-9 text-xs flex items-center gap-1.5"
-                          disabled={selectedSubjects.length === 0}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> Delete ({selectedSubjects.length})
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete multiple subjects?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will permanently remove {selectedSubjects.length} selected subjects and their related assignments. This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => {
-                              handleBulkDelete();
-                              setIsSelectionMode(false);
-                            }} 
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            Delete All Selected
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+              )
+            },
+            {
+              key: "max_faculty_count",
+              header: "Max Faculty",
+              sortable: true,
+              render: (s) => <span className="text-slate-700 dark:text-slate-300">{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</span>
+            },
+            {
+              key: "actions",
+              header: "Actions",
+              render: (s) => (
+                userType !== 'faculty' ? (
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600 dark:text-slate-300 hover:bg-muted" onClick={() => startEdit(s)}>Edit</Button>
+                ) : <span>—</span>
+              )
+            }
+          ]}
+          renderItemCard={(s, isSelected, onToggleSelect) => (
+            <div 
+              key={s.id} 
+              onClick={onToggleSelect}
+              className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                isSelected 
+                  ? 'border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30 text-foreground' 
+                  : 'border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm'
+              }`}
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{s.name}</h4>
+                  <Badge variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} className="uppercase text-[9px] shrink-0">
+                    {s.type}
+                  </Badge>
+                </div>
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 font-mono flex flex-wrap items-center gap-2">
+                  {s.code && <span className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1 py-0.5 rounded text-slate-700 dark:text-slate-300">{s.code}</span>}
+                  {s.abbreviation && <span className="text-slate-600 dark:text-slate-400 font-semibold">({s.abbreviation})</span>}
+                </div>
+                {s.tags && s.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {s.tags.map((t) => (
+                      <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold border border-border">
+                        {t}
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>
-            </div>
-            </CardHeader>
-          <CardContent className="p-0">
-            {viewMode === 'table' ? (
-              <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-900 shadow-md">
-                <div className="max-h-[600px] overflow-y-auto relative scrollbar-thin scrollbar-thumb-slate-700">
-                  <Table className="bg-slate-900 border-slate-800">
-                    <TableHeader className="sticky top-0 bg-slate-950 z-10 border-b border-slate-800">
-                      <TableRow className="hover:bg-transparent border-slate-800">
-                        {userType !== 'faculty' && isSelectionMode && (
-                          <TableHead className="w-[50px] bg-slate-950 text-slate-300 border-slate-800">
-                            <Checkbox 
-                              className="border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
-                              checked={filteredSubjects.length > 0 && filteredSubjects.every(s => selectedSubjects.includes(s.id))}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setSelectedSubjects(prev => {
-                                    const filteredIds = filteredSubjects.map(s => s.id);
-                                    return [...new Set([...prev, ...filteredIds])];
-                                  });
-                                } else {
-                                  const filteredIds = filteredSubjects.map(s => s.id);
-                                  setSelectedSubjects(prev => prev.filter(id => !filteredIds.includes(id)));
-                                }
-                              }}
-                            />
-                          </TableHead>
-                        )}
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Name</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Abbreviation</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Type</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Hours/week</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Credits</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Code</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Tags</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800">Max Faculty</TableHead>
-                        <TableHead className="bg-slate-950 text-slate-300 border-slate-800 text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        Array.from({ length: 3 }).map((_, i) => (
-                          <TableRow key={`skeleton-${i}`} className="border-slate-800">
-                            <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 10 : 9} className="border-slate-800">
-                              <Skeleton className="h-6 w-full bg-slate-800" />
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        filteredSubjects.map((s) => (
-                          <TableRow key={s.id} className={`border-slate-800 transition-colors ${selectedSubjects.includes(s.id) ? "bg-slate-800/60" : "hover:bg-slate-800/40"}`}>
-                            {userType !== 'faculty' && isSelectionMode && (
-                              <TableCell className="border-slate-800">
-                                <Checkbox 
-                                  className="border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
-                                  checked={selectedSubjects.includes(s.id)}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      setSelectedSubjects(prev => [...prev, s.id]);
-                                    } else {
-                                      setSelectedSubjects(prev => prev.filter(id => id !== s.id));
-                                    }
-                                  }}
-                                />
-                              </TableCell>
-                            )}
-                            <TableCell className="font-semibold text-white whitespace-nowrap border-slate-800">{s.name}</TableCell>
-                            <TableCell className="whitespace-nowrap text-slate-300 border-slate-800">{s.abbreviation || '-'}</TableCell>
-                            <TableCell className="capitalize text-slate-300 border-slate-800">
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">{s.type}</span>
-                            </TableCell>
-                            <TableCell className="text-slate-200 border-slate-800">{s.hours_per_week}h</TableCell>
-                            <TableCell className="text-slate-200 border-slate-800">{s.credits || 3}</TableCell>
-                            <TableCell className="font-mono text-xs text-slate-400 border-slate-800">{s.code || '-'}</TableCell>
-                            <TableCell className="text-xs whitespace-nowrap border-slate-800">
-                              {(s.tags || []).map(t => (
-                                <span key={t} className="inline-block bg-slate-800 text-slate-300 border border-slate-700 text-[10px] px-1.5 py-0.5 rounded-md mr-1 font-semibold">{t}</span>
-                              ))}
-                              {(!s.tags || s.tags.length === 0) && '-'}
-                            </TableCell>
-                            <TableCell className="text-slate-200 border-slate-800">{s.type === 'lab' ? (s.max_faculty_count || 1) : '-'}</TableCell>
-                            <TableCell className="text-right space-x-2 border-slate-800 whitespace-nowrap">
-                              {userType !== 'faculty' && (
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-300 hover:text-white hover:bg-slate-800" onClick={() => startEdit(s)}>Edit</Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                      {filteredSubjects.length === 0 && !loading && (
-                        <TableRow className="border-slate-800">
-                          <TableCell colSpan={userType !== 'faculty' && isSelectionMode ? 10 : 9} className="h-24 text-center text-slate-400 border-slate-800">
-                            No subjects found matching your filters.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span>{s.hours_per_week}h/week • {s.credits || 3} credits {s.type === 'lab' ? `• Max Fac: ${s.max_faculty_count || 1}` : ''}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Checkbox 
+                    checked={isSelected}
+                    onCheckedChange={() => onToggleSelect()}
+                    onClick={(e) => e.stopPropagation()}
+                    className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                  />
+                  {userType !== 'faculty' && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); startEdit(s); }}
+                      className="h-6 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                    >
+                      Edit
+                    </button>
+                  )}
                 </div>
               </div>
-            ) : (
-              <div className="grid gap-4 p-4 md:grid-cols-2 lg:grid-cols-3 max-h-[600px] overflow-y-auto bg-slate-900 rounded-xl border border-slate-800 shadow-md scrollbar-thin scrollbar-thumb-slate-700">
-                {loading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <div key={`card-skeleton-${i}`} className="p-4 rounded-xl border border-slate-800 bg-slate-950 flex flex-col space-y-3">
-                      <Skeleton className="h-4 w-3/4 bg-slate-800" />
-                      <Skeleton className="h-3 w-1/2 bg-slate-800" />
-                      <Skeleton className="h-3 w-full bg-slate-800" />
-                    </div>
-                  ))
-                ) : (
-                  filteredSubjects.map((s) => (
-                    <div 
-                      key={s.id} 
-                      className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
-                        selectedSubjects.includes(s.id) 
-                          ? 'border-olive-500 bg-slate-800 shadow-sm text-slate-100' 
-                          : 'border-slate-800 bg-slate-950 text-slate-100 shadow-sm hover:border-slate-700'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2.5">
-                            {userType !== 'faculty' && isSelectionMode && (
-                              <Checkbox 
-                                className="mt-0.5 border-slate-600 data-[state=checked]:bg-olive-600 data-[state=checked]:border-olive-600"
-                                checked={selectedSubjects.includes(s.id)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setSelectedSubjects(prev => [...prev, s.id]);
-                                  } else {
-                                    setSelectedSubjects(prev => prev.filter(id => id !== s.id));
-                                  }
-                                }}
-                              />
-                            )}
-                            <h4 className="font-bold text-sm text-white leading-tight">{s.name}</h4>
-                          </div>
-                          <span className="text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono shrink-0">
-                            {s.type === 'open elective' ? 'OE' : s.type}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-2 font-mono flex flex-wrap items-center gap-2">
-                          {s.code && <span className="bg-slate-900 border border-slate-850 px-1 py-0.5 rounded text-slate-300">{s.code}</span>}
-                          {s.abbreviation && <span className="text-slate-300 font-semibold">({s.abbreviation})</span>}
-                        </div>
-                        {s.tags && s.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-3">
-                            {s.tags.map((t) => (
-                              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-850 text-slate-300 font-semibold border border-slate-800">
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="mt-4 pt-3 border-t border-slate-900 flex items-center justify-between text-[11px] text-slate-400">
-                        <span className="font-medium">{s.hours_per_week}h/week • {s.credits || 3} credits</span>
-                        {userType !== 'faculty' && (
-                          <div className="flex gap-1.5 shrink-0">
-                            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-slate-300 hover:text-white hover:bg-slate-800" onClick={() => startEdit(s)}>Edit</Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-                {filteredSubjects.length === 0 && !loading && (
-                  <p className="text-xs text-slate-400 text-center py-10 col-span-full font-medium">No subjects found matching your filters.</p>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
+        />
 
         <div className="mt-6">
           <Link className="text-sm underline text-muted-foreground hover:text-foreground" to={userType === 'super' ? "/super-admin/departments" : "/admin/subjects"}>Back to {userType === 'super' ? 'Departments' : 'Subjects'}</Link>

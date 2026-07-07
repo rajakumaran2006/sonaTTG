@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { CustomTable } from "@/components/ui/CustomTable";
 import {
   Command,
   CommandEmpty,
@@ -724,6 +725,8 @@ const Lab = () => {
 
   const ready = selection.department;
 
+  const LabTable = CustomTable<Lab>;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -896,265 +899,172 @@ const Lab = () => {
                 </DialogContent>
               </Dialog>
 
-              <TabsContent value="labs" className="space-y-4">
-                {/* Theme-aware table card */}
-                <div className={`rounded-2xl overflow-hidden shadow-xl ${tblBg}`}>
-                  {/* Table Header */}
-                  <div className={`px-5 py-4 border-b ${tblBorder} flex flex-col sm:flex-row sm:items-center gap-3`}>
-                    {/* Add Lab Button */}
-                    <button
-                      onClick={() => setLabDialog(true)}
-                      className="h-9 px-4 rounded-lg bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition-colors flex items-center gap-2 shrink-0 shadow-sm"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Add Lab
-                    </button>
-                    {/* Search */}
-                    <div className="relative flex-1">
-                      <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${tblTextDim}`} />
-                      <input
-                        type="text"
-                        placeholder="Search labs..."
-                        value={labSearch}
-                        onChange={(e) => setLabSearch(e.target.value)}
-                        className={`w-full pl-9 pr-3 h-9 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${tblInputBg}`}
-                      />
-                    </div>
-                    {/* Type filter */}
-                    <select
-                      value={labTypeFilter}
-                      onChange={(e) => setLabTypeFilter(e.target.value)}
-                      className={`h-9 px-3 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40 ${tblSelectBg}`}
-                    >
-                      <option value="all">All Types</option>
-                      <option value="computer">Computer</option>
-                      <option value="electronics">Electronics</option>
-                      <option value="physics">Physics</option>
-                      <option value="chemistry">Chemistry</option>
-                      <option value="other">Other</option>
-                    </select>
-                    {/* View toggle */}
-                    <div className={`flex items-center gap-1 border rounded-lg p-1 ${tblViewToggleBg}`}>
-                      <button
-                        onClick={() => setLabViewMode('table')}
-                        className={`p-1.5 rounded-md transition-colors ${labViewMode === 'table' ? 'bg-emerald-600 text-white' : tblViewInactive}`}
-                        title="Table view"
-                      >
-                        <LayoutGrid className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => setLabViewMode('list')}
-                        className={`p-1.5 rounded-md transition-colors ${labViewMode === 'list' ? 'bg-emerald-600 text-white' : tblViewInactive}`}
-                        title="List view"
-                      >
-                        <List className="h-4 w-4" />
-                      </button>
-                    </div>
-                    {/* Delete mode toggle */}
-                    <button
-                      onClick={() => { setLabDeleteMode(d => !d); setSelectedLabIds(new Set()); }}
-                      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center gap-2 ${
-                        labDeleteMode
-                          ? 'bg-red-600 border-red-500 text-white'
-                          : tblDeleteBtn
+              <TabsContent value="labs" className="space-y-4 animate-fade-in-up duration-300">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Manage Laboratory Locations</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Add, edit, view operating schedules, and allocate classes to labs.</p>
+                  </div>
+                  <Button
+                    onClick={() => setLabDialog(true)}
+                    className="h-10 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-450 hover:to-teal-555 text-slate-950 font-bold shadow-lg shadow-emerald-500/10 transition-all flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Lab</span>
+                  </Button>
+                </div>
+
+                <LabTable
+                  data={labs}
+                  getRowId={(lab) => lab.id}
+                  searchKey="name"
+                  searchPlaceholder="Search labs by name or code..."
+                  exportFileName="labs-list"
+                  filters={[
+                    {
+                      key: "lab_type",
+                      label: "Lab Type",
+                      options: [
+                        { label: "Computer", value: "computer" },
+                        { label: "Electronics", value: "electronics" },
+                        { label: "Physics", value: "physics" },
+                        { label: "Chemistry", value: "chemistry" },
+                        { label: "Other", value: "other" },
+                      ]
+                    }
+                  ]}
+                  onDeleteSelected={async (ids) => {
+                    await Promise.all(ids.map(id => handleDeleteLab(id)));
+                    toast.success("Selected labs deleted successfully");
+                  }}
+                  columns={[
+                    {
+                      key: "name",
+                      header: "Lab Name",
+                      sortable: true,
+                      render: (lab) => (
+                        <div>
+                          <div className={`font-semibold ${tblCellName}`}>{lab.name}</div>
+                          {lab.room_number && <div className={`text-xs ${tblTextDim}`}>Room {lab.room_number}</div>}
+                        </div>
+                      )
+                    },
+                    {
+                      key: "lab_code",
+                      header: "Code",
+                      sortable: true,
+                      render: (lab) => <span className="font-mono text-xs text-slate-400">{lab.lab_code}</span>
+                    },
+                    {
+                      key: "lab_type",
+                      header: "Type",
+                      sortable: true,
+                      render: (lab) => <span className={`px-2.5 py-0.5 rounded-full text-xs capitalize ${tblTypeBadge}`}>{lab.lab_type}</span>
+                    },
+                    {
+                      key: "capacity",
+                      header: "Capacity",
+                      sortable: true,
+                      render: (lab) => <span>{lab.capacity} students</span>
+                    },
+                    {
+                      key: "year",
+                      header: "Allocated Year",
+                      render: (lab) => (
+                        <div className="flex flex-wrap gap-1">
+                          {(lab.allowed_classes && lab.allowed_classes.length > 0)
+                            ? lab.allowed_classes.map((cls, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">
+                                  Yr {cls.year} • {cls.section}
+                                </span>
+                              ))
+                            : (lab.year || lab.section)
+                              ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">{lab.year} {lab.section}</span>
+                              : <span className="text-slate-500 text-xs">—</span>
+                          }
+                        </div>
+                      )
+                    },
+                    {
+                      key: "is_active",
+                      header: "Status",
+                      sortable: true,
+                      render: (lab) => (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          lab.is_active ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-900/30' : 'bg-slate-800 text-slate-400'
+                        }`}>
+                          {lab.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      )
+                    },
+                    {
+                      key: "actions",
+                      header: "Actions",
+                      render: (lab) => (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => openScheduleViewDialog(lab)}
+                            className={`h-8 px-3 rounded-lg text-xs font-medium transition-all hover:scale-105 active:scale-95 ${tblActionBtn}`}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )
+                    }
+                  ]}
+                  renderItemCard={(lab, isSelected, onToggleSelect) => (
+                    <div
+                      key={lab.id}
+                      onClick={onToggleSelect}
+                      className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-slate-950 ${
+                        isSelected
+                          ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-slate-900/40"
+                          : "border-slate-855 hover:border-slate-700 hover:bg-slate-900/10"
                       }`}
                     >
-                      <Trash2 className="h-4 w-4" />
-                      {labDeleteMode ? `Delete (${selectedLabIds.size})` : 'Delete'}
-                    </button>
-                    {/* Export */}
-                    <button
-                      onClick={() => {
-                        const filtered = labs.filter(l => {
-                          const matchSearch = l.name.toLowerCase().includes(labSearch.toLowerCase()) || l.lab_code?.toLowerCase().includes(labSearch.toLowerCase());
-                          const matchType = labTypeFilter === 'all' || l.lab_type === labTypeFilter;
-                          return matchSearch && matchType;
-                        });
-                        const csv = [
-                          ['Name','Code','Type','Capacity','Room','Status'].join(','),
-                          ...filtered.map(l => [l.name, l.lab_code, l.lab_type, l.capacity, l.room_number, l.is_active ? 'Active' : 'Inactive'].join(','))
-                        ].join('\n');
-                        const blob = new Blob([csv], { type: 'text/csv' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a'); a.href = url; a.download = 'labs.csv'; a.click();
-                        URL.revokeObjectURL(url);
-                      }}
-                      className={`h-9 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center gap-2 ${tblExportBtn}`}
-                    >
-                      <Download className="h-4 w-4" />
-                      Export
-                    </button>
-                    {/* Confirm bulk delete */}
-                    {labDeleteMode && selectedLabIds.size > 0 && (
-                      <button
-                        onClick={async () => {
-                          if (!confirm(`Delete ${selectedLabIds.size} lab(s)?`)) return;
-                          await Promise.all(Array.from(selectedLabIds).map(id => handleDeleteLab(id)));
-                          setSelectedLabIds(new Set());
-                          setLabDeleteMode(false);
-                        }}
-                        className="h-9 px-3 rounded-lg bg-red-600 border border-red-500 text-white text-sm font-semibold transition-colors"
-                      >
-                        Confirm Delete
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Table Body */}
-                  {(() => {
-                    const filteredLabs = labs.filter(l => {
-                      const matchSearch = l.name.toLowerCase().includes(labSearch.toLowerCase()) || l.lab_code?.toLowerCase().includes(labSearch.toLowerCase());
-                      const matchType = labTypeFilter === 'all' || l.lab_type === labTypeFilter;
-                      return matchSearch && matchType;
-                    });
-
-                    if (filteredLabs.length === 0) {
-                      return (
-                        <div className={`flex flex-col items-center justify-center py-16 ${tblEmptyText}`}>
-                          <Settings className={`h-10 w-10 mb-3 ${tblEmptyIcon}`} />
-                          <p className="text-sm">No labs found</p>
-                        </div>
-                      );
-                    }
-
-                    if (labViewMode === 'table') {
-                      return (
-                        <div className="overflow-auto max-h-[520px]">
-                          <table className={`w-full text-sm ${tblText}`}>
-                            <thead className={`sticky top-0 backdrop-blur z-10 ${tblHeaderBg}`}>
-                              <tr>
-                                {labDeleteMode && <th className="w-10 px-4 py-3 text-left"></th>}
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Lab Name</th>
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Code</th>
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Type</th>
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Capacity</th>
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Allocated Year</th>
-                                <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Status</th>
-                                <th className={`px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider ${tblHeadText}`}>Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className={`divide-y ${tblDivide}`}>
-                              {filteredLabs.map((lab) => (
-                                <tr key={lab.id} className={`${tblRowHover} transition-colors ${selectedLabIds.has(lab.id) ? 'bg-red-900/20' : ''}`}>
-                                  {labDeleteMode && (
-                                    <td className="px-4 py-3">
-                                      <Checkbox
-                                        checked={selectedLabIds.has(lab.id)}
-                                        onCheckedChange={(v) => {
-                                          setSelectedLabIds(prev => {
-                                            const next = new Set(prev);
-                                            v ? next.add(lab.id) : next.delete(lab.id);
-                                            return next;
-                                          });
-                                        }}
-                                        className="border-slate-600"
-                                      />
-                                    </td>
-                                  )}
-                                  <td className="px-4 py-3">
-                                    <div className={`font-semibold ${tblCellName}`}>{lab.name}</div>
-                                    {lab.room_number && <div className={`text-xs ${tblTextDim}`}>Room {lab.room_number}</div>}
-                                  </td>
-                                  <td className={`px-4 py-3 font-mono text-xs ${tblTextMuted}`}>{lab.lab_code}</td>
-                                  <td className="px-4 py-3">
-                                    <span className={`px-2 py-0.5 rounded-full text-xs capitalize ${tblTypeBadge}`}>{lab.lab_type}</span>
-                                  </td>
-                                  <td className={`px-4 py-3 ${tblText}`}>{lab.capacity} students</td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex flex-wrap gap-1">
-                                      {(lab.allowed_classes && lab.allowed_classes.length > 0)
-                                        ? lab.allowed_classes.map((cls, idx) => (
-                                            <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] font-medium border border-emerald-700/40">
-                                              Yr {cls.year} • {cls.section}
-                                            </span>
-                                          ))
-                                        : (lab.year || lab.section)
-                                          ? <span className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] font-medium border border-emerald-700/40">{lab.year} {lab.section}</span>
-                                          : <span className="text-slate-600 text-xs">—</span>
-                                      }
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                      lab.is_active ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-700/40' : 'bg-slate-700 text-slate-400'
-                                    }`}>
-                                      {lab.is_active ? 'Active' : 'Inactive'}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <button
-                                        onClick={() => openScheduleViewDialog(lab)}
-                                        className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors ${tblActionBtn}`}
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    }
-
-                    // List view
-                    return (
-                      <div className={`overflow-auto max-h-[520px] divide-y ${tblDivide}`}>
-                        {filteredLabs.map((lab) => (
-                          <div key={lab.id} className={`flex items-center gap-4 px-5 py-4 ${tblRowHover} transition-colors ${selectedLabIds.has(lab.id) ? 'bg-red-900/20' : ''}`}>
-                            {labDeleteMode && (
-                              <Checkbox
-                                checked={selectedLabIds.has(lab.id)}
-                                onCheckedChange={(v) => {
-                                  setSelectedLabIds(prev => {
-                                    const next = new Set(prev);
-                                    v ? next.add(lab.id) : next.delete(lab.id);
-                                    return next;
-                                  });
-                                }}
-                                className="border-slate-600"
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`font-semibold ${tblCellName}`}>{lab.name}</span>
-                                <span className={`text-xs font-mono ${tblTextDim}`}>{lab.lab_code}</span>
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  lab.is_active ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-700/40' : (isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500')
-                                }`}>{lab.is_active ? 'Active' : 'Inactive'}</span>
-                              </div>
-                              <div className={`flex items-center gap-3 mt-1 text-xs flex-wrap ${tblTextMuted}`}>
-                                <span className="capitalize">{lab.lab_type}</span>
-                                <span>•</span>
-                                <span>{lab.capacity} students</span>
-                                {lab.room_number && <><span>•</span><span>Room {lab.room_number}</span></>}
-                                {(lab.allowed_classes && lab.allowed_classes.length > 0) && (
-                                  <div className="flex gap-1 flex-wrap">
-                                    {lab.allowed_classes.map((cls, idx) => (
-                                      <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 text-[10px] border border-emerald-700/40">
-                                        Yr {cls.year} • {cls.section}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                onClick={() => openScheduleViewDialog(lab)}
-                                className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors ${tblActionBtn}`}
-                              >
-                                Edit
-                              </button>
-                            </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-semibold ${tblCellName}`}>{lab.name}</span>
+                            <span className={`text-xs font-mono ${tblTextDim}`}>{lab.lab_code}</span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                              lab.is_active ? 'bg-emerald-955/60 text-emerald-400 border border-emerald-900/30' : 'bg-slate-800 text-slate-450'
+                            }`}>{lab.is_active ? 'Active' : 'Inactive'}</span>
                           </div>
-                        ))}
+                          <div className={`flex items-center gap-3 mt-2 text-xs flex-wrap ${tblTextMuted}`}>
+                            <span className="capitalize">{lab.lab_type}</span>
+                            <span>•</span>
+                            <span>{lab.capacity} students</span>
+                            {lab.room_number && <><span>•</span><span>Room {lab.room_number}</span></>}
+                          </div>
+                          {(lab.allowed_classes && lab.allowed_classes.length > 0) && (
+                            <div className="flex gap-1 flex-wrap mt-2.5">
+                              {lab.allowed_classes.map((cls, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                  Yr {cls.year} • {cls.section}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end gap-3 shrink-0">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) => onToggleSelect()}
+                            onClick={(e) => e.stopPropagation()}
+                            className="border-slate-750 bg-slate-950 data-[state=checked]:bg-emerald-500"
+                          />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openScheduleViewDialog(lab); }}
+                            className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-colors ${tblActionBtn}`}
+                          >
+                            Edit
+                          </button>
+                        </div>
                       </div>
-                    );
-                  })()}
-                </div>
+                    </div>
+                  )}
+                />
               </TabsContent>
 
               <TabsContent value="schedules" className="space-y-6">

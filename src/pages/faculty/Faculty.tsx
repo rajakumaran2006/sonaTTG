@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CustomTable } from "@/components/ui/CustomTable";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -928,10 +928,12 @@ const FacultyPage = () => {
     setDuplicates([]);
   };
 
+  const FacultyTable = CustomTable<FacultyItem>;
+
   return (
     <main className="min-h-screen bg-background">
       {isAdmin ? <AdminNavbar /> : <Navbar />}
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <div className={isAdmin ? "md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80" : ""}>
         <SelectionHeader />
         <section className="container py-4">
 
@@ -1034,130 +1036,114 @@ const FacultyPage = () => {
             </div>
           </CardHeader>
           <CardContent>
-            {viewMode === 'table' ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {isDeleteMode && (
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={filtered.length > 0 && selectedFacultyIds.size === filtered.length}
-                        onCheckedChange={handleSelectAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
-                  )}
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Designation</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map((f) => (
-                  <TableRow
-                    key={f.id}
-                    className={`hover:bg-muted/50 ${isDeleteMode ? 'cursor-default' : 'cursor-pointer'} ${selectedFacultyIds.has(f.id) ? 'bg-destructive/10' : ''}`}
-                    onClick={() => {
-                      if (isDeleteMode) handleSelectOne(f.id);
-                      else handleFacultyClick(f);
-                    }}
-                  >
-                    {isDeleteMode && (
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={selectedFacultyIds.has(f.id)}
-                          onCheckedChange={() => handleSelectOne(f.id)}
-                          aria-label={`Select ${f.name}`}
-                        />
-                      </TableCell>
-                    )}
-                    <TableCell>{f.name}</TableCell>
-                    <TableCell>{f.email || '-'}</TableCell>
-                    <TableCell>{f.designation || '-'}</TableCell>
-                    <TableCell className="text-right space-x-2">
-                      {!isDeleteMode && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEdit(f);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFacultyClick(f);
-                            }}
-                          >
-                            View
-                          </Button>
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((f) => (
-                  <Card key={f.id} className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleFacultyClick(f)}>
-                    <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-                      <div>
-                        <CardTitle className="text-base font-medium">{f.name}</CardTitle>
-                        <div className="text-xs text-muted-foreground">{f.designation || 'No designation'}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          className="h-8 w-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEdit(f);
-                          }}
-                        >
-                          <FileText className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-2 space-y-2">
-                       <div className="text-sm truncate" title={f.email || ''}>
-                         {f.email || 'No email'}
-                       </div>
-                       <div className="text-xs text-muted-foreground">
-                         {departments.find(d => d.id === f.departmentId)?.name || 'Unknown Dept'}
-                       </div>
-                       <div className="flex justify-end gap-2 mt-4 pt-2 border-t">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="h-7 text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFacultyClick(f);
-                            }}
-                          >
-                            View Details
-                          </Button>
-                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="col-span-full text-center py-8 text-muted-foreground">
-                    No faculty found matching your filters.
+            <FacultyTable
+              data={filtered}
+              getRowId={(row) => row.id}
+              searchKey={(row) => `${row.name} ${row.email || ""}`}
+              searchPlaceholder="Search faculty members by name or email..."
+              exportFileName="faculty-list"
+              onDeleteSelected={async (ids) => {
+                try {
+                  const { error } = await (supabase as any)
+                    .from('faculty')
+                    .delete()
+                    .in('id', ids);
+                  if (error) throw error;
+                  toast.success(`Successfully deleted ${ids.length} faculty member(s)`);
+                  await loadFaculty();
+                } catch (e: any) {
+                  toast.error("Error deleting faculty: " + e.message);
+                }
+              }}
+              columns={[
+                {
+                  key: "name",
+                  header: "Name",
+                  sortable: true,
+                  render: (row) => <span className="font-semibold text-slate-900 dark:text-slate-100">{row.name}</span>
+                },
+                {
+                  key: "email",
+                  header: "Email",
+                  sortable: true,
+                  render: (row) => <span className="text-slate-600 dark:text-slate-400 font-mono text-sm">{row.email || '-'}</span>
+                },
+                {
+                  key: "designation",
+                  header: "Designation",
+                  sortable: true,
+                  render: (row) => <span className="text-slate-700 dark:text-slate-300 text-sm">{row.designation || '-'}</span>
+                },
+                {
+                  key: "actions",
+                  header: "Actions",
+                  render: (row) => (
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(row);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFacultyClick(row);
+                        }}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  )
+                }
+              ]}
+              renderItemCard={(row, isSelected, onToggleSelect) => (
+                <div
+                  key={row.id}
+                  onClick={onToggleSelect}
+                  className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                    isSelected
+                      ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                      : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm"
+                  }`}
+                >
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.name}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{row.designation || 'No designation'}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 font-mono">{row.email || 'No email'}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{departments.find(d => d.id === row.departmentId)?.name || 'Unknown Dept'}</p>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => onToggleSelect()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                    />
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => openEdit(row)}
+                        className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleFacultyClick(row)}
+                        className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary/60 text-secondary-foreground hover:bg-secondary/70"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            />
           </CardContent>
         </Card>
 
