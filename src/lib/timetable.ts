@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear, getSectionSubjects } from "./supabaseService";
 import {
   buildFacultyAllocationMap,
   findAvailableFacultyForSlot,
@@ -151,9 +151,44 @@ function lockSpecialHours(
       ? `${config.special_type} (${classCounselorName})`
       : config.special_type;
 
-    // Place Saturday slots exactly as configured
+    const genericSat: number[] = [];
+    const genericWd: number[] = [];
+    const daySpecificSlots: { day: number; period: number }[] = [];
+
+    // Parse saturday periods
+    for (const p of config.saturday_periods || []) {
+      if (p > 10) {
+        const d = Math.floor(p / 10);
+        const pr = p % 10;
+        daySpecificSlots.push({ day: d, period: pr });
+      } else {
+        genericSat.push(p);
+      }
+    }
+
+    // Parse weekday periods
+    for (const p of config.weekdays_periods || []) {
+      if (p > 10) {
+        const d = Math.floor(p / 10);
+        const pr = p % 10;
+        daySpecificSlots.push({ day: d, period: pr });
+      } else {
+        genericWd.push(p);
+      }
+    }
+
+    // 1. Lock day-specific slots first
+    for (const slot of daySpecificSlots) {
+      const d = slot.day;
+      const p = slot.period - 1;
+      if (d >= 0 && d < 6 && p >= 0 && p < PERIODS && grid[d][p] === null) {
+        grid[d][p] = label;
+      }
+    }
+
+    // 2. Lock generic Saturday slots (backward compatibility)
     let satPlaced = 0;
-    for (const period of config.saturday_periods) {
+    for (const period of genericSat) {
       if (satPlaced >= config.saturday_hours) break;
       const p = period - 1;
       if (p >= 0 && p < PERIODS && grid[sat][p] === null) {
@@ -162,11 +197,11 @@ function lockSpecialHours(
       }
     }
 
-    // Place weekday slots exactly as configured
+    // 3. Lock generic weekday slots (backward compatibility)
     let wdPlaced = 0;
     let dayIndex = 0;
     while (wdPlaced < config.weekdays_hours && dayIndex < 5) {
-      for (const period of config.weekdays_periods) {
+      for (const period of genericWd) {
         if (wdPlaced >= config.weekdays_hours) break;
         const p = period - 1;
         if (p >= 0 && p < PERIODS && grid[dayIndex][p] === null) {
@@ -179,13 +214,25 @@ function lockSpecialHours(
   }
 }
 
+function isSameSubject(name1: string, name2: string): boolean {
+  if (!name1 || !name2) return false;
+  const clean = (s: string) => s.toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(laboratory|lab|practicals|practical)$/, '');
+  const c1 = clean(name1);
+  const c2 = clean(name2);
+  return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+}
+
 function lockStaticLabs(
   grid: Grid,
-  manualLabs: Array<{ day: number; period: number; labName: string }>
+  manualLabs: Array<{ day: number; period: number; labName: string }>,
+  labs: Subject[]
 ): void {
   for (const slot of manualLabs) {
     if (slot.day >= 0 && slot.day < 6 && slot.period >= 0 && slot.period < PERIODS) {
-      grid[slot.day][slot.period] = slot.labName;
+      const matchedLab = labs.find(l => isSameSubject(l.name, slot.labName));
+      grid[slot.day][slot.period] = matchedLab ? matchedLab.name : slot.labName;
     }
   }
 }
@@ -239,23 +286,29 @@ function placeOpenElectives(
 ): void {
   if (openElectiveHours <= 0) return;
 
-  const pool = shuffle(
-    [...Array(6).keys()].flatMap((d) =>
-      [...Array(PERIODS).keys()]
-        .filter((p) => grid[d][p] === null)
-        .map((p) => ({ d, p }))
-    )
-  );
+  // Fixed OE slots in priority order:
+  // Mon P1 → Wed P1 → Fri P1 → Sat P1 → Sat P2
+  // Day indices: Mon=0, Wed=2, Fri=4, Sat=5
+  // Period index: 0 = Period 1, 1 = Period 2
+  const OE_SLOTS: { d: number; p: number }[] = [
+    { d: 0, p: 0 }, // Mon Period 1
+    { d: 2, p: 0 }, // Wed Period 1
+    { d: 4, p: 0 }, // Fri Period 1
+    { d: 5, p: 0 }, // Sat Period 1
+    { d: 5, p: 1 }, // Sat Period 2
+  ];
 
-  const oePerDay = Array(6).fill(0);
-  for (const { d, p } of pool) {
-    if (openElectiveHours <= 0) break;
-    if (oePerDay[d] >= 2) continue;
-    grid[d][p] = "Open Elective";
-    oePerDay[d]++;
-    openElectiveHours--;
+  let hoursLeft = openElectiveHours;
+  for (const { d, p } of OE_SLOTS) {
+    if (hoursLeft <= 0) break;
+    if (grid[d][p] === null) {
+      grid[d][p] = "Open Elective";
+      hoursLeft--;
+    }
+    // If slot is occupied (e.g. by special hours), skip it — don't force overwrite
   }
 }
+
 
 function placeTheorySubjects(
   grid: Grid,
@@ -624,12 +677,6 @@ export async function generateTimetable({
       }
     }
 
-    const hoursGroups = new Map<number, Subject[]>();
-    for (const s of ungroupedElectives) {
-      if (!hoursGroups.has(s.hoursPerWeek)) hoursGroups.set(s.hoursPerWeek, []);
-      hoursGroups.get(s.hoursPerWeek)!.push(s);
-    }
-    
     const addGroup = (group: Subject[]) => {
       if (group.length === 1) {
         subjects.push(group[0]);
@@ -653,9 +700,8 @@ export async function generateTimetable({
     for (const group of peTagGroups.values()) {
       addGroup(group);
     }
-    for (const group of hoursGroups.values()) {
-      addGroup(group);
-    }
+    // Ungrouped electives run separately (not parallel)
+    subjects.push(...ungroupedElectives);
   } else {
     // Separate mode: add all professional electives directly
     subjects.push(...electiveSubjects);
@@ -692,8 +738,10 @@ export async function generateTimetable({
   // Special hours first (immutable)
   lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorName);
 
+  const labs = subjects.filter((s) => s.type === "lab");
+
   // DB lab schedules second (immutable — labs are ALWAYS static from DB)
-  lockStaticLabs(grid, ctx.manualLabs);
+  lockStaticLabs(grid, ctx.manualLabs, labs);
 
   // ── Initialize remaining-hours tracker ───────────────────────────────────
   const remaining = new Map<string, number>();
@@ -708,7 +756,6 @@ export async function generateTimetable({
   }
 
   // Deduct hours already placed by static lab locks
-  const labs = subjects.filter((s) => s.type === "lab");
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
       const cell = grid[d][p];
@@ -924,9 +971,9 @@ export type BatchGenerationResult = {
   totalError: number;
 };
 
-// Sections per year: II → A,B  |  III → A,B,C  |  IV → A,B,C
+// Sections per year: II → A,B,C  |  III → A,B,C  |  IV → A,B,C
 const YEAR_SECTIONS: Record<string, string[]> = {
-  'II':  ['A', 'B'],
+  'II':  ['A', 'B', 'C'],
   'III': ['A', 'B', 'C'],
   'IV':  ['A', 'B', 'C'],
 };
@@ -981,11 +1028,17 @@ export async function generateAllYears(
       for (const section of sections) {
         onProgress?.(year, section, 'running');
         try {
+          // Load section subjects to filter curriculum specifically for this section
+          const sectionSubjectIds = await getSectionSubjects(deptId, year, section).catch(() => [] as string[]);
+          const sectionSubjects = sectionSubjectIds.length > 0
+            ? subjects.filter(s => sectionSubjectIds.includes(s.id))
+            : subjects;
+
           // Load lab prefs per section
           const labPreferences = await getLabPreferences(deptId, year, section).catch(() => ({} as LabPrefsMap));
 
           const grid = await generateTimetable({
-            subjects,
+            subjects: sectionSubjects,
             special: { seminar: false, library: false, counselling: false },
             specialHoursConfigs,
             labPreferences,

@@ -1337,6 +1337,59 @@ export async function getSubjectFacultyMapByDeptName(
   return getSubjectFacultyMap(dept.id, year, section);
 }
 
+/**
+ * Returns a map: { subjectId: { A: 'Dr. X', B: 'Prof. Y', C: '' } }
+ * Loads section-specific faculty for all provided sections at once.
+ */
+export async function getSubjectFacultyMapAllSections(
+  departmentId: string,
+  year: string,
+  sections: string[],
+): Promise<Record<string, Record<string, string>>> {
+  if (sections.length === 0) return {};
+
+  // Fetch ALL assignments for this dept+year (all sections) in one query
+  const { data, error } = await (supabase as any)
+    .from('faculty_subject_assignments')
+    .select('subject_id, faculty_id, section')
+    .eq('department_id', departmentId)
+    .eq('year', year);
+
+  if (error || !data || data.length === 0) return {};
+
+  // Collect unique faculty IDs
+  const facultyIds: string[] = Array.from(new Set((data as any[]).map((r: any) => r.faculty_id).filter(Boolean)));
+  if (facultyIds.length === 0) return {};
+
+  const { data: facRows } = await (supabase as any)
+    .from('faculty_members')
+    .select('id, name')
+    .in('id', facultyIds);
+
+  const idToName = new Map<string, string>();
+  (facRows || []).forEach((r: any) => idToName.set(r.id, r.name));
+
+  // Build map: { subjectId: { 'A': 'Prof. Name', 'B': '...', ... } }
+  const result: Record<string, Record<string, string>> = {};
+  for (const row of data as any[]) {
+    const sec = row.section as string | null;
+    const subId = row.subject_id as string;
+    const facName = idToName.get(row.faculty_id) ?? '';
+    if (!subId) continue;
+    if (!result[subId]) result[subId] = {};
+    if (sec && sections.includes(sec)) {
+      result[subId][sec] = facName;
+    } else if (!sec) {
+      // Year-wide assignment — fill all sections that don't have a specific entry
+      for (const s of sections) {
+        if (!result[subId][s]) result[subId][s] = facName;
+      }
+    }
+  }
+
+  return result;
+}
+
 // Year management
 export async function getAllYears(): Promise<{ id: string; name: string; display_order: number; is_active: boolean }[]> {
   try {

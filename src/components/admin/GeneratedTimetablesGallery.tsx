@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -194,10 +194,10 @@ interface GeneratedTimetablesGalleryProps {
 
 export function GeneratedTimetablesGallery({ open, onClose, results }: GeneratedTimetablesGalleryProps) {
   const [activeYear, setActiveYear] = useState<string>('II');
+  const [activeSection, setActiveSection] = useState<string>('A');
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
-  const [expandedResult, setExpandedResult] = useState<YearSectionResult | null>(null);
 
   const byYear = useMemo(() => {
     const map = new Map<string, YearSectionResult[]>();
@@ -211,11 +211,31 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
 
   const availableYears = YEAR_ORDER.filter((y) => byYear.has(y));
   const currentYearResults = byYear.get(activeYear) || [];
+  
+  // Set default active year and section when opened or changed
+  useEffect(() => {
+    if (open) {
+      if (availableYears.length > 0 && !availableYears.includes(activeYear)) {
+        setActiveYear(availableYears[0]);
+      }
+    }
+  }, [open, results]);
+
+  useEffect(() => {
+    if (currentYearResults.length > 0) {
+      const sections = currentYearResults.map(r => r.section);
+      if (!sections.includes(activeSection)) {
+        setActiveSection(sections[0]);
+      }
+    }
+  }, [activeYear, results]);
+
+  const activeResult = currentYearResults.find((r) => r.section === activeSection);
   const totalOk = results.filter(r => r.status === 'ok').length;
   const totalErr = results.filter(r => r.status === 'error').length;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { onClose(); setExpandedResult(null); } }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent
         className="max-w-[98vw] w-[1400px] h-[92vh] flex flex-col p-0 border-white/8 bg-[#08080f] text-white rounded-2xl overflow-hidden shadow-2xl"
         style={{ backgroundImage: 'radial-gradient(ellipse at 15% 15%, rgba(99,102,241,0.07) 0%, transparent 55%), radial-gradient(ellipse at 85% 85%, rgba(16,185,129,0.04) 0%, transparent 55%)' }}
@@ -225,7 +245,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
           <div>
             <h2 className="text-lg font-bold text-white tracking-tight">Generated Timetables</h2>
             <p className="text-xs text-white/25 mt-0.5">
-              <span className="text-emerald-400/80">{totalOk} generated</span>
+              <span className="text-emerald-400/80">{totalOk} generated successfully</span>
               {totalErr > 0 && <span className="text-red-400/70"> · {totalErr} failed</span>}
               <span className="ml-2 text-white/20">· Subjects only view</span>
             </p>
@@ -271,8 +291,8 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
         </div>
 
         {/* Year tabs */}
-        {!expandedResult && (
-          <div className="flex items-center gap-1.5 px-6 pt-4 shrink-0">
+        <div className="flex items-center justify-between px-6 pt-4 shrink-0">
+          <div className="flex items-center gap-1.5">
             {YEAR_ORDER.map((year) => {
               const yc = YEAR_COLORS[year];
               const hasYear = byYear.has(year);
@@ -281,7 +301,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
               const errCount = total - okCount;
               return (
                 <button key={year} disabled={!hasYear}
-                  onClick={() => { setActiveYear(year); setExpandedResult(null); }}
+                  onClick={() => { setActiveYear(year); }}
                   className={`relative px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
                     activeYear === year ? `bg-gradient-to-r ${yc.tab} text-white shadow-lg` :
                     hasYear ? 'text-white/35 hover:text-white/65 hover:bg-white/5' : 'text-white/15 cursor-not-allowed'
@@ -298,34 +318,60 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
               );
             })}
           </div>
-        )}
+
+          {/* Section nested tabs inside Year */}
+          {currentYearResults.length > 0 && (
+            <div className="flex bg-white/3 p-1 rounded-xl border border-white/6 gap-1">
+              {currentYearResults.map((r) => (
+                <button
+                  key={r.section}
+                  onClick={() => setActiveSection(r.section)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    activeSection === r.section
+                      ? "bg-white/15 text-white shadow-sm"
+                      : "text-white/40 hover:text-white/70"
+                  }`}
+                >
+                  Section {r.section}
+                  {r.status === 'ok' ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Main content */}
         <div className="flex-1 overflow-auto px-6 pb-6 pt-4">
-          {expandedResult ? (
-            <ExpandedView result={expandedResult} search={search} filterType={filterType} viewMode={viewMode} onBack={() => setExpandedResult(null)} />
-          ) : currentYearResults.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-white/20 text-sm italic gap-3">
+          {!activeResult ? (
+            <div className="flex flex-col items-center justify-center h-60 text-white/25 italic gap-2">
               <AlertCircle className="h-8 w-8 text-white/10" />
-              No timetables generated for Year {activeYear}
+              No timetables generated for this selection
+            </div>
+          ) : activeResult.status === 'error' ? (
+            <div className="flex flex-col items-center justify-center h-60 border border-red-500/20 bg-red-500/5 rounded-2xl p-6 text-center">
+              <AlertCircle className="h-10 w-10 text-red-400 mb-3" />
+              <h3 className="text-base font-bold text-white mb-1">Generation Failed</h3>
+              <p className="text-sm text-red-400/80 max-w-md leading-relaxed">{activeResult.error}</p>
             </div>
           ) : (
-            <div className={`grid gap-5 ${
-              currentYearResults.length === 1 ? 'grid-cols-1 max-w-3xl mx-auto' :
-              currentYearResults.length === 2 ? 'grid-cols-1 lg:grid-cols-2' :
-              'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'
-            }`}>
-              {currentYearResults.map((result) => (
-                <SectionCard
-                  key={`${result.year}-${result.section}`}
-                  result={result}
-                  search={search}
-                  filterType={filterType}
-                  viewMode={viewMode}
-                  onExpand={() => setExpandedResult(result)}
-                  yearColors={YEAR_COLORS[result.year] || YEAR_COLORS['II']}
-                />
-              ))}
+            <div className="bg-[#0c0c17] rounded-2xl border border-white/6 p-5 shadow-inner">
+              <div className="flex items-center justify-between mb-4 border-b border-white/5 pb-3">
+                <span className="text-sm font-bold text-white">
+                  Timetable Grid: Year {activeResult.year} — Section {activeResult.section}
+                </span>
+                <span className="text-[10px] text-white/30 uppercase tracking-wider font-mono">
+                  Subjects Only View
+                </span>
+              </div>
+              {viewMode === 'table' ? (
+                <MiniGrid grid={activeResult.grid} search={search} filterType={filterType} compact={false} />
+              ) : (
+                <ListView grid={activeResult.grid} search={search} filterType={filterType} />
+              )}
             </div>
           )}
         </div>
