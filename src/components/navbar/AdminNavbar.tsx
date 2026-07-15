@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload, Menu, ChevronRight, Moon, Sun } from "lucide-react";
+import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload, Menu, ChevronRight, Moon, Sun, FileSpreadsheet } from "lucide-react";
 import { useTimetableStore } from "@/store/timetableStore";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useDarkMode } from "@/context/DarkModeContext";
@@ -39,8 +39,10 @@ const AdminNavbar = () => {
     { label: "Home", href: "/admin", icon: <Home className="h-5 w-5" /> },
     { label: "Subjects", href: "/admin/subjects", icon: <BookOpen className="h-5 w-5" /> },
     { label: "Faculty", href: "/admin/faculty", icon: <UserCheck className="h-5 w-5" /> },
+    { label: "Bulk Import", href: "/csv-upload", icon: <FileSpreadsheet className="h-5 w-5" /> },
     { label: "Lab Allocation", href: "/lab", icon: <Upload className="h-5 w-5" /> },
   ];
+
 
   useEffect(() => {
     // Load admin user data from localStorage

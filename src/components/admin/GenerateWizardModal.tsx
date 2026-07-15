@@ -5,15 +5,60 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDepartmentByName, getSubjectsForYear, getSectionSubjects } from "@/lib/supabaseService";
+import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours } from "@/lib/supabaseService";
 
 const YEAR_CONFIG: Record<string, string[]> = {
-  "II":  ["A", "B"],
+  "II":  ["A", "B", "C"],
   "III": ["A", "B", "C"],
   "IV":  ["A", "B", "C"],
 };
 const YEAR_ORDER = ["II", "III", "IV"];
 const TOTAL_HOURS = 42;
+
+function calculateTotalHours(rawSubjects: any[]): number {
+  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const labHours = rawSubjects.filter(s => s.type === 'lab').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const specialHours = rawSubjects.filter(s => s.type === 'special').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  
+  // Elective hours: group only by tag matching pe_group or pe
+  const pes = rawSubjects.filter(s => s.type === 'elective');
+  let electiveHours = 0;
+  if (pes.length > 0) {
+    const peGroups = new Map<string, number>();
+    let untaggedSum = 0;
+    pes.forEach(s => {
+      const groupTag = (s.tags || []).find((t: string) => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t) || /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+)$/i.test(t.trim()));
+      if (groupTag) {
+        const key = groupTag.trim().toUpperCase();
+        peGroups.set(key, Math.max(peGroups.get(key) || 0, s.hoursPerWeek || s.hours_per_week || 0));
+      } else {
+        untaggedSum += s.hoursPerWeek || s.hours_per_week || 0;
+      }
+    });
+    electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + untaggedSum;
+  }
+
+  // Open Elective hours: defaults to 5 if any exist, or groups by tag
+  const oes = rawSubjects.filter(s => s.type === 'open elective');
+  let openElectiveHours = 0;
+  if (oes.length > 0) {
+    const oeGroups = new Map<string, number>();
+    let untaggedMax = 0;
+    oes.forEach(s => {
+      const groupTag = (s.tags || []).find((t: string) => /oe_group_\d+/i.test(t) || /^oe\d+/i.test(t));
+      if (groupTag) {
+        const key = groupTag.trim().toUpperCase();
+        oeGroups.set(key, Math.max(oeGroups.get(key) || 0, s.hoursPerWeek || s.hours_per_week || 0));
+      } else {
+        untaggedMax = Math.max(untaggedMax, s.hoursPerWeek || s.hours_per_week || 0);
+      }
+    });
+    const groupedTotal = Array.from(oeGroups.values()).reduce((a, b) => a + b, 0);
+    openElectiveHours = groupedTotal + (oeGroups.size === 0 ? (untaggedMax || 5) : 0);
+  }
+
+  return traditionalTheory + labHours + specialHours + electiveHours + openElectiveHours;
+}
 
 export interface WizardSelection {
   year: string;
@@ -46,7 +91,7 @@ export function GenerateWizardModal({
     II: true, III: true, IV: true,
   });
   const [selectedSections, setSelectedSections] = useState<Record<string, Record<string, boolean>>>({
-    II:  { A: true, B: true },
+    II:  { A: true, B: true, C: true },
     III: { A: true, B: true, C: true },
     IV:  { A: true, B: true, C: true },
   });
@@ -94,7 +139,15 @@ export function GenerateWizardModal({
 
       const checks: HourCheck[] = await Promise.all(
         sel.map(async ({ year, sections }) => {
-          const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
+          const [subjects, specialHoursConfigs] = await Promise.all([
+            getSubjectsForYear(dept.id, year).catch(() => []),
+            getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
+          ]);
+          
+          let specialHoursTotal = 0;
+          specialHoursConfigs.forEach((config: any) => {
+            specialHoursTotal += config.total_hours || 0;
+          });
           
           let maxSectionHours = 0;
           let hasError = false;
@@ -105,7 +158,8 @@ export function GenerateWizardModal({
             const secSubjects = secSubjIds.length > 0 
               ? subjects.filter(s => secSubjIds.includes(s.id))
               : subjects;
-            const total = secSubjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
+            const subjectsTotal = calculateTotalHours(secSubjects);
+            const total = subjectsTotal + specialHoursTotal;
             maxSectionHours = Math.max(maxSectionHours, total);
             if (total > TOTAL_HOURS) hasError = true;
             if (total < TOTAL_HOURS) hasWarning = true;
@@ -127,9 +181,9 @@ export function GenerateWizardModal({
   const canProceed = hourChecks.length > 0 && !hourChecks.some((c) => c.status === "error");
 
   const YEAR_COLORS: Record<string, string> = {
-    II:  "bg-sky-500/10 border-sky-400/30 text-sky-300",
-    III: "bg-violet-500/10 border-violet-400/30 text-violet-300",
-    IV:  "bg-rose-500/10 border-rose-400/30 text-rose-300",
+    II:  "bg-white/5 border-white/20 text-white",
+    III: "bg-white/5 border-white/20 text-white",
+    IV:  "bg-white/5 border-white/20 text-white",
   };
 
   return (

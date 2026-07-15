@@ -24,6 +24,7 @@ import {
   getSpecialHoursConfigsForYear,
   getSubjectFacultyMapAllSections,
   getSectionSubjects,
+  getOpenElectiveHours,
 } from "@/lib/supabaseService";
 import { generateAllYears, YearSectionResult, BatchGenerationResult } from "@/lib/timetable";
 import { GeneratedTimetablesGallery } from "@/components/admin/GeneratedTimetablesGallery";
@@ -36,6 +37,51 @@ interface SubjectRowWithFaculty {
   type: string;
   hoursPerWeek: number;
   facultyBySection: Record<string, string>; // section -> facultyName
+}
+
+function calculateTotalHours(rawSubjects: any[]): number {
+  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const labHours = rawSubjects.filter(s => s.type === 'lab').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const specialHours = rawSubjects.filter(s => s.type === 'special').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  
+  // Elective hours: group only by tag matching pe_group or pe
+  const pes = rawSubjects.filter(s => s.type === 'elective');
+  let electiveHours = 0;
+  if (pes.length > 0) {
+    const peGroups = new Map<string, number>();
+    let untaggedSum = 0;
+    pes.forEach(s => {
+      const groupTag = (s.tags || []).find((t: string) => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t) || /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+)$/i.test(t.trim()));
+      if (groupTag) {
+        const key = groupTag.trim().toUpperCase();
+        peGroups.set(key, Math.max(peGroups.get(key) || 0, s.hoursPerWeek || s.hours_per_week || 0));
+      } else {
+        untaggedSum += s.hoursPerWeek || s.hours_per_week || 0;
+      }
+    });
+    electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + untaggedSum;
+  }
+
+  // Open Elective hours: defaults to 5 if any exist, or groups by tag
+  const oes = rawSubjects.filter(s => s.type === 'open elective');
+  let openElectiveHours = 0;
+  if (oes.length > 0) {
+    const oeGroups = new Map<string, number>();
+    let untaggedMax = 0;
+    oes.forEach(s => {
+      const groupTag = (s.tags || []).find((t: string) => /oe_group_\d+/i.test(t) || /^oe\d+/i.test(t));
+      if (groupTag) {
+        const key = groupTag.trim().toUpperCase();
+        oeGroups.set(key, Math.max(oeGroups.get(key) || 0, s.hoursPerWeek || s.hours_per_week || 0));
+      } else {
+        untaggedMax = Math.max(untaggedMax, s.hoursPerWeek || s.hours_per_week || 0);
+      }
+    });
+    const groupedTotal = Array.from(oeGroups.values()).reduce((a, b) => a + b, 0);
+    openElectiveHours = groupedTotal + (oeGroups.size === 0 ? (untaggedMax || 5) : 0);
+  }
+
+  return traditionalTheory + labHours + specialHours + electiveHours + openElectiveHours;
 }
 
 export default function GenerateReviewPage() {
@@ -115,14 +161,19 @@ export default function GenerateReviewPage() {
           );
           secSubjectsMap[year] = sectionToSubjectIds;
 
-          // Calculate section total hours
+          let specialHoursTotal = 0;
+          specialHours.forEach((config) => {
+            specialHoursTotal += config.total_hours || 0;
+          });
+          
           const sectionHours: Record<string, number> = {};
           sections.forEach((sec) => {
             const mappedIds = sectionToSubjectIds[sec];
             const sectionSpecificSubjects = mappedIds.size > 0
               ? subjects.filter((s) => mappedIds.has(s.id))
               : subjects; // fallback if none assigned
-            sectionHours[sec] = sectionSpecificSubjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
+            const subjectsTotal = calculateTotalHours(sectionSpecificSubjects);
+            sectionHours[sec] = subjectsTotal + specialHoursTotal;
           });
           secHoursMap[year] = sectionHours;
 
@@ -215,7 +266,6 @@ export default function GenerateReviewPage() {
   const activeYearSections = selectedYears.find((y) => y.year === activeTab)?.sections || [];
   const activeYearSubjects = subjectsData[activeTab] || [];
   const activeYearSpecialHours = specialHoursData[activeTab] || [];
-  const activeTotalHours = totalHoursByYear[activeTab] || 0;
 
   if (loading) {
     return (

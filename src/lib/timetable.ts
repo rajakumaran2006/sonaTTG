@@ -214,13 +214,25 @@ function lockSpecialHours(
   }
 }
 
+function isSameSubject(name1: string, name2: string): boolean {
+  if (!name1 || !name2) return false;
+  const clean = (s: string) => s.toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(laboratory|lab|practicals|practical)$/, '');
+  const c1 = clean(name1);
+  const c2 = clean(name2);
+  return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+}
+
 function lockStaticLabs(
   grid: Grid,
-  manualLabs: Array<{ day: number; period: number; labName: string }>
+  manualLabs: Array<{ day: number; period: number; labName: string }>,
+  labs: Subject[]
 ): void {
   for (const slot of manualLabs) {
     if (slot.day >= 0 && slot.day < 6 && slot.period >= 0 && slot.period < PERIODS) {
-      grid[slot.day][slot.period] = slot.labName;
+      const matchedLab = labs.find(l => isSameSubject(l.name, slot.labName));
+      grid[slot.day][slot.period] = matchedLab ? matchedLab.name : slot.labName;
     }
   }
 }
@@ -665,12 +677,6 @@ export async function generateTimetable({
       }
     }
 
-    const hoursGroups = new Map<number, Subject[]>();
-    for (const s of ungroupedElectives) {
-      if (!hoursGroups.has(s.hoursPerWeek)) hoursGroups.set(s.hoursPerWeek, []);
-      hoursGroups.get(s.hoursPerWeek)!.push(s);
-    }
-    
     const addGroup = (group: Subject[]) => {
       if (group.length === 1) {
         subjects.push(group[0]);
@@ -694,9 +700,8 @@ export async function generateTimetable({
     for (const group of peTagGroups.values()) {
       addGroup(group);
     }
-    for (const group of hoursGroups.values()) {
-      addGroup(group);
-    }
+    // Ungrouped electives run separately (not parallel)
+    subjects.push(...ungroupedElectives);
   } else {
     // Separate mode: add all professional electives directly
     subjects.push(...electiveSubjects);
@@ -733,8 +738,10 @@ export async function generateTimetable({
   // Special hours first (immutable)
   lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorName);
 
+  const labs = subjects.filter((s) => s.type === "lab");
+
   // DB lab schedules second (immutable — labs are ALWAYS static from DB)
-  lockStaticLabs(grid, ctx.manualLabs);
+  lockStaticLabs(grid, ctx.manualLabs, labs);
 
   // ── Initialize remaining-hours tracker ───────────────────────────────────
   const remaining = new Map<string, number>();
@@ -749,7 +756,6 @@ export async function generateTimetable({
   }
 
   // Deduct hours already placed by static lab locks
-  const labs = subjects.filter((s) => s.type === "lab");
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
       const cell = grid[d][p];
@@ -965,9 +971,9 @@ export type BatchGenerationResult = {
   totalError: number;
 };
 
-// Sections per year: II → A,B  |  III → A,B,C  |  IV → A,B,C
+// Sections per year: II → A,B,C  |  III → A,B,C  |  IV → A,B,C
 const YEAR_SECTIONS: Record<string, string[]> = {
-  'II':  ['A', 'B'],
+  'II':  ['A', 'B', 'C'],
   'III': ['A', 'B', 'C'],
   'IV':  ['A', 'B', 'C'],
 };
