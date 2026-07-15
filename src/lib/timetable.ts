@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear, getSectionSubjects } from "./supabaseService";
 import {
   buildFacultyAllocationMap,
   findAvailableFacultyForSlot,
@@ -987,11 +987,17 @@ export async function generateAllYears(
       for (const section of sections) {
         onProgress?.(year, section, 'running');
         try {
+          // Load section subjects to filter curriculum specifically for this section
+          const sectionSubjectIds = await getSectionSubjects(deptId, year, section).catch(() => [] as string[]);
+          const sectionSubjects = sectionSubjectIds.length > 0
+            ? subjects.filter(s => sectionSubjectIds.includes(s.id))
+            : subjects;
+
           // Load lab prefs per section
           const labPreferences = await getLabPreferences(deptId, year, section).catch(() => ({} as LabPrefsMap));
 
           const grid = await generateTimetable({
-            subjects,
+            subjects: sectionSubjects,
             special: { seminar: false, library: false, counselling: false },
             specialHoursConfigs,
             labPreferences,

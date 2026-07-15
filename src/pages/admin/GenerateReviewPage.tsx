@@ -23,6 +23,7 @@ import {
   getSubjectsForYear,
   getSpecialHoursConfigsForYear,
   getSubjectFacultyMapAllSections,
+  getSectionSubjects,
 } from "@/lib/supabaseService";
 import { generateAllYears, YearSectionResult, BatchGenerationResult } from "@/lib/timetable";
 import { GeneratedTimetablesGallery } from "@/components/admin/GeneratedTimetablesGallery";
@@ -57,7 +58,8 @@ export default function GenerateReviewPage() {
   // Per-year data store
   const [subjectsData, setSubjectsData] = useState<Record<string, SubjectRowWithFaculty[]>>({});
   const [specialHoursData, setSpecialHoursData] = useState<Record<string, any[]>>({});
-  const [totalHoursByYear, setTotalHoursByYear] = useState<Record<string, number>>({});
+  const [totalHoursBySection, setTotalHoursBySection] = useState<Record<string, Record<string, number>>>({});
+  const [sectionSubjectsData, setSectionSubjectsData] = useState<Record<string, Record<string, Set<string>>>>({});
 
   // Generation progress state
   type ProgressStatus = 'idle' | 'running' | 'ok' | 'error';
@@ -91,7 +93,8 @@ export default function GenerateReviewPage() {
 
       const subjectsMap: Record<string, SubjectRowWithFaculty[]> = {};
       const specialHoursMap: Record<string, any[]> = {};
-      const hoursMap: Record<string, number> = {};
+      const secHoursMap: Record<string, Record<string, number>> = {};
+      const secSubjectsMap: Record<string, Record<string, Set<string>>> = {};
 
       await Promise.all(
         selectedYears.map(async ({ year, sections }) => {
@@ -102,9 +105,26 @@ export default function GenerateReviewPage() {
           // 3. Fetch faculty mappings
           const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
 
-          // Calculate total hours
-          const totalHours = subjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
-          hoursMap[year] = totalHours;
+          // 4. Fetch section subjects for all sections
+          const sectionToSubjectIds: Record<string, Set<string>> = {};
+          await Promise.all(
+            sections.map(async (sec) => {
+              const subIds = await getSectionSubjects(dept.id, year, sec).catch(() => []);
+              sectionToSubjectIds[sec] = new Set(subIds);
+            })
+          );
+          secSubjectsMap[year] = sectionToSubjectIds;
+
+          // Calculate section total hours
+          const sectionHours: Record<string, number> = {};
+          sections.forEach((sec) => {
+            const mappedIds = sectionToSubjectIds[sec];
+            const sectionSpecificSubjects = mappedIds.size > 0
+              ? subjects.filter((s) => mappedIds.has(s.id))
+              : subjects; // fallback if none assigned
+            sectionHours[sec] = sectionSpecificSubjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
+          });
+          secHoursMap[year] = sectionHours;
 
           // Map faculty names into subject rows
           const rows: SubjectRowWithFaculty[] = subjects.map((sub) => {
@@ -129,7 +149,8 @@ export default function GenerateReviewPage() {
 
       setSubjectsData(subjectsMap);
       setSpecialHoursData(specialHoursMap);
-      setTotalHoursByYear(hoursMap);
+      setTotalHoursBySection(secHoursMap);
+      setSectionSubjectsData(secSubjectsMap);
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to load review data");
@@ -275,40 +296,43 @@ export default function GenerateReviewPage() {
                 </CardHeader>
                 <CardContent className="pt-4">
                   <div className="space-y-4">
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-3xl font-extrabold text-white">{activeTotalHours}h</span>
-                      <span className="text-xs text-slate-400">/ 42h required</span>
-                    </div>
+                    {activeYearSections.map((sec) => {
+                      const hours = totalHoursBySection[activeTab]?.[sec] || 0;
+                      return (
+                        <div key={sec} className="space-y-1.5 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-300">Section {sec}</span>
+                            <span className="text-xs font-bold text-white">{hours}h <span className="text-slate-500 font-normal">/ 42h</span></span>
+                          </div>
+                          
+                          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                hours === 42 ? "bg-emerald-500" : hours > 42 ? "bg-red-500" : "bg-amber-500"
+                              }`}
+                              style={{ width: `${Math.min(100, (hours / 42) * 100)}%` }}
+                            />
+                          </div>
 
-                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          activeTotalHours === 42 ? "bg-emerald-500" : "bg-amber-500"
-                        }`}
-                        style={{ width: `${Math.min(100, (activeTotalHours / 42) * 100)}%` }}
-                      />
-                    </div>
-
-                    {activeTotalHours === 42 ? (
-                      <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
-                        <CheckCircle2 className="h-4 w-4 shrink-0" />
-                        Perfect 42 hours configured.
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-2 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl">
-                        <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
-                          <AlertTriangle className="h-4 w-4 shrink-0" />
-                          <span>Hours missing ({42 - activeTotalHours}h left)</span>
+                          {hours === 42 ? (
+                            <div className="flex items-center gap-1 text-emerald-400 text-[10px] font-semibold">
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                              Perfect 42 hours.
+                            </div>
+                          ) : hours > 42 ? (
+                            <div className="flex items-center gap-1 text-red-400 text-[10px] font-semibold">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              Overloaded ({hours - 42}h extra).
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-amber-400 text-[10px] font-semibold">
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              Underloaded ({42 - hours}h left).
+                            </div>
+                          )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          onClick={() => navigate(`/admin/subjects/${encodeURIComponent(activeTab)}`)}
-                          className="h-7 text-xs text-amber-300 hover:text-amber-200 hover:bg-white/5 rounded-lg justify-start p-1"
-                        >
-                          Configure subjects <ExternalLink className="h-3 w-3 ml-1" />
-                        </Button>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -409,13 +433,25 @@ export default function GenerateReviewPage() {
                               </td>
                               <td className="py-3 px-4 font-semibold text-white/90">{sub.hoursPerWeek}h</td>
                               {activeYearSections.map((sec) => {
+                                const isAssigned = sectionSubjectsData[activeTab]?.[sec]?.has(sub.id) ?? true;
+                                const size = sectionSubjectsData[activeTab]?.[sec]?.size || 0;
+                                const isMapped = size === 0 || isAssigned;
+
+                                if (!isMapped) {
+                                  return (
+                                    <td key={sec} className="py-3 px-4 text-center text-slate-600 italic">
+                                      —
+                                    </td>
+                                  );
+                                }
+
                                 const fac = sub.facultyBySection[sec];
                                 return (
                                   <td key={sec} className="py-3 px-4 text-center">
                                     {fac ? (
                                       <span className="font-semibold text-white/80">{fac}</span>
                                     ) : (
-                                      <span className="text-slate-600 italic text-[10px]">Unassigned</span>
+                                      <span className="text-amber-500/80 font-medium">Unassigned</span>
                                     )}
                                   </td>
                                 );

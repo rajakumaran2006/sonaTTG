@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDepartmentByName, getSubjectsForYear } from "@/lib/supabaseService";
+import { getDepartmentByName, getSubjectsForYear, getSectionSubjects } from "@/lib/supabaseService";
 
 const YEAR_CONFIG: Record<string, string[]> = {
   "II":  ["A", "B"],
@@ -93,13 +93,29 @@ export function GenerateWizardModal({
       if (!dept) { setLoadingHours(false); return; }
 
       const checks: HourCheck[] = await Promise.all(
-        sel.map(async ({ year }) => {
+        sel.map(async ({ year, sections }) => {
           const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
-          const total = subjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
+          
+          let maxSectionHours = 0;
+          let hasError = false;
+          let hasWarning = false;
+          
+          for (const section of sections) {
+            const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
+            const secSubjects = secSubjIds.length > 0 
+              ? subjects.filter(s => secSubjIds.includes(s.id))
+              : subjects;
+            const total = secSubjects.reduce((sum, s) => sum + (s.hoursPerWeek || 0), 0);
+            maxSectionHours = Math.max(maxSectionHours, total);
+            if (total > TOTAL_HOURS) hasError = true;
+            if (total < TOTAL_HOURS) hasWarning = true;
+          }
+          
           let status: HourCheck["status"] = "ok";
-          if (total < TOTAL_HOURS) status = "warning";
-          if (total > TOTAL_HOURS) status = "error";
-          return { year, totalHours: total, status };
+          if (hasError) status = "error";
+          else if (hasWarning) status = "warning";
+          
+          return { year, totalHours: maxSectionHours, status };
         })
       );
       setHourChecks(checks);
@@ -254,12 +270,12 @@ export function GenerateWizardModal({
 
                 {hourChecks.some((c) => c.status === 'warning') && (
                   <p className="text-[11px] text-amber-300/70 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
-                    ⚠️ Some years have fewer than 42 hours. Generation will proceed but the timetable may have empty slots.
+                    ⚠️ Some sections have fewer than 42 hours. Generation will proceed but those timetables may have empty slots.
                   </p>
                 )}
                 {hourChecks.some((c) => c.status === 'error') && (
                   <p className="text-[11px] text-red-300/70 bg-red-500/8 border border-red-500/20 rounded-xl px-3 py-2">
-                    ✗ Years with more than 42 hours cannot be generated. Please remove subjects first.
+                    ✗ Some sections have more than 42 hours. This is not allowed. Please modify section subjects first.
                   </p>
                 )}
               </>
