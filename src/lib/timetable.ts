@@ -151,9 +151,44 @@ function lockSpecialHours(
       ? `${config.special_type} (${classCounselorName})`
       : config.special_type;
 
-    // Place Saturday slots exactly as configured
+    const genericSat: number[] = [];
+    const genericWd: number[] = [];
+    const daySpecificSlots: { day: number; period: number }[] = [];
+
+    // Parse saturday periods
+    for (const p of config.saturday_periods || []) {
+      if (p > 10) {
+        const d = Math.floor(p / 10);
+        const pr = p % 10;
+        daySpecificSlots.push({ day: d, period: pr });
+      } else {
+        genericSat.push(p);
+      }
+    }
+
+    // Parse weekday periods
+    for (const p of config.weekdays_periods || []) {
+      if (p > 10) {
+        const d = Math.floor(p / 10);
+        const pr = p % 10;
+        daySpecificSlots.push({ day: d, period: pr });
+      } else {
+        genericWd.push(p);
+      }
+    }
+
+    // 1. Lock day-specific slots first
+    for (const slot of daySpecificSlots) {
+      const d = slot.day;
+      const p = slot.period - 1;
+      if (d >= 0 && d < 6 && p >= 0 && p < PERIODS && grid[d][p] === null) {
+        grid[d][p] = label;
+      }
+    }
+
+    // 2. Lock generic Saturday slots (backward compatibility)
     let satPlaced = 0;
-    for (const period of config.saturday_periods) {
+    for (const period of genericSat) {
       if (satPlaced >= config.saturday_hours) break;
       const p = period - 1;
       if (p >= 0 && p < PERIODS && grid[sat][p] === null) {
@@ -162,11 +197,11 @@ function lockSpecialHours(
       }
     }
 
-    // Place weekday slots exactly as configured
+    // 3. Lock generic weekday slots (backward compatibility)
     let wdPlaced = 0;
     let dayIndex = 0;
     while (wdPlaced < config.weekdays_hours && dayIndex < 5) {
-      for (const period of config.weekdays_periods) {
+      for (const period of genericWd) {
         if (wdPlaced >= config.weekdays_hours) break;
         const p = period - 1;
         if (p >= 0 && p < PERIODS && grid[dayIndex][p] === null) {

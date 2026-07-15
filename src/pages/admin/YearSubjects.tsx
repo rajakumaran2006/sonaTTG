@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface SubjectRow {
@@ -49,6 +49,12 @@ const YearSubjects = () => {
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [sections, setSections] = useState<string[]>([]);
   const [facultyInYear, setFacultyInYear] = useState<number>(0);
+
+  // Special Hours states
+  const [specialHours, setSpecialHours] = useState<any[]>([]);
+  const [specialTypeName, setSpecialTypeName] = useState("");
+  const [specialDay, setSpecialDay] = useState("");
+  const [specialPeriod, setSpecialPeriod] = useState("");
 
   // form state for add/edit
   const [name, setName] = useState("");
@@ -130,13 +136,15 @@ const YearSubjects = () => {
       // Sort subjects alphabetically by name
       const sortedList = (list || []).sort((a, b) => a.name.localeCompare(b.name));
       setSubjects(sortedList);
-      const [ttRes, fsaRes] = await Promise.all([
+      const [ttRes, fsaRes, shRes] = await Promise.all([
         (supabase as any).from('timetables').select('section').eq('department_id', targetDeptId).eq('year', year),
         (supabase as any).from('faculty_subject_assignments').select('*', { count: 'exact', head: true }).eq('department_id', targetDeptId).eq('year', year),
+        (supabase as any).from('special_hours_config').select('*').eq('department_id', targetDeptId).eq('year', year).eq('is_active', true).order('special_type')
       ]);
       const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section))));
       setSections(secs);
       setFacultyInYear(fsaRes?.count || 0);
+      setSpecialHours(shRes.data || []);
       setLoading(false);
     })();
   }, [isLoggedIn, id, year]);
@@ -154,6 +162,201 @@ const YearSubjects = () => {
     setSchedulingMode("different");
     setParallelSubjectId("");
   };
+
+  const loadSpecialHours = async () => {
+    const targetDeptId = id || sessionUser?.department_id;
+    if (!targetDeptId || !year) return;
+    const { data: shData } = await (supabase as any)
+      .from('special_hours_config')
+      .select('*')
+      .eq('department_id', targetDeptId)
+      .eq('year', year)
+      .eq('is_active', true)
+      .order('special_type');
+    setSpecialHours(shData || []);
+  };
+
+  const handleAddSpecialHourSlot = async () => {
+    if (!specialTypeName.trim() || !specialDay || !specialPeriod) {
+      toast.error("Special hour name, day, and period are required");
+      return;
+    }
+    const targetDeptId = id || sessionUser?.department_id;
+    if (!targetDeptId || !year) return;
+
+    const dayIdx = parseInt(specialDay, 10);
+    const prIdx = parseInt(specialPeriod, 10);
+    const slotCode = dayIdx * 10 + prIdx;
+
+    try {
+      const existing = specialHours.find(
+        (sh) => sh.special_type.toLowerCase() === specialTypeName.trim().toLowerCase()
+      );
+
+      if (existing) {
+        const satPeriods = existing.saturday_periods || [];
+        const wkPeriods = existing.weekdays_periods || [];
+        if (satPeriods.includes(slotCode) || wkPeriods.includes(slotCode)) {
+          toast.error("This special hour slot is already added");
+          return;
+        }
+
+        const isSat = dayIdx === 5;
+        const newSatPeriods = isSat ? [...satPeriods, slotCode] : satPeriods;
+        const newSatHours = isSat ? existing.saturday_hours + 1 : existing.saturday_hours;
+        
+        const newWkPeriods = !isSat ? [...wkPeriods, slotCode] : wkPeriods;
+        const newWkHours = !isSat ? existing.weekdays_hours + 1 : existing.weekdays_hours;
+
+        const newTotal = newSatHours + newWkHours;
+
+        const { error } = await (supabase as any)
+          .from('special_hours_config')
+          .update({
+            saturday_periods: newSatPeriods,
+            saturday_hours: newSatHours,
+            weekdays_periods: newWkPeriods,
+            weekdays_hours: newWkHours,
+            total_hours: newTotal,
+          })
+          .eq('id', existing.id);
+
+        if (error) throw error;
+        toast.success("Special hour slot added to config");
+      } else {
+        const isSat = dayIdx === 5;
+        const newConfig = {
+          department_id: targetDeptId,
+          year,
+          special_type: specialTypeName.trim(),
+          total_hours: 1,
+          saturday_hours: isSat ? 1 : 0,
+          saturday_periods: isSat ? [slotCode] : [],
+          weekdays_hours: isSat ? 0 : 1,
+          weekdays_periods: isSat ? [] : [slotCode],
+          is_active: true,
+        };
+
+        const { error } = await (supabase as any)
+          .from('special_hours_config')
+          .insert(newConfig);
+
+        if (error) throw error;
+        toast.success("Special hour configuration created");
+      }
+
+      setSpecialTypeName("");
+      setSpecialDay("");
+      setSpecialPeriod("");
+      loadSpecialHours();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to save special hour slot: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteSpecialHourSlot = async (configId: string, dayIndex: number, period: number) => {
+    const slotCode = dayIndex * 10 + period;
+    const config = specialHours.find((sh) => sh.id === configId);
+    if (!config) return;
+
+    try {
+      const isSat = dayIndex === 5;
+      const newSatPeriods = isSat
+        ? (config.saturday_periods || []).filter((p: number) => p !== slotCode)
+        : (config.saturday_periods || []);
+      const newSatHours = isSat ? Math.max(0, config.saturday_hours - 1) : config.saturday_hours;
+
+      const newWkPeriods = !isSat
+        ? (config.weekdays_periods || []).filter((p: number) => p !== slotCode)
+        : (config.weekdays_periods || []);
+      const newWkHours = !isSat ? Math.max(0, config.weekdays_hours - 1) : config.weekdays_hours;
+
+      const newTotal = newSatHours + newWkHours;
+
+      if (newTotal === 0) {
+        const { error } = await (supabase as any)
+          .from('special_hours_config')
+          .update({ is_active: false })
+          .eq('id', configId);
+
+        if (error) throw error;
+        toast.success("Special hour config removed");
+      } else {
+        const { error } = await (supabase as any)
+          .from('special_hours_config')
+          .update({
+            saturday_periods: newSatPeriods,
+            saturday_hours: newSatHours,
+            weekdays_periods: newWkPeriods,
+            weekdays_hours: newWkHours,
+            total_hours: newTotal,
+          })
+          .eq('id', configId);
+
+        if (error) throw error;
+        toast.success("Special hour slot deleted");
+      }
+
+      loadSpecialHours();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to delete special hour slot: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const DAYS_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  
+  const specialHoursList = useMemo(() => {
+    const list: {
+      configId: string;
+      name: string;
+      dayIndex: number;
+      dayName: string;
+      period: number;
+    }[] = [];
+
+    specialHours.forEach((config) => {
+      (config.saturday_periods || []).forEach((p: number) => {
+        let d = 5;
+        let pr = p;
+        if (p > 10) {
+          d = Math.floor(p / 10);
+          pr = p % 10;
+        }
+        list.push({
+          configId: config.id,
+          name: config.special_type,
+          dayIndex: d,
+          dayName: DAYS_NAMES[d],
+          period: pr,
+        });
+      });
+
+      (config.weekdays_periods || []).forEach((p: number) => {
+        let d = 0;
+        let pr = p;
+        if (p > 10) {
+          d = Math.floor(p / 10);
+          pr = p % 10;
+        } else {
+          d = 0;
+        }
+        list.push({
+          configId: config.id,
+          name: config.special_type,
+          dayIndex: d,
+          dayName: DAYS_NAMES[d],
+          period: pr,
+        });
+      });
+    });
+
+    return list.sort((a, b) => {
+      if (a.dayIndex !== b.dayIndex) return a.dayIndex - b.dayIndex;
+      return a.period - b.period;
+    });
+  }, [specialHours]);
 
   const electiveSiblings = useMemo(() => {
     return subjects.filter(s => s.id !== editingId && s.type === type);
@@ -526,6 +729,94 @@ const YearSubjects = () => {
                   </div>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {userType !== 'faculty' && (
+          <Card className="rounded-xl mb-6 bg-slate-900/40 border-slate-800 text-slate-100">
+            <CardHeader className="border-b border-slate-800/40 pb-3">
+              <CardTitle className="text-base font-bold text-white">Special Hours &amp; Static Slots</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-5">
+              {/* List of active slots */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Current Special Hours</label>
+                {specialHoursList.length === 0 ? (
+                  <div className="text-xs italic text-slate-500 py-1">No special hours added yet. Use the form below to add.</div>
+                ) : (
+                  <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
+                    {specialHoursList.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white/5 border border-white/8 px-3 py-2 rounded-xl text-xs">
+                        <div>
+                          <div className="font-bold text-white capitalize">{item.name}</div>
+                          <div className="text-slate-400 mt-0.5">{item.dayName} Period {item.period}</div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg"
+                          onClick={() => handleDeleteSpecialHourSlot(item.configId, item.dayIndex, item.period)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Add Special Hour Form */}
+              <div className="border-t border-slate-800/40 pt-4 space-y-3">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add New Special Hour Slot</label>
+                <div className="grid gap-3 grid-cols-1 md:grid-cols-4 items-end">
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Name / Type</span>
+                    <Input
+                      placeholder="e.g. Library, Counselling, Seminar"
+                      value={specialTypeName}
+                      onChange={(e) => setSpecialTypeName(e.target.value)}
+                      className="bg-white/5 border-white/10 text-white rounded-xl h-10 placeholder:text-white/20 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Day</span>
+                    <Select value={specialDay} onValueChange={setSpecialDay}>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-10 text-xs">
+                        <SelectValue placeholder="Select Day" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#121225] border-white/10 text-white">
+                        <SelectItem value="0" className="text-xs">Monday</SelectItem>
+                        <SelectItem value="1" className="text-xs">Tuesday</SelectItem>
+                        <SelectItem value="2" className="text-xs">Wednesday</SelectItem>
+                        <SelectItem value="3" className="text-xs">Thursday</SelectItem>
+                        <SelectItem value="4" className="text-xs">Friday</SelectItem>
+                        <SelectItem value="5" className="text-xs">Saturday</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Hour / Period</span>
+                    <Select value={specialPeriod} onValueChange={setSpecialPeriod}>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white rounded-xl h-10 text-xs">
+                        <SelectValue placeholder="Select Period" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#121225] border-white/10 text-white">
+                        {[1, 2, 3, 4, 5, 6, 7].map((p) => (
+                          <SelectItem key={p} value={String(p)} className="text-xs">Period {p}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    onClick={handleAddSpecialHourSlot}
+                    disabled={!specialTypeName.trim() || !specialDay || !specialPeriod}
+                    className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl h-10 font-bold text-xs gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" /> Add Slot
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
