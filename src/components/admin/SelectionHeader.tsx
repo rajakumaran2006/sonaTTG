@@ -9,6 +9,8 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/admin/timetable": { title: "Timetable", subtitle: "View & Edit Timetables" },
   "/admin/sections": { title: "Sections", subtitle: "Manage Class Sections" },
   "/admin/years": { title: "Years", subtitle: "Manage Academic Years" },
+  "/faculty": { title: "Dashboard", subtitle: "Faculty Overview" },
+  "/faculty/subjects": { title: "Subjects", subtitle: "View Course Subjects" },
   // Super Admin Mappings
   "/super-admin": { title: "Dashboard", subtitle: "Super Admin Control Center" },
   "/super-admin/faculty": { title: "Faculty", subtitle: "Manage All Faculty Members" },
@@ -34,6 +36,10 @@ const SelectionHeader = () => {
       meta = { title: "Department Details", subtitle: "Department Overview & Statistics" };
     } else if (pathname.startsWith("/pull-requests/")) {
       meta = { title: "Pull Request Detail", subtitle: "Review Timetable Changes" };
+    } else if (pathname.startsWith("/admin/subjects/")) {
+      meta = { title: "Subjects", subtitle: "Manage Course Subjects" };
+    } else if (pathname.startsWith("/faculty/subjects/")) {
+      meta = { title: "Subjects", subtitle: "View Course Subjects" };
     } else {
       meta = { title: "Dashboard", subtitle: "Role & Performance Overview" };
     }
@@ -47,7 +53,7 @@ const SelectionHeader = () => {
 
         {/* Page Title */}
         <div className="flex flex-col justify-center">
-          <h1 className="text-lg font-extrabold tracking-tight text-foreground leading-none">
+          <h1 className="text-lg font-extrabold tracking-tight text-foreground leading-none text-xl">
             {meta.title.toUpperCase()}
           </h1>
           <p className="text-[11px] font-semibold tracking-widest text-muted-foreground uppercase mt-0.5">

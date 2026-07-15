@@ -236,9 +236,11 @@ const Navbar = () => {
           <div className="hidden md:block">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="flex items-center gap-2 px-2 hover:bg-muted">
-                  <User className="h-4 w-4" />
-                  <span className="max-w-[80px] truncate">{userSession.details.name.split(" ")[0]}</span>
+                <Button variant="ghost" size="sm" className="flex items-center gap-2 px-2 hover:bg-muted rounded-xl">
+                  <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold border ${isDark ? 'bg-gray-800 border-gray-600 text-gray-200' : 'bg-slate-900 border-slate-700 text-white'}`}>
+                    {userSession.details.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="max-w-[80px] truncate text-sm font-medium">{userSession.details.name.split(" ")[0]}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 p-2 rounded-xl border-border">
