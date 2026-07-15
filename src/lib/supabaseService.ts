@@ -572,6 +572,34 @@ export async function getCurrentTimetablesByDept(deptId: string): Promise<Array<
   return (data || []) as any[];
 }
 
+// Load special hours configs for a department + year (for batch generation)
+export async function getSpecialHoursConfigsForYear(
+  departmentId: string,
+  year: string
+): Promise<import('@/store/timetableStore').SpecialHoursConfig[]> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('special_hours_config')
+      .select('*')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .eq('is_active', true);
+    if (error) return [];
+    return (data || []).map((c: any) => ({
+      id: c.id,
+      special_type: c.special_type,
+      total_hours: c.total_hours,
+      saturday_hours: c.saturday_hours,
+      weekdays_hours: c.weekdays_hours,
+      saturday_periods: Array.isArray(c.saturday_periods) ? c.saturday_periods : [],
+      weekdays_periods: Array.isArray(c.weekdays_periods) ? c.weekdays_periods : [],
+      is_active: c.is_active,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // For a given section, fetch subject ids taught by a faculty (precise class mapping preferred)
 export async function getFacultySubjectIdsForSection(
   departmentId: string,
