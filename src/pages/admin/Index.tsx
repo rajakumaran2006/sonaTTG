@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useTimetableStore } from "@/store/timetableStore";
 import { getDepartmentByName, getTimetable } from "@/lib/supabaseService";
@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { GeneratedTimetablesGallery } from "@/components/admin/GeneratedTimetablesGallery";
+import type { YearSectionResult } from "@/lib/timetable";
 import {
   Users,
   BookOpen,
@@ -17,7 +19,13 @@ import {
   Database,
   Sparkles,
   ChevronRight,
+  Zap,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+  X,
 } from "lucide-react";
+
 
 const years = ["I", "II", "III", "IV"];
 const sections = ["A", "B", "C"];
@@ -49,7 +57,68 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
   const loadingRef = useRef(true);
 
+  // ── Generate All Years state ─────────────────────────────────────────────
+  type ProgressStatus = 'idle' | 'running' | 'ok' | 'error';
+  type ProgressItem = { year: string; section: string; status: ProgressStatus; error?: string };
+  const [generating, setGenerating] = useState(false);
+  const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
+  const [showProgress, setShowProgress] = useState(false);
+  const [generatedResults, setGeneratedResults] = useState<YearSectionResult[]>([]);
+  const [showGallery, setShowGallery] = useState(false);
+
+  // Initialize progress items (Year II: A,B | Year III: A,B,C | Year IV: A,B,C)
+  const initProgress = (): ProgressItem[] => [
+    { year: 'II', section: 'A', status: 'idle' },
+    { year: 'II', section: 'B', status: 'idle' },
+    { year: 'III', section: 'A', status: 'idle' },
+    { year: 'III', section: 'B', status: 'idle' },
+    { year: 'III', section: 'C', status: 'idle' },
+    { year: 'IV', section: 'A', status: 'idle' },
+    { year: 'IV', section: 'B', status: 'idle' },
+    { year: 'IV', section: 'C', status: 'idle' },
+  ];
+
+  const handleGenerateAll = useCallback(async () => {
+    if (!selection.department) {
+      toast.error('Please select a department first.');
+      return;
+    }
+    const items = initProgress();
+    setProgressItems(items);
+    setShowProgress(true);
+    setGenerating(true);
+    setGeneratedResults([]);
+
+    try {
+      const { generateAllYears } = await import('@/lib/timetable');
+      const result = await generateAllYears(
+        selection.department,
+        (year, section, status, error) => {
+          setProgressItems((prev) =>
+            prev.map((p) =>
+              p.year === year && p.section === section
+                ? { ...p, status: status as ProgressStatus, error }
+                : p
+            )
+          );
+        }
+      );
+      setGeneratedResults(result.results);
+      if (result.totalOk > 0) {
+        toast.success(`Generated ${result.totalOk} timetable${result.totalOk !== 1 ? 's' : ''} successfully!`);
+      }
+      if (result.totalError > 0) {
+        toast.error(`${result.totalError} timetable${result.totalError !== 1 ? 's' : ''} failed to generate.`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Generation failed. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  }, [selection.department]);
+
   const ready = selection.department && selection.year && selection.section;
+
 
   useEffect(() => {
     const adminData = localStorage.getItem("adminUser");
@@ -272,10 +341,27 @@ const Index = () => {
             {/* Generate Timetable — wider */}
             <div className={`lg:col-span-3 rounded-2xl ${cardBg} border ${cardBorder} shadow-sm overflow-hidden`}>
               <div className={`px-6 pt-6 pb-4 border-b ${divider}`}>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <h2 className={`text-base font-bold ${textPrimary}`}>Generate Timetable</h2>
+                  {/* Generate All Years button */}
+                  <button
+                    onClick={handleGenerateAll}
+                    disabled={!selection.department || generating}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200
+                      ${generating
+                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow-sm shadow-violet-500/25 hover:shadow-violet-500/40 hover:shadow-md hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none'
+                      }
+                    `}
+                  >
+                    {generating ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating…</>
+                    ) : (
+                      <><Zap className="h-3.5 w-3.5" />Generate All Years</>
+                    )}
+                  </button>
                 </div>
-                <p className={`text-sm ${textMuted}`}>Select parameters to start generating or editing a timetable.</p>
+                <p className={`text-sm ${textMuted}`}>Select parameters to start generating or editing a timetable. Or use <strong>Generate All Years</strong> to generate Year II, III &amp; IV simultaneously.</p>
               </div>
 
               <div className="p-6 space-y-5">
@@ -325,23 +411,35 @@ const Index = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  {ready && existingTimetable && (
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  {/* View generated gallery if results exist */}
+                  {generatedResults.length > 0 && !generating && (
                     <button
-                      onClick={() => navigate('/timetable')}
-                      className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-200 ${editBtn}`}
+                      onClick={() => setShowGallery(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-violet-400 border border-violet-500/25 hover:bg-violet-500/10 transition-all"
                     >
-                      Edit
+                      <Sparkles className="h-3.5 w-3.5" />
+                      View Generated ({generatedResults.filter(r => r.status === 'ok').length})
                     </button>
                   )}
-                  <button
-                    onClick={() => navigate('/subjects')}
-                    disabled={!ready || checking}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
-                  >
-                    {existingTimetable ? 'Edit Schedule' : (checking ? 'Checking…' : 'Generate New')}
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-3 ml-auto">
+                    {ready && existingTimetable && (
+                      <button
+                        onClick={() => navigate('/timetable')}
+                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-200 ${editBtn}`}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => navigate('/subjects')}
+                      disabled={!ready || checking}
+                      className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
+                    >
+                      {existingTimetable ? 'Edit Schedule' : (checking ? 'Checking…' : 'Generate New')}
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -385,6 +483,93 @@ const Index = () => {
           </div>
         </div>
       </main>
+
+      {/* ── Generation Progress Modal ────────────────────────────────────────── */}
+      {showProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-[420px] max-w-[95vw] rounded-2xl bg-[#0e0e1a] border border-white/10 shadow-2xl p-6"
+            style={{ backgroundImage: 'radial-gradient(ellipse at 30% 0%, rgba(139,92,246,0.1) 0%, transparent 60%)' }}
+          >
+            {/* Close only when done */}
+            {!generating && (
+              <button
+                onClick={() => {
+                  setShowProgress(false);
+                  if (generatedResults.length > 0) setShowGallery(true);
+                }}
+                className="absolute top-4 right-4 p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+
+            <div className="mb-5">
+              <div className="flex items-center gap-2.5 mb-1">
+                {generating
+                  ? <Loader2 className="h-5 w-5 animate-spin text-violet-400" />
+                  : <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
+                <h3 className="text-base font-bold text-white">
+                  {generating ? 'Generating Timetables…' : 'Generation Complete'}
+                </h3>
+              </div>
+              <p className="text-xs text-white/30 pl-7">
+                {generating ? 'Year II, III & IV are running in parallel' : `${generatedResults.filter(r => r.status === 'ok').length} of ${generatedResults.length} succeeded`}
+              </p>
+            </div>
+
+            {/* Progress Items grouped by year */}
+            {(['II', 'III', 'IV'] as const).map((year) => {
+              const items = progressItems.filter(p => p.year === year);
+              if (items.length === 0) return null;
+              return (
+                <div key={year} className="mb-4">
+                  <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest mb-2 pl-1">Year {year}</div>
+                  <div className="space-y-1.5">
+                    {items.map((item) => (
+                      <div key={item.section} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/4 border border-white/6">
+                        <div className="w-16 text-xs font-semibold text-white/50">Section {item.section}</div>
+                        <div className="flex-1">
+                          {item.status === 'idle' && <div className="h-1 w-full bg-white/10 rounded-full" />}
+                          {item.status === 'running' && (
+                            <div className="h-1 rounded-full overflow-hidden bg-white/10">
+                              <div className="h-full bg-violet-400 rounded-full animate-pulse" style={{ width: '60%' }} />
+                            </div>
+                          )}
+                          {item.status === 'ok' && <div className="h-1 w-full bg-emerald-400 rounded-full" />}
+                          {item.status === 'error' && <div className="h-1 w-full bg-red-400 rounded-full" />}
+                        </div>
+                        <div className="w-5 flex justify-center">
+                          {item.status === 'idle' && <span className="h-1.5 w-1.5 rounded-full bg-white/15" />}
+                          {item.status === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />}
+                          {item.status === 'ok' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                          {item.status === 'error' && <AlertCircle className="h-3.5 w-3.5 text-red-400" />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Action button when done */}
+            {!generating && generatedResults.length > 0 && (
+              <button
+                onClick={() => { setShowProgress(false); setShowGallery(true); }}
+                className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm shadow-violet-500/25"
+              >
+                View Generated Timetables →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Gallery Modal ─────────────────────────────────────────────────────── */}
+      <GeneratedTimetablesGallery
+        open={showGallery}
+        onClose={() => setShowGallery(false)}
+        results={generatedResults}
+      />
     </div>
   );
 };
