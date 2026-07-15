@@ -26,6 +26,8 @@ const SelectionHeader = () => {
                             pathname.startsWith("/pull-requests") || 
                             pathname.startsWith("/current-timetables");
 
+  if (isSuperAdminRoute) return null;
+
   let meta = PAGE_META[pathname];
   if (!meta) {
     if (pathname.startsWith("/super-admin/departments/")) {
