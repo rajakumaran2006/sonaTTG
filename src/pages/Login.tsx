@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Navbar } from "@/components/Navbar";
+import Navbar from "@/components/navbar/Navbar";
 import { LogIn, ShieldCheck, Building2, School, Eye, EyeOff } from "lucide-react";
 
 const Login = () => {

@@ -239,23 +239,29 @@ function placeOpenElectives(
 ): void {
   if (openElectiveHours <= 0) return;
 
-  const pool = shuffle(
-    [...Array(6).keys()].flatMap((d) =>
-      [...Array(PERIODS).keys()]
-        .filter((p) => grid[d][p] === null)
-        .map((p) => ({ d, p }))
-    )
-  );
+  // Fixed OE slots in priority order:
+  // Mon P1 → Wed P1 → Fri P1 → Sat P1 → Sat P2
+  // Day indices: Mon=0, Wed=2, Fri=4, Sat=5
+  // Period index: 0 = Period 1, 1 = Period 2
+  const OE_SLOTS: { d: number; p: number }[] = [
+    { d: 0, p: 0 }, // Mon Period 1
+    { d: 2, p: 0 }, // Wed Period 1
+    { d: 4, p: 0 }, // Fri Period 1
+    { d: 5, p: 0 }, // Sat Period 1
+    { d: 5, p: 1 }, // Sat Period 2
+  ];
 
-  const oePerDay = Array(6).fill(0);
-  for (const { d, p } of pool) {
-    if (openElectiveHours <= 0) break;
-    if (oePerDay[d] >= 2) continue;
-    grid[d][p] = "Open Elective";
-    oePerDay[d]++;
-    openElectiveHours--;
+  let hoursLeft = openElectiveHours;
+  for (const { d, p } of OE_SLOTS) {
+    if (hoursLeft <= 0) break;
+    if (grid[d][p] === null) {
+      grid[d][p] = "Open Elective";
+      hoursLeft--;
+    }
+    // If slot is occupied (e.g. by special hours), skip it — don't force overwrite
   }
 }
+
 
 function placeTheorySubjects(
   grid: Grid,
