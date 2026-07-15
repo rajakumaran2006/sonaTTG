@@ -397,10 +397,8 @@ const YearSubjects = () => {
 
   return (
     <main className="min-h-screen bg-background">
-      {userType === 'super' ? <Navbar /> : userType === 'admin' ? <AdminNavbar /> : <Navbar />}
-      <div className={`${
-        userType === 'faculty' ? "" : "md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80"
-      } pt-16 ${
+      {userType === 'super' ? <Navbar /> : <AdminNavbar />}
+      <div className={`${"md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80"} pt-16 ${
         userType === 'super' ? "md:pt-14" : "md:pt-0"
       } transition-all duration-300`}>
         <SelectionHeader />

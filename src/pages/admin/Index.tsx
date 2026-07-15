@@ -470,12 +470,15 @@ const Index = () => {
                 </div>
               </div>
 
-              {/* Tip Card */}
-              <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-5 text-white shadow-sm shadow-emerald-500/20">
+              {/* Tip Card — professional neutral */}
+              <div className={`rounded-2xl border ${cardBorder} ${cardBg} p-5 shadow-sm`}>
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-xs font-bold uppercase tracking-widest text-emerald-100">Pro Tip</p>
+                  <div className={`h-5 w-5 rounded-md flex items-center justify-center ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
+                    <Zap className={`h-3 w-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`} />
+                  </div>
+                  <p className={`text-xs font-bold uppercase tracking-widest ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Pro Tip</p>
                 </div>
-                <p className="text-sm leading-relaxed text-white/90">
+                <p className={`text-sm leading-relaxed ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
                   Export timetables to PDF or Excel from the review page. Smart constraints prevent faculty double-booking.
                 </p>
               </div>
