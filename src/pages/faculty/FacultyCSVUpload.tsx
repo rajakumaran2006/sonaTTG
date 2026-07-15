@@ -1,4 +1,4 @@
-import CSVUpload from "@/components/CSVUpload";
+import CSVUpload from "@/components/UploadCSV";
 import Navbar from "@/components/navbar/facultyadmin";
 
 const FacultyCSVUploadPage = () => {

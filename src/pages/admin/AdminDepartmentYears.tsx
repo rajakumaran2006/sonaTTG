@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SelectionHeader from '@/components/admin/SelectionHeader';
+import { Upload } from 'lucide-react';
 import Navbar from '@/components/navbar/facultyadmin';
 
 interface YearStats {
@@ -12,6 +13,7 @@ interface YearStats {
   subjects: number;
   totalHours: number;
 }
+
 
 const AdminDepartmentYears = () => {
   const navigate = useNavigate();
@@ -38,20 +40,61 @@ const AdminDepartmentYears = () => {
 
     (async () => {
       try {
-        const [deptRes, subsRes] = await Promise.all([
+        const [deptRes, subsRes, specialRes] = await Promise.all([
           (supabase as any).from('departments').select('name').eq('id', departmentId).single(),
-          (supabase as any).from('subjects').select('year,hours_per_week').eq('department_id', departmentId),
+          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', departmentId),
+          (supabase as any).from('special_hours_config').select('year,special_type,day_index,period').eq('department_id', departmentId).eq('is_active', true)
         ]);
 
         setDeptName(deptRes?.data?.name || "");
 
         const subs = subsRes.data || [];
+        const specialConfigs = specialRes.data || [];
         const map = new Map<string, { subjects: number; totalHours: number }>();
-        subs.forEach((s: any) => {
-          const cur = map.get(s.year) || { subjects: 0, totalHours: 0 };
-          cur.subjects += 1; 
-          cur.totalHours += s.hours_per_week || 0;
-          map.set(s.year, cur);
+        
+        ['I', 'II', 'III', 'IV'].forEach(yr => {
+          const yrSubs = subs.filter((s: any) => s.year === yr);
+          const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
+          
+          const subjectsCount = yrSubs.length;
+
+          // Theory hours (traditional theory)
+          const theoryHoursVal = yrSubs.filter((s: any) => s.type === 'theory').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
+          
+          // Lab hours
+          const labHoursVal = yrSubs.filter((s: any) => s.type === 'lab').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
+          
+          // Professional elective hours (grouped by pe_group_ tag, untagged are summed)
+          const pes = yrSubs.filter((s: any) => s.type === 'elective');
+          const peGroups = new Map<string, number>();
+          let peUntaggedSum = 0;
+          pes.forEach((s: any) => {
+            const groupTag = (s.tags || []).find((t: string) => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
+            if (groupTag) {
+              peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, s.hours_per_week));
+            } else {
+              peUntaggedSum += s.hours_per_week;
+            }
+          });
+          const electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + peUntaggedSum;
+
+          // Open elective hours (cumulative 5h if present, else 0)
+          const oes = yrSubs.filter((s: any) => s.type === 'open elective');
+          const openElectiveHours = oes.length > 0 ? 5 : 0;
+
+          // Special hours: config slots + special subjects in subjects table
+          const uniqueSlots = new Set<string>();
+          yrSpecs.forEach((c: any) => {
+            uniqueSlots.add(`${c.day_index}-${c.period}`);
+          });
+          const configSpecialHours = uniqueSlots.size;
+          const subjectSpecialHours = yrSubs.filter((s: any) => s.type === 'special').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
+          const totalSpecialHours = configSpecialHours + subjectSpecialHours;
+
+          // Grand total hours
+          const totalHours = theoryHoursVal + labHoursVal + electiveHours + openElectiveHours + totalSpecialHours;
+
+          map.set(yr, { subjects: subjectsCount, totalHours });
         });
 
         const arr = ['I', 'II', 'III', 'IV'].map(yr => ({
@@ -83,6 +126,16 @@ const AdminDepartmentYears = () => {
         <SelectionHeader />
         <section className="container py-4">
           <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Course Subjects</h1>
+              <p className="text-sm text-muted-foreground">Select a year to manage subjects or upload curriculum in bulk.</p>
+            </div>
+            {userType === 'admin' && (
+              <Button onClick={() => navigate('/csv-upload')} className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                <span>Bulk Import CSV</span>
+              </Button>
+            )}
           </header>
 
           <div className="grid gap-4 md:grid-cols-2">
