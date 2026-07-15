@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours } from "@/lib/supabaseService";
+import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours, getDepartments } from "@/lib/supabaseService";
 
 const YEAR_CONFIG: Record<string, string[]> = {
   "II":  ["A", "B", "C"],
@@ -66,6 +66,7 @@ export interface WizardSelection {
 }
 
 interface HourCheck {
+  deptName?: string;
   year: string;
   totalHours: number;
   status: "ok" | "warning" | "error";
@@ -75,7 +76,7 @@ interface GenerateWizardModalProps {
   open: boolean;
   onClose: () => void;
   departmentName: string;
-  onProceed: (selection: WizardSelection[]) => void;
+  onProceed: (selection: WizardSelection[], departmentNames: string[]) => void;
 }
 
 export function GenerateWizardModal({
@@ -86,6 +87,9 @@ export function GenerateWizardModal({
 }: GenerateWizardModalProps) {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2>(1);
+
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
 
   const [selectedYears, setSelectedYears] = useState<Record<string, boolean>>({
     II: true, III: true, IV: true,
@@ -103,8 +107,21 @@ export function GenerateWizardModal({
     if (open) {
       setStep(1);
       setHourChecks([]);
+      (async () => {
+        try {
+          const depts = await getDepartments();
+          setDepartments(depts);
+          const initialDepts: Record<string, boolean> = {};
+          depts.forEach((d) => {
+            initialDepts[d.name] = d.name === departmentName;
+          });
+          setSelectedDepts(initialDepts);
+        } catch (e) {
+          console.error("Failed to fetch departments:", e);
+        }
+      })();
     }
-  }, [open]);
+  }, [open, departmentName]);
 
   const toggleYear = (year: string) => {
     setSelectedYears((prev) => ({ ...prev, [year]: !prev[year] }));
@@ -130,49 +147,59 @@ export function GenerateWizardModal({
     const sel = getWizardSelection();
     if (sel.length === 0) return;
 
+    const activeDeptNames = Object.keys(selectedDepts).filter(name => selectedDepts[name]);
+    if (activeDeptNames.length === 0) return;
+
     setLoadingHours(true);
     setStep(2);
 
     try {
-      const dept = await getDepartmentByName(departmentName);
-      if (!dept) { setLoadingHours(false); return; }
+      const checks: HourCheck[] = [];
 
-      const checks: HourCheck[] = await Promise.all(
-        sel.map(async ({ year, sections }) => {
-          const [subjects, specialHoursConfigs] = await Promise.all([
-            getSubjectsForYear(dept.id, year).catch(() => []),
-            getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
-          ]);
-          
-          let specialHoursTotal = 0;
-          specialHoursConfigs.forEach((config: any) => {
-            specialHoursTotal += config.total_hours || 0;
-          });
-          
-          let maxSectionHours = 0;
-          let hasError = false;
-          let hasWarning = false;
-          
-          for (const section of sections) {
-            const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
-            const secSubjects = secSubjIds.length > 0 
-              ? subjects.filter(s => secSubjIds.includes(s.id))
-              : subjects;
-            const subjectsTotal = calculateTotalHours(secSubjects);
-            const total = subjectsTotal + specialHoursTotal;
-            maxSectionHours = Math.max(maxSectionHours, total);
-            if (total > TOTAL_HOURS) hasError = true;
-            if (total < TOTAL_HOURS) hasWarning = true;
-          }
-          
-          let status: HourCheck["status"] = "ok";
-          if (hasError) status = "error";
-          else if (hasWarning) status = "warning";
-          
-          return { year, totalHours: maxSectionHours, status };
-        })
-      );
+      for (const deptName of activeDeptNames) {
+        const dept = await getDepartmentByName(deptName);
+        if (!dept) continue;
+
+        const deptChecks = await Promise.all(
+          sel.map(async ({ year, sections }) => {
+            const [subjects, specialHoursConfigs] = await Promise.all([
+              getSubjectsForYear(dept.id, year).catch(() => []),
+              getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
+            ]);
+
+            let specialHoursTotal = 0;
+            specialHoursConfigs.forEach((config: any) => {
+              specialHoursTotal += config.total_hours || 0;
+            });
+
+            let maxSectionHours = 0;
+            let hasError = false;
+            let hasWarning = false;
+
+            for (const section of sections) {
+              const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
+              const secSubjects = secSubjIds.length > 0 
+                ? subjects.filter(s => secSubjIds.includes(s.id))
+                : subjects;
+              const subjectsTotal = calculateTotalHours(secSubjects);
+              const total = subjectsTotal + specialHoursTotal;
+              maxSectionHours = Math.max(maxSectionHours, total);
+              if (total > TOTAL_HOURS) hasError = true;
+              if (total < TOTAL_HOURS) hasWarning = true;
+            }
+
+            let status: HourCheck["status"] = "ok";
+            if (hasError) status = "error";
+            else if (hasWarning) status = "warning";
+
+            return { deptName, year, totalHours: maxSectionHours, status };
+          })
+        );
+        checks.push(...deptChecks);
+      }
       setHourChecks(checks);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoadingHours(false);
     }
@@ -211,6 +238,40 @@ export function GenerateWizardModal({
 
         {step === 1 && (
           <div className="space-y-3 mt-2">
+            {/* Choose Departments */}
+            {departments.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest pl-1">Select Departments</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {departments.map((d) => (
+                    <label
+                      key={d.id}
+                      className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                        selectedDepts[d.name]
+                          ? "bg-white/10 border-white/30 text-white"
+                          : "bg-white/3 border-white/10 text-white/40 hover:bg-white/5"
+                      }`}
+                    >
+                      <Checkbox
+                        id={`dept-${d.id}`}
+                        checked={!!selectedDepts[d.name]}
+                        onCheckedChange={() => {
+                          setSelectedDepts((prev) => ({
+                            ...prev,
+                            [d.name]: !prev[d.name]
+                          }));
+                        }}
+                        className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
+                      />
+                      <span className="text-xs font-bold">{d.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest pl-1 block mt-2">Select Years &amp; Sections</span>
+
             {YEAR_ORDER.map((year) => (
               <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
                 <div className="flex items-center gap-3 mb-3">
@@ -250,11 +311,11 @@ export function GenerateWizardModal({
 
             <div className="flex items-center justify-between pt-2">
               <p className="text-xs text-white/25">
-                {getWizardSelection().reduce((n, s) => n + s.sections.length, 0)} section(s) selected
+                {getWizardSelection().reduce((n, s) => n + s.sections.length, 0) * Object.keys(selectedDepts).filter(n => selectedDepts[n]).length} section(s) selected
               </p>
               <Button
                 onClick={handleNext}
-                disabled={getWizardSelection().length === 0}
+                disabled={getWizardSelection().length === 0 || Object.keys(selectedDepts).filter(n => selectedDepts[n]).length === 0}
                 className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >
                 Next <ArrowRight className="h-3.5 w-3.5" />
@@ -270,19 +331,22 @@ export function GenerateWizardModal({
             ) : (
               <>
                 {hourChecks.map((check) => (
-                  <div key={check.year} className={`flex items-center gap-4 rounded-xl border p-4 ${
+                  <div key={`${check.deptName}-${check.year}`} className={`flex items-center gap-4 rounded-xl border p-4 ${
                     check.status === 'ok'      ? 'border-emerald-500/30 bg-emerald-500/8' :
                     check.status === 'warning' ? 'border-amber-500/30 bg-amber-500/8' :
                                                  'border-red-500/30 bg-red-500/8'
                   }`}>
-                    <div className="text-sm font-bold text-white/80 w-14">Year {check.year}</div>
+                    <div className="text-[11px] font-bold text-white/80 w-24 leading-snug">
+                      <div className="text-emerald-400 truncate">{check.deptName}</div>
+                      <div>Year {check.year}</div>
+                    </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <div className={`text-xl font-bold ${
                           check.status === 'ok' ? 'text-emerald-300' :
                           check.status === 'warning' ? 'text-amber-300' : 'text-red-300'
                         }`}>{check.totalHours}h</div>
-                        <span className="text-xs text-white/25">/ {TOTAL_HOURS}h required</span>
+                        <span className="text-[10px] text-white/25">/ {TOTAL_HOURS}h required</span>
                       </div>
                       <div className="h-1.5 w-full bg-white/10 rounded-full mt-1.5">
                         <div
@@ -340,7 +404,11 @@ export function GenerateWizardModal({
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
               <Button
-                onClick={() => { onClose(); onProceed(getWizardSelection()); }}
+                onClick={() => {
+                  onClose();
+                  const activeDeptNames = Object.keys(selectedDepts).filter(name => selectedDepts[name]);
+                  onProceed(getWizardSelection(), activeDeptNames);
+                }}
                 disabled={!canProceed || loadingHours}
                 className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >

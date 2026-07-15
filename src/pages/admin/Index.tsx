@@ -61,14 +61,14 @@ const Index = () => {
   // ── Generate Wizard State ───────────────────────────────────────────────
   const [showWizard, setShowWizard] = useState(false);
 
-  const handleWizardProceed = useCallback((wizardSelection: WizardSelection[]) => {
+  const handleWizardProceed = useCallback((wizardSelection: WizardSelection[], departmentNames: string[]) => {
     navigate("/admin/generate-review", {
       state: {
         selectedYears: wizardSelection,
-        departmentName: selection.department,
+        departmentNames,
       },
     });
-  }, [selection.department, navigate]);
+  }, [navigate]);
 
   const ready = selection.department && selection.year && selection.section;
 

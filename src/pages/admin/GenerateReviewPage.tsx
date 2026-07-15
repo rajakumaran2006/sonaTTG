@@ -92,24 +92,25 @@ export default function GenerateReviewPage() {
   const stateData = location.state as {
     selectedYears?: WizardSelection[];
     departmentName?: string;
+    departmentNames?: string[];
   } | null;
 
   const selectedYears = stateData?.selectedYears || [];
-  const departmentName = stateData?.departmentName || "";
+  const departmentNames = stateData?.departmentNames || (stateData?.departmentName ? [stateData.departmentName] : []);
 
   const [activeTab, setActiveTab] = useState<string>("");
-  const [deptId, setDeptId] = useState<string>("");
+  const [activeDeptTab, setActiveDeptTab] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  // Per-year data store
-  const [subjectsData, setSubjectsData] = useState<Record<string, SubjectRowWithFaculty[]>>({});
-  const [specialHoursData, setSpecialHoursData] = useState<Record<string, any[]>>({});
-  const [totalHoursBySection, setTotalHoursBySection] = useState<Record<string, Record<string, number>>>({});
-  const [sectionSubjectsData, setSectionSubjectsData] = useState<Record<string, Record<string, Set<string>>>>({});
+  // Per-department, per-year data store
+  const [subjectsData, setSubjectsData] = useState<Record<string, Record<string, SubjectRowWithFaculty[]>>>({});
+  const [specialHoursData, setSpecialHoursData] = useState<Record<string, Record<string, any[]>>>({});
+  const [totalHoursBySection, setTotalHoursBySection] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  const [sectionSubjectsData, setSectionSubjectsData] = useState<Record<string, Record<string, Record<string, Set<string>>>>>({});
 
   // Generation progress state
   type ProgressStatus = 'idle' | 'running' | 'ok' | 'error';
-  type ProgressItem = { year: string; section: string; status: ProgressStatus; error?: string };
+  type ProgressItem = { department: string; year: string; section: string; status: ProgressStatus; error?: string };
   const [generating, setGenerating] = useState(false);
   const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
   const [showProgress, setShowProgress] = useState(false);
@@ -117,11 +118,12 @@ export default function GenerateReviewPage() {
   const [showGallery, setShowGallery] = useState(false);
 
   useEffect(() => {
-    if (selectedYears.length === 0 || !departmentName) {
+    if (selectedYears.length === 0 || departmentNames.length === 0) {
       toast.error("No generation parameters specified. Please start from the dashboard.");
       navigate("/admin");
       return;
     }
+    setActiveDeptTab(departmentNames[0]);
     setActiveTab(selectedYears[0].year);
     loadAllData();
   }, [location.state]);
@@ -129,93 +131,110 @@ export default function GenerateReviewPage() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const dept = await getDepartmentByName(departmentName);
-      if (!dept) {
-        toast.error("Department not found");
-        navigate("/admin");
-        return;
-      }
-      setDeptId(dept.id);
-
-      const subjectsMap: Record<string, SubjectRowWithFaculty[]> = {};
-      const specialHoursMap: Record<string, any[]> = {};
-      const secHoursMap: Record<string, Record<string, number>> = {};
-      const secSubjectsMap: Record<string, Record<string, Set<string>>> = {};
+      const depts = await Promise.all(
+        departmentNames.map(async (name) => {
+          const dept = await getDepartmentByName(name);
+          if (!dept) throw new Error(`Department not found: ${name}`);
+          return dept;
+        })
+      );
+      
+      const allSubjectsData: Record<string, Record<string, SubjectRowWithFaculty[]>> = {};
+      const allSpecialHoursData: Record<string, Record<string, any[]>> = {};
+      const allSecHoursMap: Record<string, Record<string, Record<string, number>>> = {};
+      const allSecSubjectsMap: Record<string, Record<string, Record<string, Set<string>>>> = {};
 
       await Promise.all(
-        selectedYears.map(async ({ year, sections }) => {
-          // 1. Fetch subjects
-          const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
-          // 2. Fetch special hours configs
-          const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
-          // 3. Fetch faculty mappings
-          const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
+        depts.map(async (dept) => {
+          const subjectsMap: Record<string, SubjectRowWithFaculty[]> = {};
+          const specialHoursMap: Record<string, any[]> = {};
+          const secHoursMap: Record<string, Record<string, number>> = {};
+          const secSubjectsMap: Record<string, Record<string, Set<string>>> = {};
 
-          // 4. Fetch section subjects for all sections
-          const sectionToSubjectIds: Record<string, Set<string>> = {};
           await Promise.all(
-            sections.map(async (sec) => {
-              const subIds = await getSectionSubjects(dept.id, year, sec).catch(() => []);
-              sectionToSubjectIds[sec] = new Set(subIds);
+            selectedYears.map(async ({ year, sections }) => {
+              // 1. Fetch subjects
+              const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
+              // 2. Fetch special hours configs
+              const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
+              // 3. Fetch faculty mappings
+              const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
+
+              // 4. Fetch section subjects for all sections
+              const sectionToSubjectIds: Record<string, Set<string>> = {};
+              await Promise.all(
+                sections.map(async (sec) => {
+                  const subIds = await getSectionSubjects(dept.id, year, sec).catch(() => []);
+                  sectionToSubjectIds[sec] = new Set(subIds);
+                })
+              );
+              secSubjectsMap[year] = sectionToSubjectIds;
+
+              let specialHoursTotal = 0;
+              specialHours.forEach((config) => {
+                specialHoursTotal += config.total_hours || 0;
+              });
+
+              const sectionHours: Record<string, number> = {};
+              sections.forEach((sec) => {
+                const mappedIds = sectionToSubjectIds[sec];
+                const sectionSpecificSubjects = mappedIds.size > 0
+                  ? subjects.filter((s) => mappedIds.has(s.id))
+                  : subjects;
+                const subjectsTotal = calculateTotalHours(sectionSpecificSubjects);
+                sectionHours[sec] = subjectsTotal + specialHoursTotal;
+              });
+              secHoursMap[year] = sectionHours;
+
+              // Map faculty names into subject rows
+              const rows: SubjectRowWithFaculty[] = subjects.map((sub) => {
+                const facultyBySection: Record<string, string> = {};
+                sections.forEach((sec) => {
+                  facultyBySection[sec] = facultyMap[sub.id]?.[sec] || "";
+                });
+                return {
+                  id: sub.id,
+                  name: sub.name,
+                  code: sub.code,
+                  type: sub.type,
+                  hoursPerWeek: sub.hoursPerWeek,
+                  facultyBySection,
+                };
+              });
+
+              subjectsMap[year] = rows;
+              specialHoursMap[year] = specialHours.filter((h) => h.is_active);
             })
           );
-          secSubjectsMap[year] = sectionToSubjectIds;
 
-          let specialHoursTotal = 0;
-          specialHours.forEach((config) => {
-            specialHoursTotal += config.total_hours || 0;
-          });
-          
-          const sectionHours: Record<string, number> = {};
-          sections.forEach((sec) => {
-            const mappedIds = sectionToSubjectIds[sec];
-            const sectionSpecificSubjects = mappedIds.size > 0
-              ? subjects.filter((s) => mappedIds.has(s.id))
-              : subjects; // fallback if none assigned
-            const subjectsTotal = calculateTotalHours(sectionSpecificSubjects);
-            sectionHours[sec] = subjectsTotal + specialHoursTotal;
-          });
-          secHoursMap[year] = sectionHours;
-
-          // Map faculty names into subject rows
-          const rows: SubjectRowWithFaculty[] = subjects.map((sub) => {
-            const facultyBySection: Record<string, string> = {};
-            sections.forEach((sec) => {
-              facultyBySection[sec] = facultyMap[sub.id]?.[sec] || "";
-            });
-            return {
-              id: sub.id,
-              name: sub.name,
-              code: sub.code,
-              type: sub.type,
-              hoursPerWeek: sub.hoursPerWeek,
-              facultyBySection,
-            };
-          });
-
-          subjectsMap[year] = rows;
-          specialHoursMap[year] = specialHours.filter((h) => h.is_active);
+          allSubjectsData[dept.name] = subjectsMap;
+          allSpecialHoursData[dept.name] = specialHoursMap;
+          allSecHoursMap[dept.name] = secHoursMap;
+          allSecSubjectsMap[dept.name] = secSubjectsMap;
         })
       );
 
-      setSubjectsData(subjectsMap);
-      setSpecialHoursData(specialHoursMap);
-      setTotalHoursBySection(secHoursMap);
-      setSectionSubjectsData(secSubjectsMap);
+      setSubjectsData(allSubjectsData);
+      setSpecialHoursData(allSpecialHoursData);
+      setTotalHoursBySection(allSecHoursMap);
+      setSectionSubjectsData(allSecSubjectsMap);
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to load review data");
+      navigate("/admin");
     } finally {
       setLoading(false);
     }
   };
 
   const handleGenerate = async () => {
-    // Flatten selections to build progress items
+    // Flatten selections to build progress items for all departments
     const progressList: ProgressItem[] = [];
-    selectedYears.forEach(({ year, sections }) => {
-      sections.forEach((sec) => {
-        progressList.push({ year, section: sec, status: "idle" });
+    departmentNames.forEach((deptName) => {
+      selectedYears.forEach(({ year, sections }) => {
+        sections.forEach((sec) => {
+          progressList.push({ department: deptName, year, section: sec, status: "idle" });
+        });
       });
     });
 
@@ -225,36 +244,57 @@ export default function GenerateReviewPage() {
     setGeneratedResults([]);
 
     try {
-      const result = await generateAllYears(
-        departmentName,
-        (year, section, status, error) => {
-          setProgressItems((prev) =>
-            prev.map((p) =>
-              p.year === year && p.section === section
-                ? { ...p, status: status as ProgressStatus, error }
-                : p
-            )
-          );
-        }
+      let finalResultsList: YearSectionResult[] = [];
+      let anyError = false;
+
+      // Run generation concurrently for all selected departments
+      await Promise.all(
+        departmentNames.map(async (deptName) => {
+          try {
+            const result = await generateAllYears(
+              deptName,
+              (year, section, status, error) => {
+                setProgressItems((prev) =>
+                  prev.map((p) =>
+                    p.department === deptName && p.year === year && p.section === section
+                      ? { ...p, status: status as ProgressStatus, error }
+                      : p
+                  )
+                );
+              }
+            );
+
+            const selectedYearSet = new Set(selectedYears.map(y => y.year));
+            const deptResults = result.results.filter(r => {
+              if (!selectedYearSet.has(r.year)) return false;
+              const matchingYear = selectedYears.find(y => y.year === r.year);
+              return matchingYear?.sections.includes(r.section) ?? false;
+            });
+
+            finalResultsList = [...finalResultsList, ...deptResults];
+          } catch (e: any) {
+            console.error(`Generation failed for department ${deptName}:`, e);
+            anyError = true;
+            setProgressItems((prev) =>
+              prev.map((p) =>
+                p.department === deptName && p.status !== "ok"
+                  ? { ...p, status: "error", error: e?.message || "Generation failed" }
+                  : p
+              )
+            );
+          }
+        })
       );
 
-      // Filter results to only include selected years and sections
-      const selectedYearSet = new Set(selectedYears.map(y => y.year));
-      const finalResults = result.results.filter(r => {
-        if (!selectedYearSet.has(r.year)) return false;
-        const matchingYear = selectedYears.find(y => y.year === r.year);
-        return matchingYear?.sections.includes(r.section) ?? false;
-      });
-
-      setGeneratedResults(finalResults);
-      const totalOk = finalResults.filter(r => r.status === "ok").length;
-      const totalErr = finalResults.filter(r => r.status === "error").length;
+      setGeneratedResults(finalResultsList);
+      const totalOk = finalResultsList.filter(r => r.status === "ok").length;
+      const totalErr = finalResultsList.filter(r => r.status === "error").length;
 
       if (totalOk > 0) {
         toast.success(`Generated ${totalOk} timetable(s) successfully!`);
       }
-      if (totalErr > 0) {
-        toast.error(`${totalErr} timetable(s) failed.`);
+      if (totalErr > 0 || anyError) {
+        toast.error(`Some timetables failed to generate.`);
       }
     } catch (e: any) {
       toast.error(e?.message || "Generation failed.");
@@ -264,8 +304,8 @@ export default function GenerateReviewPage() {
   };
 
   const activeYearSections = selectedYears.find((y) => y.year === activeTab)?.sections || [];
-  const activeYearSubjects = subjectsData[activeTab] || [];
-  const activeYearSpecialHours = specialHoursData[activeTab] || [];
+  const activeYearSubjects = subjectsData[activeDeptTab]?.[activeTab] || [];
+  const activeYearSpecialHours = specialHoursData[activeDeptTab]?.[activeTab] || [];
 
   if (loading) {
     return (
@@ -301,7 +341,7 @@ export default function GenerateReviewPage() {
                 Review &amp; Generate Timetables
               </h1>
               <p className="text-sm text-slate-400 mt-1">
-                Department: <span className="text-emerald-400 font-semibold">{departmentName}</span>
+                Departments: <span className="text-emerald-400 font-semibold">{departmentNames.join(", ")}</span>
               </p>
             </div>
             
@@ -313,6 +353,25 @@ export default function GenerateReviewPage() {
               <ArrowLeft className="h-4 w-4" /> Back to Dashboard
             </Button>
           </header>
+
+          {/* Department Selector Tabs */}
+          {departmentNames.length > 1 && (
+            <div className="flex border-b border-white/10 mb-4 gap-1 shrink-0">
+              {departmentNames.map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setActiveDeptTab(name)}
+                  className={`px-5 py-2.5 text-sm font-bold border-b-2 transition-all ${
+                    activeDeptTab === name
+                      ? "border-emerald-500 text-white bg-white/2"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Year Tabs */}
           <div className="flex border-b border-white/10 mb-6 gap-1 shrink-0">
@@ -328,7 +387,7 @@ export default function GenerateReviewPage() {
               >
                 Year {year}
                 <Badge variant="secondary" className="ml-2 bg-white/10 text-white font-mono">
-                  {subjectsData[year]?.length || 0} subjects
+                  {subjectsData[activeDeptTab]?.[year]?.length || 0} subjects
                 </Badge>
               </button>
             ))}
@@ -347,7 +406,7 @@ export default function GenerateReviewPage() {
                 <CardContent className="pt-4">
                   <div className="space-y-4">
                     {activeYearSections.map((sec) => {
-                      const hours = totalHoursBySection[activeTab]?.[sec] || 0;
+                      const hours = totalHoursBySection[activeDeptTab]?.[activeTab]?.[sec] || 0;
                       return (
                         <div key={sec} className="space-y-1.5 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
                           <div className="flex items-center justify-between">
@@ -483,8 +542,8 @@ export default function GenerateReviewPage() {
                               </td>
                               <td className="py-3 px-4 font-semibold text-white/90">{sub.hoursPerWeek}h</td>
                               {activeYearSections.map((sec) => {
-                                const isAssigned = sectionSubjectsData[activeTab]?.[sec]?.has(sub.id) ?? true;
-                                const size = sectionSubjectsData[activeTab]?.[sec]?.size || 0;
+                                const isAssigned = sectionSubjectsData[activeDeptTab]?.[activeTab]?.[sec]?.has(sub.id) ?? true;
+                                const size = sectionSubjectsData[activeDeptTab]?.[activeTab]?.[sec]?.size || 0;
                                 const isMapped = size === 0 || isAssigned;
 
                                 if (!isMapped) {
@@ -543,7 +602,7 @@ export default function GenerateReviewPage() {
       {/* ── Generation Progress Overlay ── */}
       {showProgress && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="relative w-[420px] max-w-[95vw] rounded-2xl bg-[#0e0e1b] border border-white/10 shadow-2xl p-6"
+          <div className="relative w-[420px] max-w-[95vw] rounded-2xl bg-[#0e0e1b] border border-white/10 shadow-2xl p-6 overflow-y-auto max-h-[90vh]"
             style={{ backgroundImage: 'radial-gradient(ellipse at 30% 0%, rgba(139,92,246,0.1) 0%, transparent 60%)' }}
           >
             {!generating && (
@@ -572,39 +631,44 @@ export default function GenerateReviewPage() {
               </p>
             </div>
 
-            {/* Progress list by year */}
-            {selectedYears.map(({ year }) => {
-              const items = progressItems.filter((p) => p.year === year);
-              if (items.length === 0) return null;
-              return (
-                <div key={year} className="mb-4">
-                  <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest mb-2 pl-1">Year {year}</div>
-                  <div className="space-y-1.5">
-                    {items.map((item) => (
-                      <div key={item.section} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/8">
-                        <div className="w-16 text-xs font-semibold text-white/60">Section {item.section}</div>
-                        <div className="flex-1">
-                          {item.status === "idle" && <div className="h-1 w-full bg-white/10 rounded-full" />}
-                          {item.status === "running" && (
-                            <div className="h-1 rounded-full overflow-hidden bg-white/10">
-                              <div className="h-full bg-violet-400 rounded-full animate-pulse animate-infinite" style={{ width: "60%" }} />
+            {/* Progress list by department and year */}
+            {departmentNames.map((deptName) => (
+              <div key={deptName} className="mb-5 border-b border-white/5 pb-4 last:border-b-0 last:pb-0">
+                <div className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider mb-2 pl-1">{deptName}</div>
+                {selectedYears.map(({ year }) => {
+                  const items = progressItems.filter((p) => p.department === deptName && p.year === year);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={year} className="mb-3 last:mb-0">
+                      <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest mb-1.5 pl-1">Year {year}</div>
+                      <div className="space-y-1.5">
+                        {items.map((item) => (
+                          <div key={item.section} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/8">
+                            <div className="w-16 text-xs font-semibold text-white/60">Section {item.section}</div>
+                            <div className="flex-1">
+                              {item.status === "idle" && <div className="h-1 w-full bg-white/10 rounded-full" />}
+                              {item.status === "running" && (
+                                <div className="h-1 rounded-full overflow-hidden bg-white/10">
+                                  <div className="h-full bg-violet-400 rounded-full animate-pulse animate-infinite" style={{ width: "60%" }} />
+                                </div>
+                              )}
+                              {item.status === "ok" && <div className="h-1 w-full bg-emerald-400 rounded-full" />}
+                              {item.status === "error" && <div className="h-1 w-full bg-red-400 rounded-full" />}
                             </div>
-                          )}
-                          {item.status === "ok" && <div className="h-1 w-full bg-emerald-400 rounded-full" />}
-                          {item.status === "error" && <div className="h-1 w-full bg-red-400 rounded-full" />}
-                        </div>
-                        <div className="w-5 flex justify-center">
-                          {item.status === "idle" && <span className="h-1.5 w-1.5 rounded-full bg-white/15" />}
-                          {item.status === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />}
-                          {item.status === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-                          {item.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
-                        </div>
+                            <div className="w-5 flex justify-center">
+                              {item.status === "idle" && <span className="h-1.5 w-1.5 rounded-full bg-white/15" />}
+                              {item.status === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />}
+                              {item.status === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                              {item.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
 
             {!generating && generatedResults.length > 0 && (
               <button
