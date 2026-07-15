@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear } from "./supabaseService";
 import {
   buildFacultyAllocationMap,
   findAvailableFacultyForSlot,
@@ -900,4 +900,117 @@ export function validateLabPlacement(
     errors,
     labDays,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH GENERATION — generateAllYears
+// Generates timetables for Year II, III, IV in parallel.
+// Years II, III, IV run concurrently; within each year sections run sequentially
+// to preserve cross-section faculty conflict awareness.
+// Results are returned in-memory — NOT saved to DB.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type YearSectionResult = {
+  year: string;
+  section: string;
+  grid: string[][];
+  status: 'ok' | 'error';
+  error?: string;
+};
+
+export type BatchGenerationResult = {
+  results: YearSectionResult[];
+  totalOk: number;
+  totalError: number;
+};
+
+// Sections per year: II → A,B  |  III → A,B,C  |  IV → A,B,C
+const YEAR_SECTIONS: Record<string, string[]> = {
+  'II':  ['A', 'B'],
+  'III': ['A', 'B', 'C'],
+  'IV':  ['A', 'B', 'C'],
+};
+
+export async function generateAllYears(
+  departmentName: string,
+  onProgress?: (year: string, section: string, status: 'running' | 'ok' | 'error', error?: string) => void
+): Promise<BatchGenerationResult> {
+  const department = await getDepartmentByName(departmentName);
+  if (!department) {
+    return {
+      results: [],
+      totalOk: 0,
+      totalError: Object.values(YEAR_SECTIONS).flat().length,
+    };
+  }
+  const deptId = department.id;
+
+  const allResults: YearSectionResult[] = [];
+
+  // Generate all years concurrently (outer Promise.all)
+  await Promise.all(
+    Object.entries(YEAR_SECTIONS).map(async ([year, sections]) => {
+      // Load subjects + special hours once per year (shared across sections)
+      const [subjects, specialHoursConfigs] = await Promise.all([
+        getSubjectsForYear(deptId, year).catch(() => [] as Subject[]),
+        getSpecialHoursConfigsForYear(deptId, year).catch(() => [] as SpecialHoursConfig[]),
+      ]);
+
+      if (subjects.length === 0) {
+        // No subjects configured for this year — mark all sections as error
+        for (const section of sections) {
+          allResults.push({
+            year,
+            section,
+            grid: [],
+            status: 'error',
+            error: `No subjects configured for Year ${year}`,
+          });
+          onProgress?.(year, section, 'error', `No subjects configured for Year ${year}`);
+        }
+        return;
+      }
+
+      // Load elective mode from localStorage per year
+      const storedOe = localStorage.getItem(`oe_mode:${deptId}:${year}`) as 'parallel' | 'separate' | null;
+      const openElectiveMode: 'parallel' | 'separate' = storedOe ?? 'parallel';
+      const storedPe = localStorage.getItem(`pe_mode:${deptId}:${year}`) as 'parallel' | 'separate' | null;
+      const electiveMode: 'parallel' | 'separate' = storedPe ?? 'parallel';
+
+      // Sections run SEQUENTIALLY within a year (faculty conflict safety)
+      for (const section of sections) {
+        onProgress?.(year, section, 'running');
+        try {
+          // Load lab prefs per section
+          const labPreferences = await getLabPreferences(deptId, year, section).catch(() => ({} as LabPrefsMap));
+
+          const grid = await generateTimetable({
+            subjects,
+            special: { seminar: false, library: false, counselling: false },
+            specialHoursConfigs,
+            labPreferences,
+            departmentName,
+            year,
+            section,
+            openElectiveMode,
+            electiveMode,
+          });
+
+          const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
+
+          allResults.push({ year, section, grid: gridAsStrings, status: 'ok' });
+          onProgress?.(year, section, 'ok');
+        } catch (err: any) {
+          const msg = err?.message ?? 'Unknown error';
+          allResults.push({ year, section, grid: [], status: 'error', error: msg });
+          onProgress?.(year, section, 'error', msg);
+        }
+      }
+    })
+  );
+
+  const totalOk = allResults.filter((r) => r.status === 'ok').length;
+  const totalError = allResults.filter((r) => r.status === 'error').length;
+
+  return { results: allResults, totalOk, totalError };
 }

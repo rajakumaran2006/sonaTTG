@@ -180,9 +180,8 @@ const DepartmentDetails = () => {
             { label: deptName || 'Department' },
           ]}
         />
-        <header className="mb-6 flex items-center justify-between">
+        <header className="mb-6 flex items-center justify-between mt-4">
           <div>
-            <h1 className="text-2xl font-bold">{deptName || 'Department'}</h1>
             <p className="text-sm text-muted-foreground">Year-wise summary</p>
           </div>
           <Button variant="outline" onClick={() => navigate('/super-admin/departments')}>Back</Button>

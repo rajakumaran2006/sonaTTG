@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -38,6 +38,45 @@ const Navbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
   const { isDark, toggleDark } = useDarkMode();
+  const { pathname } = useLocation();
+  const [deptName, setDeptName] = useState("");
+
+  useEffect(() => {
+    if (pathname.startsWith("/super-admin/departments/")) {
+      const parts = pathname.split("/");
+      const id = parts[3];
+      const isYearSubjects = parts[4] === "years";
+      
+      if (id === "edit") {
+        setDeptName("EDIT DEPARTMENT");
+      } else if (isYearSubjects) {
+        setDeptName("DEPARTMENT DETAILS");
+      } else if (id) {
+        (async () => {
+          const { data } = await supabase.from('departments').select('name').eq('id', id).maybeSingle();
+          if (data?.name) {
+            setDeptName(data.name);
+          } else {
+            setDeptName("DEPARTMENT DETAILS");
+          }
+        })();
+      }
+    } else {
+      setDeptName("");
+    }
+  }, [pathname]);
+
+  const getPageTitle = () => {
+    if (deptName) return deptName.toUpperCase();
+    if (pathname === "/super-admin") return "DASHBOARD";
+    if (pathname === "/super-admin/departments") return "DEPARTMENT";
+    if (pathname === "/super-admin/faculty") return "FACULTY";
+    if (pathname === "/super-admin/admin-management") return "ADMIN MANAGEMENT";
+    if (pathname === "/super-admin/labs") return "LABS";
+    if (pathname === "/pull-requests") return "PULL REQUESTS";
+    if (pathname === "/current-timetables") return "CURRENT TIMETABLES";
+    return "";
+  };
 
   const isLoggedIn = useMemo(() => {
     try { return localStorage.getItem("superAdmin") === "true"; } catch { return false; }
@@ -276,9 +315,11 @@ const Navbar = () => {
         <SidebarContent />
       </aside>
 
-      {/* Desktop Top Bar (Clean, glassmorphic indicator) */}
-      <div className={`hidden md:flex md:fixed md:top-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 md:right-0 md:z-20 md:border-b md:bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 md:px-6 md:py-3 transition-colors duration-300 ${isDark ? 'border-gray-800' : 'border-slate-100'}`}>
-        <div className="ml-auto flex items-center gap-3">
+      <div className={`hidden md:flex md:items-center md:justify-between md:fixed md:top-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 md:right-0 md:z-20 md:border-b md:bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 md:px-6 md:py-4 transition-colors duration-300 ${isDark ? 'border-gray-800' : 'border-slate-100'}`}>
+        <div className="font-extrabold text-lg md:text-xl tracking-tight text-foreground" style={{ fontFamily: 'Outfit, sans-serif' }}>
+          {getPageTitle()}
+        </div>
+        <div className="flex items-center gap-3">
           <Badge variant="outline" className={`uppercase tracking-wide text-[9px] font-bold px-2 py-0.5 ${isDark ? 'border-gray-850 text-gray-400' : 'border-slate-200 text-slate-500'}`}>
             Super Admin
           </Badge>
