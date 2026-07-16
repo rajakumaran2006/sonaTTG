@@ -84,6 +84,17 @@ const periods = [
 const parseScheduleInfo = (info: string) => {
   if (!info) return { raw: "Allocated" };
   
+  // Pattern 0: Year {Y} {Dept} Sec {S} - {Subject}
+  // Matches: Year III IT Sec C - FSD Lab
+  const yearDeptSecMatch = info.match(/Year\s+([a-zA-Z0-9]+)\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)/);
+  if (yearDeptSecMatch) {
+    return {
+      year: `Year ${yearDeptSecMatch[1]} ${yearDeptSecMatch[2]}`,
+      section: `Sec ${yearDeptSecMatch[3]}`,
+      subject: yearDeptSecMatch[4]
+    };
+  }
+
   // Pattern 1: Year {Y} Sec {S} - {Subject}
   // Matches: Year III Sec C - FSD Lab
   const yearSecMatch = info.match(/Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)/);
@@ -180,6 +191,7 @@ const Lab = () => {
     operating_hours: {} as any,
   });
   const [itAdsLabs, setItAdsLabs] = useState<any[]>([]);
+  const [selectedAllocationDepts, setSelectedAllocationDepts] = useState<Record<string, 'IT' | 'ADS'>>({});
   const [newSession, setNewSession] = useState({
     semester: "",
     academic_year: new Date().getFullYear().toString() + "-" + (new Date().getFullYear() + 1).toString().slice(-2),
@@ -1304,8 +1316,46 @@ const Lab = () => {
                                                     <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
                                                   </div>
                                                 </div>
+                                                {/* Department selection */}
+                                                {(() => {
+                                                  const currentDept = selectedAllocationDepts[subj.id] || 
+                                                    ((departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("ARTIFICIAL") || 
+                                                      departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("AIDS") || 
+                                                      departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("ADS")) ? "ADS" : "IT");
+                                                  return (
+                                                    <div className="flex items-center gap-2 mb-2 mt-2 border-t pt-2 border-border/50">
+                                                      <span className="text-[10px] text-muted-foreground uppercase font-semibold">Dept:</span>
+                                                      <div className="flex gap-1">
+                                                        {['IT', 'ADS'].map((dept) => (
+                                                          <Button
+                                                            key={dept}
+                                                            size="sm"
+                                                            variant={currentDept === dept ? "default" : "outline"}
+                                                            className={cn(
+                                                              "h-6 px-2 text-[10px] font-bold rounded cursor-pointer",
+                                                              currentDept === dept 
+                                                                ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
+                                                                : "text-muted-foreground hover:text-foreground"
+                                                            )}
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              setSelectedAllocationDepts(prev => ({ ...prev, [subj.id]: dept as 'IT' | 'ADS' }));
+                                                            }}
+                                                          >
+                                                            {dept}
+                                                          </Button>
+                                                        ))}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })()}
+
                                                 <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
                                                   {(() => {
+                                                    const currentDept = selectedAllocationDepts[subj.id] || 
+                                                      ((departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("ARTIFICIAL") || 
+                                                        departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("AIDS") || 
+                                                        departments.find(d => d.id === subj.department_id)?.name?.toUpperCase()?.includes("ADS")) ? "ADS" : "IT");
                                                     // Get allowed sections for this subject's year from the lab's allowed_classes
                                                     const allowedClasses = selectedLabForSchedule.allowed_classes || [];
                                                     const allowedSectionsForYear = allowedClasses
@@ -1341,7 +1391,7 @@ const Lab = () => {
                                                               slotNumber: parseInt(period.id.replace('P', '')),
                                                               labId: selectedLabForSchedule.id
                                                             };
-                                                            const allocationInfo = `Year ${subj.year} Sec ${section} - ${subj.name}`;
+                                                            const allocationInfo = `Year ${subj.year} ${currentDept} Sec ${section} - ${subj.name}`;
                                                             handleAddSchedule(slot, subj.id, allocationInfo);
                                                             setOpenPopoverId(null);
                                                           }}
