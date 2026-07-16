@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,9 +24,8 @@ import {
   getSpecialHoursConfigsForYear,
   getSubjectFacultyMapAllSections,
   getSectionSubjects,
-  getOpenElectiveHours,
 } from "@/lib/supabaseService";
-import { generateAllYears, YearSectionResult, BatchGenerationResult } from "@/lib/timetable";
+import { generateAllYears, YearSectionResult } from "@/lib/timetable";
 import { GeneratedTimetablesGallery } from "@/components/admin/GeneratedTimetablesGallery";
 import type { WizardSelection } from "@/components/admin/GenerateWizardModal";
 
@@ -90,18 +89,17 @@ export default function GenerateReviewPage() {
 
   // Wizard state passed via location state
   const stateData = location.state as {
-    selectedYears?: WizardSelection[];
-    departmentName?: string;
+    selections?: { departmentName: string; selectedYears: WizardSelection[] }[];
   } | null;
 
-  const selectedYears = stateData?.selectedYears || [];
-  const departmentName = stateData?.departmentName || "";
+  const selections = stateData?.selections || [];
 
+  const [activeDept, setActiveDept] = useState<string>("");
   const [activeTab, setActiveTab] = useState<string>("");
-  const [deptId, setDeptId] = useState<string>("");
+  const [deptIds, setDeptIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
-  // Per-year data store
+  // Per-department + year data store
   const [subjectsData, setSubjectsData] = useState<Record<string, SubjectRowWithFaculty[]>>({});
   const [specialHoursData, setSpecialHoursData] = useState<Record<string, any[]>>({});
   const [totalHoursBySection, setTotalHoursBySection] = useState<Record<string, Record<string, number>>>({});
@@ -109,7 +107,7 @@ export default function GenerateReviewPage() {
 
   // Generation progress state
   type ProgressStatus = 'idle' | 'running' | 'ok' | 'error';
-  type ProgressItem = { year: string; section: string; status: ProgressStatus; error?: string };
+  type ProgressItem = { departmentName: string; year: string; section: string; status: ProgressStatus; error?: string };
   const [generating, setGenerating] = useState(false);
   const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
   const [showProgress, setShowProgress] = useState(false);
@@ -117,87 +115,91 @@ export default function GenerateReviewPage() {
   const [showGallery, setShowGallery] = useState(false);
 
   useEffect(() => {
-    if (selectedYears.length === 0 || !departmentName) {
+    if (selections.length === 0) {
       toast.error("No generation parameters specified. Please start from the dashboard.");
       navigate("/admin");
       return;
     }
-    setActiveTab(selectedYears[0].year);
+    const firstDept = selections[0];
+    setActiveDept(firstDept.departmentName);
+    if (firstDept.selectedYears.length > 0) {
+      setActiveTab(firstDept.selectedYears[0].year);
+    }
     loadAllData();
   }, [location.state]);
 
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const dept = await getDepartmentByName(departmentName);
-      if (!dept) {
-        toast.error("Department not found");
-        navigate("/admin");
-        return;
-      }
-      setDeptId(dept.id);
-
+      const deptIdsMap: Record<string, string> = {};
       const subjectsMap: Record<string, SubjectRowWithFaculty[]> = {};
       const specialHoursMap: Record<string, any[]> = {};
       const secHoursMap: Record<string, Record<string, number>> = {};
       const secSubjectsMap: Record<string, Record<string, Set<string>>> = {};
 
-      await Promise.all(
-        selectedYears.map(async ({ year, sections }) => {
-          // 1. Fetch subjects
-          const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
-          // 2. Fetch special hours configs
-          const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
-          // 3. Fetch faculty mappings
-          const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
+      for (const deptSel of selections) {
+        const dept = await getDepartmentByName(deptSel.departmentName);
+        if (!dept) {
+          toast.error(`Department ${deptSel.departmentName} not found`);
+          continue;
+        }
+        deptIdsMap[deptSel.departmentName] = dept.id;
 
-          // 4. Fetch section subjects for all sections
-          const sectionToSubjectIds: Record<string, Set<string>> = {};
-          await Promise.all(
-            sections.map(async (sec) => {
-              const subIds = await getSectionSubjects(dept.id, year, sec).catch(() => []);
-              sectionToSubjectIds[sec] = new Set(subIds);
-            })
-          );
-          secSubjectsMap[year] = sectionToSubjectIds;
+        await Promise.all(
+          deptSel.selectedYears.map(async ({ year, sections }) => {
+            const key = `${deptSel.departmentName}_${year}`;
+            
+            const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
+            const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
+            const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
 
-          let specialHoursTotal = 0;
-          specialHours.forEach((config) => {
-            specialHoursTotal += config.total_hours || 0;
-          });
-          
-          const sectionHours: Record<string, number> = {};
-          sections.forEach((sec) => {
-            const mappedIds = sectionToSubjectIds[sec];
-            const sectionSpecificSubjects = mappedIds.size > 0
-              ? subjects.filter((s) => mappedIds.has(s.id))
-              : subjects; // fallback if none assigned
-            const subjectsTotal = calculateTotalHours(sectionSpecificSubjects);
-            sectionHours[sec] = subjectsTotal + specialHoursTotal;
-          });
-          secHoursMap[year] = sectionHours;
+            const sectionToSubjectIds: Record<string, Set<string>> = {};
+            await Promise.all(
+              sections.map(async (sec) => {
+                const subIds = await getSectionSubjects(dept.id, year, sec).catch(() => []);
+                sectionToSubjectIds[sec] = new Set(subIds);
+              })
+            );
+            secSubjectsMap[key] = sectionToSubjectIds;
 
-          // Map faculty names into subject rows
-          const rows: SubjectRowWithFaculty[] = subjects.map((sub) => {
-            const facultyBySection: Record<string, string> = {};
-            sections.forEach((sec) => {
-              facultyBySection[sec] = facultyMap[sub.id]?.[sec] || "";
+            let specialHoursTotal = 0;
+            specialHours.forEach((config) => {
+              specialHoursTotal += config.total_hours || 0;
             });
-            return {
-              id: sub.id,
-              name: sub.name,
-              code: sub.code,
-              type: sub.type,
-              hoursPerWeek: sub.hoursPerWeek,
-              facultyBySection,
-            };
-          });
+            
+            const sectionHours: Record<string, number> = {};
+            sections.forEach((sec) => {
+              const mappedIds = sectionToSubjectIds[sec];
+              const sectionSpecificSubjects = mappedIds.size > 0
+                ? subjects.filter((s) => mappedIds.has(s.id))
+                : subjects;
+              const subjectsTotal = calculateTotalHours(sectionSpecificSubjects);
+              sectionHours[sec] = subjectsTotal + specialHoursTotal;
+            });
+            secHoursMap[key] = sectionHours;
 
-          subjectsMap[year] = rows;
-          specialHoursMap[year] = specialHours.filter((h) => h.is_active);
-        })
-      );
+            const rows: SubjectRowWithFaculty[] = subjects.map((sub) => {
+              const facultyBySection: Record<string, string> = {};
+              sections.forEach((sec) => {
+                facultyBySection[sec] = facultyMap[sub.id]?.[sec] || "";
+              });
+              return {
+                id: sub.id,
+                name: sub.name,
+                code: sub.code,
+                type: sub.type,
+                hoursPerWeek: sub.hoursPerWeek,
+                facultyBySection,
+              };
+            });
 
+            subjectsMap[key] = rows;
+            specialHoursMap[key] = specialHours.filter((h) => h.is_active);
+          })
+        );
+      }
+
+      setDeptIds(deptIdsMap);
       setSubjectsData(subjectsMap);
       setSpecialHoursData(specialHoursMap);
       setTotalHoursBySection(secHoursMap);
@@ -211,11 +213,12 @@ export default function GenerateReviewPage() {
   };
 
   const handleGenerate = async () => {
-    // Flatten selections to build progress items
     const progressList: ProgressItem[] = [];
-    selectedYears.forEach(({ year, sections }) => {
-      sections.forEach((sec) => {
-        progressList.push({ year, section: sec, status: "idle" });
+    selections.forEach(({ departmentName, selectedYears }) => {
+      selectedYears.forEach(({ year, sections }) => {
+        sections.forEach((sec) => {
+          progressList.push({ departmentName, year, section: sec, status: "idle" });
+        });
       });
     });
 
@@ -225,30 +228,36 @@ export default function GenerateReviewPage() {
     setGeneratedResults([]);
 
     try {
-      const result = await generateAllYears(
-        departmentName,
-        (year, section, status, error) => {
-          setProgressItems((prev) =>
-            prev.map((p) =>
-              p.year === year && p.section === section
-                ? { ...p, status: status as ProgressStatus, error }
-                : p
-            )
+      const resultsArray = await Promise.all(
+        selections.map(async (deptSel) => {
+          const result = await generateAllYears(
+            deptSel.departmentName,
+            (year, section, status, error) => {
+              setProgressItems((prev) =>
+                prev.map((p) =>
+                  p.departmentName === deptSel.departmentName && p.year === year && p.section === section
+                    ? { ...p, status: status as ProgressStatus, error }
+                    : p
+                )
+              );
+            }
           );
-        }
+
+          const selectedYearSet = new Set(deptSel.selectedYears.map(y => y.year));
+          const finalResults = result.results.filter(r => {
+            if (!selectedYearSet.has(r.year)) return false;
+            const matchingYear = deptSel.selectedYears.find(y => y.year === r.year);
+            return matchingYear?.sections.includes(r.section) ?? false;
+          });
+
+          return finalResults;
+        })
       );
 
-      // Filter results to only include selected years and sections
-      const selectedYearSet = new Set(selectedYears.map(y => y.year));
-      const finalResults = result.results.filter(r => {
-        if (!selectedYearSet.has(r.year)) return false;
-        const matchingYear = selectedYears.find(y => y.year === r.year);
-        return matchingYear?.sections.includes(r.section) ?? false;
-      });
-
-      setGeneratedResults(finalResults);
-      const totalOk = finalResults.filter(r => r.status === "ok").length;
-      const totalErr = finalResults.filter(r => r.status === "error").length;
+      const allFinalResults = resultsArray.flat();
+      setGeneratedResults(allFinalResults);
+      const totalOk = allFinalResults.filter(r => r.status === "ok").length;
+      const totalErr = allFinalResults.filter(r => r.status === "error").length;
 
       if (totalOk > 0) {
         toast.success(`Generated ${totalOk} timetable(s) successfully!`);
@@ -263,9 +272,12 @@ export default function GenerateReviewPage() {
     }
   };
 
-  const activeYearSections = selectedYears.find((y) => y.year === activeTab)?.sections || [];
-  const activeYearSubjects = subjectsData[activeTab] || [];
-  const activeYearSpecialHours = specialHoursData[activeTab] || [];
+  const activeDeptSelection = selections.find(d => d.departmentName === activeDept);
+  const activeYearSections = activeDeptSelection?.selectedYears.find((y) => y.year === activeTab)?.sections || [];
+  const activeYearKey = `${activeDept}_${activeTab}`;
+  const activeYearSubjects = subjectsData[activeYearKey] || [];
+  const activeYearSpecialHours = specialHoursData[activeYearKey] || [];
+  const activeTotalHoursBySection = totalHoursBySection[activeYearKey] || {};
 
   if (loading) {
     return (
@@ -301,7 +313,7 @@ export default function GenerateReviewPage() {
                 Review &amp; Generate Timetables
               </h1>
               <p className="text-sm text-slate-400 mt-1">
-                Department: <span className="text-emerald-400 font-semibold">{departmentName}</span>
+                Active View: <span className="text-emerald-400 font-semibold">{activeDept}</span>
               </p>
             </div>
             
@@ -314,9 +326,32 @@ export default function GenerateReviewPage() {
             </Button>
           </header>
 
+          {/* Department Selector Navbar Tabs */}
+          <div className="flex border-b border-white/10 mb-4 gap-1 shrink-0 overflow-x-auto">
+            {selections.map(({ departmentName }) => (
+              <button
+                key={departmentName}
+                onClick={() => {
+                  setActiveDept(departmentName);
+                  const deptSel = selections.find(d => d.departmentName === departmentName);
+                  if (deptSel && deptSel.selectedYears.length > 0) {
+                    setActiveTab(deptSel.selectedYears[0].year);
+                  }
+                }}
+                className={`px-5 py-3 text-sm font-bold border-b-2 transition-all ${
+                  activeDept === departmentName
+                    ? "border-emerald-500 text-white bg-white/2"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {departmentName}
+              </button>
+            ))}
+          </div>
+
           {/* Year Tabs */}
           <div className="flex border-b border-white/10 mb-6 gap-1 shrink-0">
-            {selectedYears.map(({ year }) => (
+            {(activeDeptSelection?.selectedYears || []).map(({ year }) => (
               <button
                 key={year}
                 onClick={() => setActiveTab(year)}
@@ -328,7 +363,7 @@ export default function GenerateReviewPage() {
               >
                 Year {year}
                 <Badge variant="secondary" className="ml-2 bg-white/10 text-white font-mono">
-                  {subjectsData[year]?.length || 0} subjects
+                  {subjectsData[`${activeDept}_${year}`]?.length || 0} subjects
                 </Badge>
               </button>
             ))}
@@ -347,7 +382,7 @@ export default function GenerateReviewPage() {
                 <CardContent className="pt-4">
                   <div className="space-y-4">
                     {activeYearSections.map((sec) => {
-                      const hours = totalHoursBySection[activeTab]?.[sec] || 0;
+                      const hours = activeTotalHoursBySection[sec] || 0;
                       return (
                         <div key={sec} className="space-y-1.5 border-b border-white/5 pb-3 last:border-b-0 last:pb-0">
                           <div className="flex items-center justify-between">
@@ -396,7 +431,7 @@ export default function GenerateReviewPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => navigate(`/admin/subjects/${encodeURIComponent(activeTab)}`)}
+                    onClick={() => navigate(`/admin/subjects`)}
                     className="h-7 text-xs text-violet-400 hover:text-violet-300 p-0 hover:bg-transparent"
                   >
                     Edit
@@ -436,7 +471,7 @@ export default function GenerateReviewPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => navigate(`/admin/subjects/${encodeURIComponent(activeTab)}`)}
+                    onClick={() => navigate(`/admin/subjects`)}
                     className="border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs"
                   >
                     Manage Subjects
@@ -483,8 +518,9 @@ export default function GenerateReviewPage() {
                               </td>
                               <td className="py-3 px-4 font-semibold text-white/90">{sub.hoursPerWeek}h</td>
                               {activeYearSections.map((sec) => {
-                                const isAssigned = sectionSubjectsData[activeTab]?.[sec]?.has(sub.id) ?? true;
-                                const size = sectionSubjectsData[activeTab]?.[sec]?.size || 0;
+                                const sectionKey = `${activeDept}_${activeTab}`;
+                                const isAssigned = sectionSubjectsData[sectionKey]?.[sec]?.has(sub.id) ?? true;
+                                const size = sectionSubjectsData[sectionKey]?.[sec]?.size || 0;
                                 const isMapped = size === 0 || isAssigned;
 
                                 if (!isMapped) {
@@ -521,20 +557,25 @@ export default function GenerateReviewPage() {
 
       {/* Persistent Bottom Bar */}
       <footer className="fixed bottom-0 left-0 right-0 z-40 bg-[#0e0e1a]/95 border-t border-white/10 backdrop-blur-md px-6 py-4 flex items-center justify-between md:pl-[300px] lg:pl-[330px]">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 max-w-[60%] overflow-hidden">
           <span className="text-xs text-slate-400 font-semibold">Selected for Generation:</span>
-          <span className="text-xs font-bold text-white flex flex-wrap items-center gap-1.5 mt-0.5">
-            {selectedYears.map(({ year, sections }) => (
-              <Badge key={year} variant="outline" className="border-violet-500/30 bg-violet-500/10 text-violet-300 text-[10px]">
-                Yr {year}: Sec {sections.join(", ")}
-              </Badge>
+          <span className="text-xs font-bold text-white flex flex-wrap items-center gap-1.5 mt-0.5 max-h-16 overflow-y-auto">
+            {selections.map(({ departmentName, selectedYears }) => (
+              <div key={departmentName} className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-lg border border-white/10 shrink-0">
+                <span className="text-slate-400 text-[10px] font-bold">{departmentName}:</span>
+                {selectedYears.map(({ year, sections }) => (
+                  <Badge key={year} variant="outline" className="border-violet-500/30 bg-violet-500/10 text-violet-300 text-[9px] px-1 py-0">
+                    Yr {year}({sections.join(",")})
+                  </Badge>
+                ))}
+              </div>
             ))}
           </span>
         </div>
 
         <Button
           onClick={handleGenerate}
-          className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white rounded-xl gap-2 font-bold px-6 py-5 shadow-lg shadow-violet-500/25"
+          className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white rounded-xl gap-2 font-bold px-6 py-5 shadow-lg shadow-violet-500/25 shrink-0"
         >
           <Zap className="h-4 w-4" /> Generate Selected Timetables
         </Button>
@@ -543,7 +584,7 @@ export default function GenerateReviewPage() {
       {/* ── Generation Progress Overlay ── */}
       {showProgress && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="relative w-[420px] max-w-[95vw] rounded-2xl bg-[#0e0e1b] border border-white/10 shadow-2xl p-6"
+          <div className="relative w-[460px] max-w-[95vw] max-h-[85vh] overflow-y-auto rounded-2xl bg-[#0e0e1b] border border-white/10 shadow-2xl p-6"
             style={{ backgroundImage: 'radial-gradient(ellipse at 30% 0%, rgba(139,92,246,0.1) 0%, transparent 60%)' }}
           >
             {!generating && (
@@ -568,40 +609,49 @@ export default function GenerateReviewPage() {
                 </h3>
               </div>
               <p className="text-xs text-white/30 pl-7">
-                {generating ? "Running multi-year sections in parallel" : `${generatedResults.filter(r => r.status === "ok").length} of ${generatedResults.length} succeeded`}
+                {generating ? "Running multi-department sections in parallel" : `${generatedResults.filter(r => r.status === "ok").length} of ${generatedResults.length} succeeded`}
               </p>
             </div>
 
-            {/* Progress list by year */}
-            {selectedYears.map(({ year }) => {
-              const items = progressItems.filter((p) => p.year === year);
-              if (items.length === 0) return null;
+            {/* Progress list by department & year */}
+            {selections.map(({ departmentName, selectedYears }) => {
+              const deptProgress = progressItems.filter(p => p.departmentName === departmentName);
+              if (deptProgress.length === 0) return null;
               return (
-                <div key={year} className="mb-4">
-                  <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest mb-2 pl-1">Year {year}</div>
-                  <div className="space-y-1.5">
-                    {items.map((item) => (
-                      <div key={item.section} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/8">
-                        <div className="w-16 text-xs font-semibold text-white/60">Section {item.section}</div>
-                        <div className="flex-1">
-                          {item.status === "idle" && <div className="h-1 w-full bg-white/10 rounded-full" />}
-                          {item.status === "running" && (
-                            <div className="h-1 rounded-full overflow-hidden bg-white/10">
-                              <div className="h-full bg-violet-400 rounded-full animate-pulse animate-infinite" style={{ width: "60%" }} />
+                <div key={departmentName} className="mb-5 last:mb-0">
+                  <div className="text-xs font-bold text-emerald-400 mb-2 border-b border-white/10 pb-1">{departmentName}</div>
+                  {selectedYears.map(({ year }) => {
+                    const items = deptProgress.filter((p) => p.year === year);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={year} className="mb-4 last:mb-0 pl-2">
+                        <div className="text-[10px] font-bold text-white/30 uppercase tracking-widest mb-2 pl-1">Year {year}</div>
+                        <div className="space-y-1.5">
+                          {items.map((item) => (
+                            <div key={item.section} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/8">
+                              <div className="w-16 text-xs font-semibold text-white/60">Section {item.section}</div>
+                              <div className="flex-1">
+                                {item.status === "idle" && <div className="h-1 w-full bg-white/10 rounded-full" />}
+                                {item.status === "running" && (
+                                  <div className="h-1 rounded-full overflow-hidden bg-white/10">
+                                    <div className="h-full bg-violet-400 rounded-full animate-pulse animate-infinite" style={{ width: "60%" }} />
+                                  </div>
+                                )}
+                                {item.status === "ok" && <div className="h-1 w-full bg-emerald-400 rounded-full" />}
+                                {item.status === "error" && <div className="h-1 w-full bg-red-400 rounded-full" />}
+                              </div>
+                              <div className="w-5 flex justify-center">
+                                {item.status === "idle" && <span className="h-1.5 w-1.5 rounded-full bg-white/15" />}
+                                {item.status === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />}
+                                {item.status === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+                                {item.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
+                              </div>
                             </div>
-                          )}
-                          {item.status === "ok" && <div className="h-1 w-full bg-emerald-400 rounded-full" />}
-                          {item.status === "error" && <div className="h-1 w-full bg-red-400 rounded-full" />}
-                        </div>
-                        <div className="w-5 flex justify-center">
-                          {item.status === "idle" && <span className="h-1.5 w-1.5 rounded-full bg-white/15" />}
-                          {item.status === "running" && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />}
-                          {item.status === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-                          {item.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               );
             })}

@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface SubjectRow {
@@ -34,6 +34,8 @@ interface SubjectRow {
   dayIndex?: number;
   dayName?: string;
   period?: number;
+  elective_group_name?: string | null;
+  groupedSubjects?: SubjectRow[]; // virtual: when this row represents a collapsed elective group
 }
 
 const YearSubjects = () => {
@@ -91,6 +93,12 @@ const YearSubjects = () => {
 
   const [filterType, setFilterType] = useState<string>("all");
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
+
+  // Elective Grouping
+  const [groupingOpen, setGroupingOpen] = useState(false);
+  const [groupSelectedIds, setGroupSelectedIds] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState('');
+  const [groupingSaving, setGroupingSaving] = useState(false);
 
   const filteredSubjects = useMemo(() => {
     return subjects.filter((s) => {
@@ -204,6 +212,8 @@ const YearSubjects = () => {
             max_faculty_count: s.maxFacultyCount || 1,
             tags: s.tags || [],
             abbreviation: s.abbreviation || null,
+            credits: s.credits || 3,
+            elective_group_name: s.elective_group_name || null,
           }));
         } catch {
           return [] as SubjectRow[];
@@ -573,6 +583,65 @@ const YearSubjects = () => {
     toast.success("Curriculum exported successfully");
   };
 
+  const handleElectiveGroupSave = async () => {
+    if (!groupName.trim()) { toast.error("Group name is required"); return; }
+    if (groupSelectedIds.length < 2) { toast.error("Select at least 2 electives to group"); return; }
+    setGroupingSaving(true);
+    try {
+      // Generate a unique group tag like PE_Group_XXXX
+      const groupTag = `PE_Group_${Math.floor(1000 + Math.random() * 9000)}`;
+      for (const sid of groupSelectedIds) {
+        const subj = subjects.find(s => s.id === sid);
+        if (!subj) continue;
+        const existingTags = (subj.tags || []).filter(t => !/^PE_Group_\d+$/i.test(t));
+        const newTags = Array.from(new Set([...existingTags, groupTag]));
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .update({ tags: newTags, elective_group_name: groupName.trim() })
+          .eq('id', sid);
+        if (error) throw error;
+      }
+      // Update local state
+      setSubjects(prev => prev.map(s =>
+        groupSelectedIds.includes(s.id)
+          ? { ...s, elective_group_name: groupName.trim(), tags: Array.from(new Set([...(s.tags || []).filter(t => !/^PE_Group_\d+$/i.test(t)), groupTag])) }
+          : s
+      ));
+      toast.success(`Grouped ${groupSelectedIds.length} electives under "${groupName.trim()}"`);
+      setGroupingOpen(false);
+      setGroupSelectedIds([]);
+      setGroupName('');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to save grouping");
+    } finally {
+      setGroupingSaving(false);
+    }
+  };
+
+  const handleClearGroup = async (groupTagToRemove: string, affectedIds: string[]) => {
+    try {
+      for (const sid of affectedIds) {
+        const subj = subjects.find(s => s.id === sid);
+        if (!subj) continue;
+        const newTags = (subj.tags || []).filter(t => t !== groupTagToRemove);
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .update({ tags: newTags, elective_group_name: null })
+          .eq('id', sid);
+        if (error) throw error;
+      }
+      setSubjects(prev => prev.map(s =>
+        affectedIds.includes(s.id)
+          ? { ...s, elective_group_name: null, tags: (s.tags || []).filter(t => t !== groupTagToRemove) }
+          : s
+      ));
+      toast.success("Elective group cleared");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to clear group");
+    }
+  };
+
   const startEdit = (s: SubjectRow) => {
     setEditingId(s.id);
     setName(s.name);
@@ -690,7 +759,37 @@ const YearSubjects = () => {
 
   const tableData = useMemo(() => {
     if (activeTab === 'theory') {
-      return subjects.filter(s => s.type === 'theory' || s.type === 'elective');
+      const theorySubjects = subjects.filter(s => s.type === 'theory');
+      const electiveSubjects = subjects.filter(s => s.type === 'elective');
+
+      // Build one representative row per elective group, individual rows for ungrouped
+      const seenGroupTags = new Set<string>();
+      const electiveRows: SubjectRow[] = [];
+
+      for (const s of electiveSubjects) {
+        const groupTag = (s.tags || []).find(t => /^PE_Group_\d+$/i.test(t));
+        if (groupTag && s.elective_group_name) {
+          if (seenGroupTags.has(groupTag)) continue; // already added this group
+          seenGroupTags.add(groupTag);
+          const members = electiveSubjects.filter(x =>
+            (x.tags || []).some(t => t === groupTag)
+          );
+          // Representative row: use group name as display, hours = same as any member
+          const rep: SubjectRow = {
+            ...members[0],
+            id: `group_${groupTag}`, // synthetic ID
+            name: s.elective_group_name,
+            hours_per_week: members[0].hours_per_week, // all share same slot → same hours
+            elective_group_name: s.elective_group_name,
+            groupedSubjects: members,
+          };
+          electiveRows.push(rep);
+        } else {
+          electiveRows.push(s);
+        }
+      }
+
+      return [...theorySubjects, ...electiveRows];
     }
     if (activeTab === 'lab') {
       return subjects.filter(s => s.type === 'lab');
@@ -804,35 +903,71 @@ const YearSubjects = () => {
         }
       ];
     }
-    
     return [
       {
         key: "name",
         header: "Name",
         sortable: true,
-        render: (s: SubjectRow) => <span className="font-semibold text-slate-900 dark:text-slate-100">{s.name}</span>
+        render: (s: SubjectRow) => {
+          if (s.groupedSubjects && s.groupedSubjects.length > 0) {
+            // This is a group representative row
+            return (
+              <div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Layers className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+                  <span className="font-bold text-slate-900 dark:text-slate-100">{s.name}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 font-bold border border-violet-200 dark:border-violet-800/50">
+                    GROUPED · {s.groupedSubjects.length} subjects
+                  </span>
+                </div>
+                <div className="pl-5 space-y-0.5">
+                  {s.groupedSubjects.map((m, i) => (
+                    <div key={m.id} className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="text-[9px] font-bold text-violet-400">{i + 1}.</span>
+                      <span>{m.name}</span>
+                      {m.code && <span className="font-mono text-slate-400 dark:text-slate-500">({m.code})</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          return <span className="font-semibold text-slate-900 dark:text-slate-100">{s.name}</span>;
+        }
       },
       {
         key: "abbreviation",
         header: "Abbr",
         sortable: true,
-        render: (s: SubjectRow) => <span className="text-slate-700 dark:text-slate-300">{s.abbreviation || '-'}</span>
+        render: (s: SubjectRow) => {
+          if (s.groupedSubjects) return <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>;
+          return <span className="text-slate-700 dark:text-slate-300">{s.abbreviation || '-'}</span>;
+        }
       },
       {
         key: "type",
         header: "Type",
         sortable: true,
         render: (s: SubjectRow) => (
-          <Badge variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} className="uppercase text-[10px]">
-            {s.type}
-          </Badge>
+          s.groupedSubjects
+            ? <Badge variant="outline" className="uppercase text-[10px] border-violet-300 text-violet-700 dark:text-violet-400 dark:border-violet-700">Elective Group</Badge>
+            : <Badge variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} className="uppercase text-[10px]">
+                {s.type}
+              </Badge>
         )
       },
       {
         key: "hours_per_week",
         header: "Hours/Week",
         sortable: true,
-        render: (s: SubjectRow) => <span className="text-slate-700 dark:text-slate-300">{s.hours_per_week}h</span>
+        render: (s: SubjectRow) => (
+          <div>
+            <span className="text-slate-700 dark:text-slate-300 font-semibold">{s.hours_per_week}h</span>
+            {s.groupedSubjects && (
+              <div className="text-[10px] text-violet-500 dark:text-violet-400 font-medium">shared slot</div>
+            )}
+          </div>
+        )
       },
       {
         key: "credits",
@@ -844,19 +979,26 @@ const YearSubjects = () => {
         key: "code",
         header: "Code",
         sortable: true,
-        render: (s: SubjectRow) => <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{s.code || '-'}</span>
+        render: (s: SubjectRow) => {
+          if (s.groupedSubjects) return <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>;
+          return <span className="font-mono text-xs text-slate-600 dark:text-slate-400">{s.code || '-'}</span>;
+        }
       },
       {
         key: "tags",
         header: "Tags",
-        render: (s: SubjectRow) => (
-          <div className="flex flex-wrap gap-1">
-            {(s.tags || []).map(t => (
-              <span key={t} className="bg-muted text-muted-foreground border border-border text-[10px] px-1.5 py-0.5 rounded font-semibold">{t}</span>
-            ))}
-            {(!s.tags || s.tags.length === 0) && '-'}
-          </div>
-        )
+        render: (s: SubjectRow) => {
+          if (s.groupedSubjects) return <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>;
+          const otherTags = (s.tags || []).filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t));
+          return (
+            <div className="flex flex-wrap gap-1">
+              {otherTags.map(t => (
+                <span key={t} className="bg-muted text-muted-foreground border border-border text-[10px] px-1.5 py-0.5 rounded font-semibold">{t}</span>
+              ))}
+              {otherTags.length === 0 && '-'}
+            </div>
+          );
+        }
       },
       ...(activeTab === 'lab' ? [
         {
@@ -869,14 +1011,27 @@ const YearSubjects = () => {
       {
         key: "actions",
         header: "Actions",
-        render: (s: SubjectRow) => (
-          userType !== 'faculty' ? (
-            <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600 dark:text-slate-300 hover:bg-muted" onClick={() => startEdit(s)}>Edit</Button>
-          ) : <span>—</span>
-        )
+        render: (s: SubjectRow) => {
+          if (userType === 'faculty') return <span>—</span>;
+          if (s.groupedSubjects) {
+            // Group row: show Ungroup button
+            const groupTag = (s.groupedSubjects[0].tags || []).find(t => /^PE_Group_\d+$/i.test(t));
+            return (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/30 border border-violet-200 dark:border-violet-800"
+                onClick={() => groupTag && handleClearGroup(groupTag, s.groupedSubjects!.map(m => m.id))}
+              >
+                Ungroup
+              </Button>
+            );
+          }
+          return <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600 dark:text-slate-300 hover:bg-muted" onClick={() => startEdit(s)}>Edit</Button>;
+        }
       }
     ];
-  }, [activeTab, userType]);
+  }, [activeTab, userType, subjects, handleClearGroup, startEdit]);
 
   const handleBulkDeleteData = async (ids: string[]) => {
     if (activeTab === 'special') {
@@ -1190,6 +1345,26 @@ const YearSubjects = () => {
           </div>
         )}
 
+        {/* Elective Grouping Button — only shown on theory tab and for admins */}
+        {activeTab === 'theory' && userType !== 'faculty' && (
+          <div className="flex items-center gap-3 mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setGroupSelectedIds([]);
+                setGroupName('');
+                setGroupingOpen(true);
+              }}
+              className="flex items-center gap-2 border-violet-300 text-violet-700 dark:text-violet-400 dark:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/30 font-semibold"
+            >
+              <Layers className="h-4 w-4" />
+              Elective Grouping
+            </Button>
+            <span className="text-xs text-muted-foreground">Group electives that share the same time slot with a custom display name</span>
+          </div>
+        )}
+
         <SubjectTable
           data={tableData}
           getRowId={(s) => s.id}
@@ -1274,7 +1449,21 @@ const YearSubjects = () => {
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{s.name}</h4>
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{s.name}</h4>
+                      {s.elective_group_name && (() => {
+                        const groupTag = (s.tags || []).find(t => /^PE_Group_\d+$/i.test(t));
+                        const combinedHours = groupTag
+                          ? subjects.filter(x => (x.tags || []).some(t => t === groupTag)).reduce((a, x) => a + x.hours_per_week, 0)
+                          : s.hours_per_week;
+                        return (
+                          <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border border-violet-200 dark:border-violet-800/50 text-[10px] font-bold">
+                            <Layers className="h-2.5 w-2.5" />
+                            {s.elective_group_name} • {combinedHours}h combined
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <Badge variant={s.type === 'lab' ? 'default' : s.type === 'elective' || s.type === 'open elective' ? 'outline' : 'secondary'} className="uppercase text-[9px] shrink-0">
                       {s.type}
                     </Badge>
@@ -1283,9 +1472,9 @@ const YearSubjects = () => {
                     {s.code && <span className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1 py-0.5 rounded text-slate-700 dark:text-slate-300">{s.code}</span>}
                     {s.abbreviation && <span className="text-slate-600 dark:text-slate-400 font-semibold">({s.abbreviation})</span>}
                   </div>
-                  {s.tags && s.tags.length > 0 && (
+                  {s.tags && s.tags.filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t)).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-3">
-                      {s.tags.map((t) => (
+                      {s.tags.filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t)).map((t) => (
                         <span key={t} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold border border-border">
                           {t}
                         </span>
@@ -1295,7 +1484,19 @@ const YearSubjects = () => {
                 </div>
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
                   <span>{s.hours_per_week}h/week • {s.credits || 3} credits {s.type === 'lab' ? `• Max Fac: ${s.max_faculty_count || 1}` : ''}</span>
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0">
+                    {s.elective_group_name && userType !== 'faculty' && (() => {
+                      const groupTag = (s.tags || []).find(t => /^PE_Group_\d+$/i.test(t));
+                      const groupMembers = groupTag ? subjects.filter(x => (x.tags || []).some(t => t === groupTag)) : [];
+                      return groupTag ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleClearGroup(groupTag, groupMembers.map(m => m.id)); }}
+                          className="h-6 px-2 rounded text-[9px] font-semibold text-violet-600 border border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors"
+                        >
+                          Clear Group
+                        </button>
+                      ) : null;
+                    })()}
                     <Checkbox 
                       checked={isSelected}
                       onCheckedChange={() => onToggleSelect()}
@@ -1386,7 +1587,7 @@ const YearSubjects = () => {
               <Input placeholder="Tags (comma separated, e.g., PE4, SSA)" value={tags} onChange={(e) => setTags(e.target.value)} />
             </div>
           </div>
-          
+
           {/* Max Faculty Count for Lab Subjects in Edit */}
           {type === 'lab' && (
             <div className="mt-3">
@@ -1416,6 +1617,100 @@ const YearSubjects = () => {
         </DialogContent>
       </Dialog>
     </div>
+
+      {/* Elective Grouping Dialog */}
+      <Dialog open={groupingOpen} onOpenChange={setGroupingOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-violet-500" />
+              Elective Grouping
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">Custom Group Name</label>
+              <Input
+                placeholder="e.g. Professional Elective IV"
+                value={groupName}
+                onChange={e => setGroupName(e.target.value)}
+                className="font-medium"
+              />
+              <p className="text-xs text-muted-foreground mt-1">This name will appear in the table and combined hour count will be shown.</p>
+            </div>
+            <div>
+              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                Select Electives to Group
+                {groupSelectedIds.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-violet-600 dark:text-violet-400">
+                    {groupSelectedIds.length} selected • Combined: {subjects.filter(s => groupSelectedIds.includes(s.id)).reduce((a, s) => a + s.hours_per_week, 0)}h
+                  </span>
+                )}
+              </label>
+              <div className="border rounded-xl divide-y divide-border max-h-64 overflow-y-auto">
+                {subjects.filter(s => s.type === 'elective').length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground text-center">No elective subjects found</div>
+                ) : subjects.filter(s => s.type === 'elective').map(s => {
+                  const checked = groupSelectedIds.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                        checked ? 'bg-violet-50 dark:bg-violet-950/20' : 'hover:bg-muted/40'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(c) => {
+                          setGroupSelectedIds(prev =>
+                            c ? [...prev, s.id] : prev.filter(x => x !== s.id)
+                          );
+                        }}
+                        className="mt-0.5 border-violet-400 data-[state=checked]:bg-violet-600"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm text-slate-900 dark:text-slate-100 truncate">{s.name}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground font-mono">{s.code || 'No code'}</span>
+                          <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">{s.hours_per_week}h/week</span>
+                          {s.elective_group_name && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 font-semibold">
+                              {s.elective_group_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {groupSelectedIds.length >= 2 && groupName.trim() && (
+              <div className="p-3 rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/50 text-sm">
+                <div className="font-semibold text-violet-700 dark:text-violet-300 mb-1">Preview</div>
+                <div className="text-violet-600 dark:text-violet-400 text-xs">
+                  <span className="font-bold">{groupName}</span> — {groupSelectedIds.length} electives, <span className="font-bold">{subjects.filter(s => groupSelectedIds.includes(s.id)).reduce((a, s) => a + s.hours_per_week, 0)}h</span> combined
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {subjects.filter(s => groupSelectedIds.includes(s.id)).map(s => (
+                    <span key={s.id} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-200 dark:bg-violet-900/50 text-violet-800 dark:text-violet-200 font-medium">{s.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setGroupingOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleElectiveGroupSave}
+              disabled={groupingSaving || groupSelectedIds.length < 2 || !groupName.trim()}
+              className="bg-violet-600 hover:bg-violet-700 text-white font-semibold"
+            >
+              {groupingSaving ? 'Saving...' : 'Save Group'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
   </main>
   );
 };
