@@ -1258,82 +1258,122 @@ const Lab = () => {
                                         <CommandEmpty>No subject found.</CommandEmpty>
                                         <CommandGroup>
                                           {(() => {
-                                            // Build set of subject names already scheduled in this lab
-                                            const scheduledSemesters = new Set(
-                                              labSchedules
-                                                .filter(s => s.lab_id === selectedLabForSchedule.id)
-                                                .map(s => (s.semester || '').toLowerCase())
-                                            );
-                                            // Filter out subjects that are already booked in this lab
-                                            const availableSubjects = itAdsLabs.filter(subj =>
-                                              !scheduledSemesters.has(subj.name.toLowerCase()) &&
-                                              !Array.from(scheduledSemesters).some(sem => sem.includes(subj.name.toLowerCase()))
-                                            );
-                                            if (availableSubjects.length === 0) {
-                                              return <div className="px-4 py-3 text-sm text-muted-foreground text-center">All subjects already scheduled.</div>;
+                                            // Build a map: subjectName (lowercase) → Set of "year:section" combos already scheduled ACROSS ALL LABS
+                                            const scheduledMap = new Map<string, Set<string>>();
+                                            for (const s of labSchedules) {
+                                              const sem = (s.semester || '').toLowerCase();
+                                              const yr = (s.year || '').trim();
+                                              const sec = (s.section || '').trim();
+                                              // Match "Year X Sec Y - Subject Name" format
+                                              const match = sem.match(/year\s+\S+\s+sec\s+(\S+)\s+-\s+(.+)/);
+                                              if (match) {
+                                                const parsedSec = match[1].toUpperCase();
+                                                const parsedSubj = match[2].trim();
+                                                if (!scheduledMap.has(parsedSubj)) scheduledMap.set(parsedSubj, new Set());
+                                                scheduledMap.get(parsedSubj)!.add(`${yr}:${parsedSec}`);
+                                              }
+                                              // Also handle "Year X, Subject Name" format
+                                              if (yr && sec) {
+                                                // find subject name in sem string
+                                                itAdsLabs.forEach(lab => {
+                                                  if (sem.includes(lab.name.toLowerCase())) {
+                                                    if (!scheduledMap.has(lab.name.toLowerCase())) scheduledMap.set(lab.name.toLowerCase(), new Set());
+                                                    scheduledMap.get(lab.name.toLowerCase())!.add(`${yr}:${sec.toUpperCase()}`);
+                                                  }
+                                                });
+                                              }
                                             }
-                                            return availableSubjects.map((subj) => (
-                                            <CommandItem
-                                              key={subj.id}
-                                              value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
-                                              onSelect={() => {
-                                                const slot = {
-                                                  day: day.value,
-                                                  startTime: period.startTime,
-                                                  endTime: period.endTime,
-                                                  slotNumber: parseInt(period.id.replace('P', '')),
-                                                  labId: selectedLabForSchedule.id
-                                                };
-                                                handleAddSchedule(slot, subj.id);
-                                                setOpenPopoverId(null);
-                                              }}
-                                              className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
-                                            >
-                                              <div className="flex flex-col text-left w-full group/item">
-                                                <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800 font-medium">
-                                                      {subj.hours_per_week || 1}h
-                                                    </span>
-                                                    <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
+
+                                            const allSections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+
+                                            // Filter: only show subjects that have at least one section still available
+                                            const availableSubjects = itAdsLabs.filter(subj => {
+                                              const bookedCombos = scheduledMap.get(subj.name.toLowerCase()) || new Set<string>();
+                                              const allowedClasses = selectedLabForSchedule.allowed_classes || [];
+                                              const hasRestriction = allowedClasses.length > 0;
+                                              const allowedSectionsForYear = allowedClasses
+                                                .filter(c => c.year === subj.year)
+                                                .map(c => c.section);
+
+                                              // Sections that are actually available for this lab
+                                              const candidateSections = allSections.filter(sec => {
+                                                const isLabAllowed = !hasRestriction ||
+                                                  allowedSectionsForYear.includes(sec) ||
+                                                  allowedSectionsForYear.includes('All Sections');
+                                                const alreadyBooked = bookedCombos.has(`${subj.year}:${sec}`);
+                                                return isLabAllowed && !alreadyBooked;
+                                              });
+                                              return candidateSections.length > 0;
+                                            });
+
+                                            if (availableSubjects.length === 0) {
+                                              return <div className="px-4 py-3 text-sm text-muted-foreground text-center">All lab subjects already scheduled.</div>;
+                                            }
+
+                                            return availableSubjects.map((subj) => {
+                                              const bookedCombos = scheduledMap.get(subj.name.toLowerCase()) || new Set<string>();
+                                              const allowedClasses = selectedLabForSchedule.allowed_classes || [];
+                                              const hasRestriction = allowedClasses.length > 0;
+                                              const allowedSectionsForYear = allowedClasses
+                                                .filter(c => c.year === subj.year)
+                                                .map(c => c.section);
+
+                                              return (
+                                              <CommandItem
+                                                key={subj.id}
+                                                value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
+                                                onSelect={() => {
+                                                  // onSelect without section — user must click a section button
+                                                }}
+                                                className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
+                                              >
+                                                <div className="flex flex-col text-left w-full group/item">
+                                                  <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-[10px] bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800 font-medium">
+                                                        {subj.hours_per_week || 1}h
+                                                      </span>
+                                                      <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
+                                                    </div>
                                                   </div>
-                                                </div>
-                                                {subj.departments?.name && (
-                                                  <span className="text-[10px] text-muted-foreground mb-1 truncate">
-                                                    Dept: {subj.departments.name}
-                                                  </span>
-                                                )}
-                                                <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
-                                                  {(() => {
-                                                    // Get allowed sections for this subject's year from the lab's allowed_classes
-                                                    const allowedClasses = selectedLabForSchedule.allowed_classes || [];
-                                                    const allowedSectionsForYear = allowedClasses
-                                                      .filter(c => c.year === subj.year)
-                                                      .map(c => c.section);
-                                                    // All possible sections to display
-                                                    const allSections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-                                                    // If no allowed_classes defined, show all sections (no restriction)
-                                                    const hasRestriction = allowedClasses.length > 0;
-                                                    return allSections.map((section) => {
-                                                      const isAllowed = !hasRestriction || 
-                                                        allowedSectionsForYear.includes(section) || 
+                                                  {subj.departments?.name && (
+                                                    <span className="text-[10px] text-muted-foreground mb-1 truncate">
+                                                      Dept: {subj.departments.name}
+                                                    </span>
+                                                  )}
+                                                  <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
+                                                    {allSections.map((section) => {
+                                                      const isLabAllowed = !hasRestriction ||
+                                                        allowedSectionsForYear.includes(section) ||
                                                         allowedSectionsForYear.includes('All Sections');
+                                                      // Cross-lab: check if this section+year is already scheduled for this subject anywhere
+                                                      const alreadyBooked = bookedCombos.has(`${subj.year}:${section}`);
+                                                      const isAvailable = isLabAllowed && !alreadyBooked;
+
+                                                      const title = !isLabAllowed
+                                                        ? `Sec ${section} not allowed in this lab`
+                                                        : alreadyBooked
+                                                          ? `Sec ${section} already scheduled in another lab`
+                                                          : `Assign to Sec ${section}`;
+
                                                       return (
                                                         <Button
                                                           key={section}
                                                           size="sm"
                                                           variant="outline"
-                                                          disabled={!isAllowed}
-                                                          title={!isAllowed ? `Sec ${section} is not allowed in this lab` : `Assign to Sec ${section}`}
+                                                          disabled={!isAvailable}
+                                                          title={title}
                                                           className={`h-7 w-7 p-0 text-[10px] font-bold transition-colors ${
-                                                            isAllowed
-                                                              ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
-                                                              : 'opacity-30 cursor-not-allowed'
+                                                            alreadyBooked
+                                                              ? 'opacity-40 cursor-not-allowed bg-red-50 border-red-200 text-red-400'
+                                                              : isAvailable
+                                                                ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
+                                                                : 'opacity-30 cursor-not-allowed'
                                                           }`}
                                                           onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (!isAllowed) return;
+                                                            if (!isAvailable) return;
                                                             const slot = {
                                                               day: day.value,
                                                               startTime: period.startTime,
@@ -1349,12 +1389,12 @@ const Lab = () => {
                                                           {section}
                                                         </Button>
                                                       );
-                                                    });
-                                                  })()}
+                                                    })}
+                                                  </div>
                                                 </div>
-                                              </div>
-                                            </CommandItem>
-                                          ));
+                                              </CommandItem>
+                                              );
+                                            });
                                           })()}
                                         </CommandGroup>
                                       </CommandList>

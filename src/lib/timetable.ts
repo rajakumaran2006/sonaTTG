@@ -326,13 +326,13 @@ function placeOpenElectives(
   if (openElectiveHours <= 0) return;
 
   // Fixed OE slots in priority order:
-  // Mon P1 → Wed P1 → Fri P1 → Sat P1 → Sat P2
-  // Day indices: Mon=0, Wed=2, Fri=4, Sat=5
+  // Mon P1 → Wed P1 → Thu P1 → Sat P1 → Sat P2
+  // Day indices: Mon=0, Wed=2, Thu=3, Sat=5
   // Period index: 0 = Period 1, 1 = Period 2
   const OE_SLOTS: { d: number; p: number }[] = [
     { d: 0, p: 0 }, // Mon Period 1
     { d: 2, p: 0 }, // Wed Period 1
-    { d: 4, p: 0 }, // Fri Period 1
+    { d: 3, p: 0 }, // Thu Period 1
     { d: 5, p: 0 }, // Sat Period 1
     { d: 5, p: 1 }, // Sat Period 2
   ];
@@ -347,6 +347,7 @@ function placeOpenElectives(
     // If slot is occupied (e.g. by special hours), skip it — don't force overwrite
   }
 }
+
 
 
 function placeTheorySubjects(
