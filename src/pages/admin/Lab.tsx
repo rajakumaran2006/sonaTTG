@@ -1257,7 +1257,22 @@ const Lab = () => {
                                       >
                                         <CommandEmpty>No subject found.</CommandEmpty>
                                         <CommandGroup>
-                                          {itAdsLabs.map((subj) => (
+                                          {(() => {
+                                            // Build set of subject names already scheduled in this lab
+                                            const scheduledSemesters = new Set(
+                                              labSchedules
+                                                .filter(s => s.lab_id === selectedLabForSchedule.id)
+                                                .map(s => (s.semester || '').toLowerCase())
+                                            );
+                                            // Filter out subjects that are already booked in this lab
+                                            const availableSubjects = itAdsLabs.filter(subj =>
+                                              !scheduledSemesters.has(subj.name.toLowerCase()) &&
+                                              !Array.from(scheduledSemesters).some(sem => sem.includes(subj.name.toLowerCase()))
+                                            );
+                                            if (availableSubjects.length === 0) {
+                                              return <div className="px-4 py-3 text-sm text-muted-foreground text-center">All subjects already scheduled.</div>;
+                                            }
+                                            return availableSubjects.map((subj) => (
                                             <CommandItem
                                               key={subj.id}
                                               value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
@@ -1339,7 +1354,8 @@ const Lab = () => {
                                                 </div>
                                               </div>
                                             </CommandItem>
-                                          ))}
+                                          ));
+                                          })()}
                                         </CommandGroup>
                                       </CommandList>
                                     </Command>
