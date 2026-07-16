@@ -65,6 +65,11 @@ export interface WizardSelection {
   sections: string[];
 }
 
+export interface DepartmentSelection {
+  departmentName: string;
+  selectedYears: WizardSelection[];
+}
+
 interface HourCheck {
   year: string;
   totalHours: number;
@@ -74,27 +79,24 @@ interface HourCheck {
 interface GenerateWizardModalProps {
   open: boolean;
   onClose: () => void;
-  departmentName: string;
-  onProceed: (selection: WizardSelection[]) => void;
+  departments: any[];
+  defaultDepartmentNames: string[];
+  onProceed: (selections: DepartmentSelection[]) => void;
 }
 
 export function GenerateWizardModal({
   open,
   onClose,
-  departmentName,
+  departments,
+  defaultDepartmentNames,
   onProceed,
 }: GenerateWizardModalProps) {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2>(1);
 
-  const [selectedYears, setSelectedYears] = useState<Record<string, boolean>>({
-    II: true, III: true, IV: true,
-  });
-  const [selectedSections, setSelectedSections] = useState<Record<string, Record<string, boolean>>>({
-    II:  { A: true, B: true, C: true },
-    III: { A: true, B: true, C: true },
-    IV:  { A: true, B: true, C: true },
-  });
+  const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
+  const [selectedYears, setSelectedYears] = useState<Record<string, Record<string, boolean>>>({});
+  const [selectedSections, setSelectedSections] = useState<Record<string, Record<string, Record<string, boolean>>>>({});
 
   const [hourChecks, setHourChecks] = useState<HourCheck[]>([]);
   const [loadingHours, setLoadingHours] = useState(false);
@@ -103,75 +105,98 @@ export function GenerateWizardModal({
     if (open) {
       setStep(1);
       setHourChecks([]);
+      
+      const initialDepts: Record<string, boolean> = {};
+      departments.forEach(d => {
+        initialDepts[d.name] = defaultDepartmentNames.includes(d.name);
+      });
+      setSelectedDepts(initialDepts);
+
+      const initialYears: Record<string, Record<string, boolean>> = {};
+      const initialSections: Record<string, Record<string, Record<string, boolean>>> = {};
+      departments.forEach(d => {
+        initialYears[d.name] = { II: true, III: true, IV: true };
+        initialSections[d.name] = {
+          II:  { A: true, B: true, C: true },
+          III: { A: true, B: true, C: true },
+          IV:  { A: true, B: true, C: true },
+        };
+      });
+      setSelectedYears(initialYears);
+      setSelectedSections(initialSections);
     }
-  }, [open]);
+  }, [open, departments, defaultDepartmentNames]);
 
-  const toggleYear = (year: string) => {
-    setSelectedYears((prev) => ({ ...prev, [year]: !prev[year] }));
-  };
+  const getWizardSelection = (): DepartmentSelection[] => {
+    return Object.keys(selectedDepts)
+      .filter((deptName) => selectedDepts[deptName])
+      .map((deptName) => {
+        const deptYears = YEAR_ORDER.filter((y) => selectedYears[deptName]?.[y])
+          .map((y) => ({
+            year: y,
+            sections: YEAR_CONFIG[y].filter((s) => selectedSections[deptName]?.[y]?.[s]),
+          }))
+          .filter((sel) => sel.sections.length > 0);
 
-  const toggleSection = (year: string, section: string) => {
-    setSelectedSections((prev) => ({
-      ...prev,
-      [year]: { ...prev[year], [section]: !prev[year][section] },
-    }));
-  };
-
-  const getWizardSelection = (): WizardSelection[] => {
-    return YEAR_ORDER.filter((y) => selectedYears[y])
-      .map((y) => ({
-        year: y,
-        sections: YEAR_CONFIG[y].filter((s) => selectedSections[y]?.[s]),
-      }))
-      .filter((sel) => sel.sections.length > 0);
+        return {
+          departmentName: deptName,
+          selectedYears: deptYears,
+        };
+      })
+      .filter((deptSel) => deptSel.selectedYears.length > 0);
   };
 
   const handleNext = async () => {
-    const sel = getWizardSelection();
-    if (sel.length === 0) return;
+    const selections = getWizardSelection();
+    if (selections.length === 0) return;
 
     setLoadingHours(true);
     setStep(2);
 
     try {
-      const dept = await getDepartmentByName(departmentName);
-      if (!dept) { setLoadingHours(false); return; }
+      const checks: HourCheck[] = [];
 
-      const checks: HourCheck[] = await Promise.all(
-        sel.map(async ({ year, sections }) => {
-          const [subjects, specialHoursConfigs] = await Promise.all([
-            getSubjectsForYear(dept.id, year).catch(() => []),
-            getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
-          ]);
-          
-          let specialHoursTotal = 0;
-          specialHoursConfigs.forEach((config: any) => {
-            specialHoursTotal += config.total_hours || 0;
-          });
-          
-          let maxSectionHours = 0;
-          let hasError = false;
-          let hasWarning = false;
-          
-          for (const section of sections) {
-            const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
-            const secSubjects = secSubjIds.length > 0 
-              ? subjects.filter(s => secSubjIds.includes(s.id))
-              : subjects;
-            const subjectsTotal = calculateTotalHours(secSubjects);
-            const total = subjectsTotal + specialHoursTotal;
-            maxSectionHours = Math.max(maxSectionHours, total);
-            if (total > TOTAL_HOURS) hasError = true;
-            if (total < TOTAL_HOURS) hasWarning = true;
-          }
-          
-          let status: HourCheck["status"] = "ok";
-          if (hasError) status = "error";
-          else if (hasWarning) status = "warning";
-          
-          return { year, totalHours: maxSectionHours, status };
-        })
-      );
+      for (const deptSel of selections) {
+        const dept = await getDepartmentByName(deptSel.departmentName);
+        if (!dept) continue;
+
+        const deptChecks = await Promise.all(
+          deptSel.selectedYears.map(async ({ year, sections }) => {
+            const [subjects, specialHoursConfigs] = await Promise.all([
+              getSubjectsForYear(dept.id, year).catch(() => []),
+              getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
+            ]);
+            
+            let specialHoursTotal = 0;
+            specialHoursConfigs.forEach((config: any) => {
+              specialHoursTotal += config.total_hours || 0;
+            });
+            
+            let maxSectionHours = 0;
+            let hasError = false;
+            let hasWarning = false;
+            
+            for (const section of sections) {
+              const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
+              const secSubjects = secSubjIds.length > 0 
+                ? subjects.filter(s => secSubjIds.includes(s.id))
+                : subjects;
+              const subjectsTotal = calculateTotalHours(secSubjects);
+              const total = subjectsTotal + specialHoursTotal;
+              maxSectionHours = Math.max(maxSectionHours, total);
+              if (total > TOTAL_HOURS) hasError = true;
+              if (total < TOTAL_HOURS) hasWarning = true;
+            }
+            
+            let status: HourCheck["status"] = "ok";
+            if (hasError) status = "error";
+            else if (hasWarning) status = "warning";
+            
+            return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: maxSectionHours, status };
+          })
+        );
+        checks.push(...deptChecks);
+      }
       setHourChecks(checks);
     } finally {
       setLoadingHours(false);
@@ -188,7 +213,7 @@ export function GenerateWizardModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg bg-[#0e0e1a] border-white/10 text-white rounded-2xl shadow-2xl"
+      <DialogContent className="max-w-xl bg-[#0e0e1a] border-white/10 text-white rounded-2xl shadow-2xl"
         style={{ backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 55%)' }}
       >
         <DialogHeader>
@@ -198,9 +223,9 @@ export function GenerateWizardModal({
             </div>
             <div>
               <DialogTitle className="text-base font-bold text-white">
-                {step === 1 ? "Select Years & Sections" : "Hour Validation"}
+                {step === 1 ? "Select Departments, Years & Sections" : "Hour Validation"}
               </DialogTitle>
-              <p className="text-xs text-white/30 mt-0.5">Step {step} of 2 · {departmentName}</p>
+              <p className="text-xs text-white/30 mt-0.5">Step {step} of 2</p>
             </div>
           </div>
           <div className="flex gap-1.5 mt-1">
@@ -210,47 +235,98 @@ export function GenerateWizardModal({
         </DialogHeader>
 
         {step === 1 && (
-          <div className="space-y-3 mt-2">
-            {YEAR_ORDER.map((year) => (
-              <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
-                <div className="flex items-center gap-3 mb-3">
-                  <Checkbox
-                    id={`year-${year}`}
-                    checked={!!selectedYears[year]}
-                    onCheckedChange={() => toggleYear(year)}
-                    className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
-                  />
-                  <label htmlFor={`year-${year}`} className="font-bold text-sm cursor-pointer">
-                    Year {year}
-                  </label>
-                  <span className="text-[10px] text-white/30 ml-auto">
-                    {YEAR_CONFIG[year].length} sections available
-                  </span>
-                </div>
-
-                {selectedYears[year] && (
-                  <div className="flex gap-2 pl-7">
-                    {YEAR_CONFIG[year].map((sec) => (
-                      <button
-                        key={sec}
-                        onClick={() => toggleSection(year, sec)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                          selectedSections[year]?.[sec]
-                            ? 'bg-white/15 border-white/30 text-white'
-                            : 'bg-white/3 border-white/10 text-white/30'
-                        }`}
-                      >
-                        Sec {sec}
-                      </button>
-                    ))}
+          <div className="space-y-4 mt-2 max-h-[60vh] overflow-y-auto pr-1">
+            {/* Department selection boxes */}
+            <div className="rounded-xl border border-white/10 p-4 bg-white/2">
+              <label className="text-xs font-bold text-white/55 uppercase tracking-wider mb-3 block">
+                Select Departments
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {departments.map((d) => (
+                  <div key={d.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`dept-${d.id}`}
+                      checked={!!selectedDepts[d.name]}
+                      onCheckedChange={() => {
+                        setSelectedDepts((prev) => ({ ...prev, [d.name]: !prev[d.name] }));
+                      }}
+                      className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
+                    />
+                    <label htmlFor={`dept-${d.id}`} className="text-xs font-semibold cursor-pointer truncate" title={d.name}>
+                      {d.name}
+                    </label>
                   </div>
-                )}
+                ))}
+              </div>
+            </div>
+
+            {/* Render years & sections for active/checked departments */}
+            {departments.filter(d => selectedDepts[d.name]).map((dept) => (
+              <div key={dept.id} className="space-y-3">
+                <div className="text-xs font-bold text-violet-400 border-b border-white/10 pb-1 mt-4">
+                  {dept.name}
+                </div>
+                {YEAR_ORDER.map((year) => (
+                  <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[dept.name]?.[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <Checkbox
+                        id={`year-${dept.id}-${year}`}
+                        checked={!!selectedYears[dept.name]?.[year]}
+                        onCheckedChange={() => {
+                          setSelectedYears((prev) => ({
+                            ...prev,
+                            [dept.name]: {
+                              ...prev[dept.name],
+                              [year]: !prev[dept.name]?.[year]
+                            }
+                          }));
+                        }}
+                        className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
+                      />
+                      <label htmlFor={`year-${dept.id}-${year}`} className="font-bold text-sm cursor-pointer">
+                        Year {year}
+                      </label>
+                      <span className="text-[10px] text-white/30 ml-auto">
+                        {YEAR_CONFIG[year].length} sections available
+                      </span>
+                    </div>
+
+                    {selectedYears[dept.name]?.[year] && (
+                      <div className="flex gap-2 pl-7">
+                        {YEAR_CONFIG[year].map((sec) => (
+                          <button
+                            key={sec}
+                            onClick={() => {
+                              setSelectedSections((prev) => ({
+                                ...prev,
+                                [dept.name]: {
+                                  ...prev[dept.name],
+                                  [year]: {
+                                    ...prev[dept.name]?.[year],
+                                    [sec]: !prev[dept.name]?.[year]?.[sec]
+                                  }
+                                }
+                              }));
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              selectedSections[dept.name]?.[year]?.[sec]
+                                ? 'bg-white/15 border-white/30 text-white'
+                                : 'bg-white/3 border-white/10 text-white/30'
+                            }`}
+                          >
+                            Sec {sec}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
 
             <div className="flex items-center justify-between pt-2">
               <p className="text-xs text-white/25">
-                {getWizardSelection().reduce((n, s) => n + s.sections.length, 0)} section(s) selected
+                {getWizardSelection().reduce((sum, d) => sum + d.selectedYears.reduce((n, s) => n + s.sections.length, 0), 0)} section(s) selected
               </p>
               <Button
                 onClick={handleNext}
@@ -264,7 +340,7 @@ export function GenerateWizardModal({
         )}
 
         {step === 2 && (
-          <div className="space-y-3 mt-2">
+          <div className="space-y-3 mt-2 max-h-[60vh] overflow-y-auto pr-1">
             {loadingHours ? (
               <div className="py-8 text-center text-white/30 text-sm">Checking hour configurations…</div>
             ) : (
@@ -275,14 +351,14 @@ export function GenerateWizardModal({
                     check.status === 'warning' ? 'border-amber-500/30 bg-amber-500/8' :
                                                  'border-red-500/30 bg-red-500/8'
                   }`}>
-                    <div className="text-sm font-bold text-white/80 w-14">Year {check.year}</div>
+                    <div className="text-xs font-bold text-white/80 w-44 truncate" title={check.year}>{check.year}</div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <div className={`text-xl font-bold ${
+                        <div className={`text-lg font-bold ${
                           check.status === 'ok' ? 'text-emerald-300' :
                           check.status === 'warning' ? 'text-amber-300' : 'text-red-300'
                         }`}>{check.totalHours}h</div>
-                        <span className="text-xs text-white/25">/ {TOTAL_HOURS}h required</span>
+                        <span className="text-[10px] text-white/25">/ {TOTAL_HOURS}h required</span>
                       </div>
                       <div className="h-1.5 w-full bg-white/10 rounded-full mt-1.5">
                         <div
@@ -300,7 +376,7 @@ export function GenerateWizardModal({
                         <>
                           <AlertTriangle className="h-5 w-5 text-amber-400" />
                           <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects/${encodeURIComponent(check.year)}`); }}
+                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
                             className="flex items-center gap-1 text-[10px] text-amber-300 hover:text-amber-200 underline"
                           >
                             Edit <ExternalLink className="h-3 w-3" />
@@ -311,7 +387,7 @@ export function GenerateWizardModal({
                         <>
                           <XCircle className="h-5 w-5 text-red-400" />
                           <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects/${encodeURIComponent(check.year)}`); }}
+                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
                             className="flex items-center gap-1 text-[10px] text-red-300 hover:text-red-200 underline"
                           >
                             Fix <ExternalLink className="h-3 w-3" />
