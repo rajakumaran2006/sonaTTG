@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours, getDepartments } from "@/lib/supabaseService";
+import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours } from "@/lib/supabaseService";
 
 const YEAR_CONFIG: Record<string, string[]> = {
   "II":  ["A", "B", "C"],
@@ -65,8 +65,12 @@ export interface WizardSelection {
   sections: string[];
 }
 
+export interface DepartmentSelection {
+  departmentName: string;
+  selectedYears: WizardSelection[];
+}
+
 interface HourCheck {
-  deptName?: string;
   year: string;
   totalHours: number;
   status: "ok" | "warning" | "error";
@@ -75,30 +79,24 @@ interface HourCheck {
 interface GenerateWizardModalProps {
   open: boolean;
   onClose: () => void;
-  departmentName: string;
-  onProceed: (selection: WizardSelection[], departmentNames: string[]) => void;
+  departments: any[];
+  defaultDepartmentNames: string[];
+  onProceed: (selections: DepartmentSelection[]) => void;
 }
 
 export function GenerateWizardModal({
   open,
   onClose,
-  departmentName,
+  departments,
+  defaultDepartmentNames,
   onProceed,
 }: GenerateWizardModalProps) {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2>(1);
 
-  const [departments, setDepartments] = useState<any[]>([]);
   const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
-
-  const [selectedYears, setSelectedYears] = useState<Record<string, boolean>>({
-    II: true, III: true, IV: true,
-  });
-  const [selectedSections, setSelectedSections] = useState<Record<string, Record<string, boolean>>>({
-    II:  { A: true, B: true, C: true },
-    III: { A: true, B: true, C: true },
-    IV:  { A: true, B: true, C: true },
-  });
+  const [selectedYears, setSelectedYears] = useState<Record<string, Record<string, boolean>>>({});
+  const [selectedSections, setSelectedSections] = useState<Record<string, Record<string, Record<string, boolean>>>>({});
 
   const [hourChecks, setHourChecks] = useState<HourCheck[]>([]);
   const [loadingHours, setLoadingHours] = useState(false);
@@ -107,48 +105,50 @@ export function GenerateWizardModal({
     if (open) {
       setStep(1);
       setHourChecks([]);
-      (async () => {
-        try {
-          const depts = await getDepartments();
-          setDepartments(depts);
-          const initialDepts: Record<string, boolean> = {};
-          depts.forEach((d) => {
-            initialDepts[d.name] = d.name === departmentName;
-          });
-          setSelectedDepts(initialDepts);
-        } catch (e) {
-          console.error("Failed to fetch departments:", e);
-        }
-      })();
+      
+      const initialDepts: Record<string, boolean> = {};
+      departments.forEach(d => {
+        initialDepts[d.name] = defaultDepartmentNames.includes(d.name);
+      });
+      setSelectedDepts(initialDepts);
+
+      const initialYears: Record<string, Record<string, boolean>> = {};
+      const initialSections: Record<string, Record<string, Record<string, boolean>>> = {};
+      departments.forEach(d => {
+        initialYears[d.name] = { II: true, III: true, IV: true };
+        initialSections[d.name] = {
+          II:  { A: true, B: true, C: true },
+          III: { A: true, B: true, C: true },
+          IV:  { A: true, B: true, C: true },
+        };
+      });
+      setSelectedYears(initialYears);
+      setSelectedSections(initialSections);
     }
-  }, [open, departmentName]);
+  }, [open, departments, defaultDepartmentNames]);
 
-  const toggleYear = (year: string) => {
-    setSelectedYears((prev) => ({ ...prev, [year]: !prev[year] }));
-  };
+  const getWizardSelection = (): DepartmentSelection[] => {
+    return Object.keys(selectedDepts)
+      .filter((deptName) => selectedDepts[deptName])
+      .map((deptName) => {
+        const deptYears = YEAR_ORDER.filter((y) => selectedYears[deptName]?.[y])
+          .map((y) => ({
+            year: y,
+            sections: YEAR_CONFIG[y].filter((s) => selectedSections[deptName]?.[y]?.[s]),
+          }))
+          .filter((sel) => sel.sections.length > 0);
 
-  const toggleSection = (year: string, section: string) => {
-    setSelectedSections((prev) => ({
-      ...prev,
-      [year]: { ...prev[year], [section]: !prev[year][section] },
-    }));
-  };
-
-  const getWizardSelection = (): WizardSelection[] => {
-    return YEAR_ORDER.filter((y) => selectedYears[y])
-      .map((y) => ({
-        year: y,
-        sections: YEAR_CONFIG[y].filter((s) => selectedSections[y]?.[s]),
-      }))
-      .filter((sel) => sel.sections.length > 0);
+        return {
+          departmentName: deptName,
+          selectedYears: deptYears,
+        };
+      })
+      .filter((deptSel) => deptSel.selectedYears.length > 0);
   };
 
   const handleNext = async () => {
-    const sel = getWizardSelection();
-    if (sel.length === 0) return;
-
-    const activeDeptNames = Object.keys(selectedDepts).filter(name => selectedDepts[name]);
-    if (activeDeptNames.length === 0) return;
+    const selections = getWizardSelection();
+    if (selections.length === 0) return;
 
     setLoadingHours(true);
     setStep(2);
@@ -156,26 +156,26 @@ export function GenerateWizardModal({
     try {
       const checks: HourCheck[] = [];
 
-      for (const deptName of activeDeptNames) {
-        const dept = await getDepartmentByName(deptName);
+      for (const deptSel of selections) {
+        const dept = await getDepartmentByName(deptSel.departmentName);
         if (!dept) continue;
 
         const deptChecks = await Promise.all(
-          sel.map(async ({ year, sections }) => {
+          deptSel.selectedYears.map(async ({ year, sections }) => {
             const [subjects, specialHoursConfigs] = await Promise.all([
               getSubjectsForYear(dept.id, year).catch(() => []),
               getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
             ]);
-
+            
             let specialHoursTotal = 0;
             specialHoursConfigs.forEach((config: any) => {
               specialHoursTotal += config.total_hours || 0;
             });
-
+            
             let maxSectionHours = 0;
             let hasError = false;
             let hasWarning = false;
-
+            
             for (const section of sections) {
               const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
               const secSubjects = secSubjIds.length > 0 
@@ -187,19 +187,17 @@ export function GenerateWizardModal({
               if (total > TOTAL_HOURS) hasError = true;
               if (total < TOTAL_HOURS) hasWarning = true;
             }
-
+            
             let status: HourCheck["status"] = "ok";
             if (hasError) status = "error";
             else if (hasWarning) status = "warning";
-
-            return { deptName, year, totalHours: maxSectionHours, status };
+            
+            return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: maxSectionHours, status };
           })
         );
         checks.push(...deptChecks);
       }
       setHourChecks(checks);
-    } catch (e) {
-      console.error(e);
     } finally {
       setLoadingHours(false);
     }
@@ -215,7 +213,7 @@ export function GenerateWizardModal({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-lg bg-[#0e0e1a] border-white/10 text-white rounded-2xl shadow-2xl"
+      <DialogContent className="max-w-xl bg-[#0e0e1a] border-white/10 text-white rounded-2xl shadow-2xl"
         style={{ backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 55%)' }}
       >
         <DialogHeader>
@@ -225,9 +223,9 @@ export function GenerateWizardModal({
             </div>
             <div>
               <DialogTitle className="text-base font-bold text-white">
-                {step === 1 ? "Select Years & Sections" : "Hour Validation"}
+                {step === 1 ? "Select Departments, Years & Sections" : "Hour Validation"}
               </DialogTitle>
-              <p className="text-xs text-white/30 mt-0.5">Step {step} of 2 · {departmentName}</p>
+              <p className="text-xs text-white/30 mt-0.5">Step {step} of 2</p>
             </div>
           </div>
           <div className="flex gap-1.5 mt-1">
@@ -237,85 +235,102 @@ export function GenerateWizardModal({
         </DialogHeader>
 
         {step === 1 && (
-          <div className="space-y-3 mt-2">
-            {/* Choose Departments */}
-            {departments.length > 0 && (
-              <div className="space-y-2 mb-4">
-                <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest pl-1">Select Departments</span>
-                <div className="grid grid-cols-2 gap-2">
-                  {departments.map((d) => (
-                    <label
-                      key={d.id}
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
-                        selectedDepts[d.name]
-                          ? "bg-white/10 border-white/30 text-white"
-                          : "bg-white/3 border-white/10 text-white/40 hover:bg-white/5"
-                      }`}
-                    >
+          <div className="space-y-4 mt-2 max-h-[60vh] overflow-y-auto pr-1">
+            {/* Department selection boxes */}
+            <div className="rounded-xl border border-white/10 p-4 bg-white/2">
+              <label className="text-xs font-bold text-white/55 uppercase tracking-wider mb-3 block">
+                Select Departments
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {departments.map((d) => (
+                  <div key={d.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`dept-${d.id}`}
+                      checked={!!selectedDepts[d.name]}
+                      onCheckedChange={() => {
+                        setSelectedDepts((prev) => ({ ...prev, [d.name]: !prev[d.name] }));
+                      }}
+                      className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
+                    />
+                    <label htmlFor={`dept-${d.id}`} className="text-xs font-semibold cursor-pointer truncate" title={d.name}>
+                      {d.name}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Render years & sections for active/checked departments */}
+            {departments.filter(d => selectedDepts[d.name]).map((dept) => (
+              <div key={dept.id} className="space-y-3">
+                <div className="text-xs font-bold text-violet-400 border-b border-white/10 pb-1 mt-4">
+                  {dept.name}
+                </div>
+                {YEAR_ORDER.map((year) => (
+                  <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[dept.name]?.[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
+                    <div className="flex items-center gap-3 mb-3">
                       <Checkbox
-                        id={`dept-${d.id}`}
-                        checked={!!selectedDepts[d.name]}
+                        id={`year-${dept.id}-${year}`}
+                        checked={!!selectedYears[dept.name]?.[year]}
                         onCheckedChange={() => {
-                          setSelectedDepts((prev) => ({
+                          setSelectedYears((prev) => ({
                             ...prev,
-                            [d.name]: !prev[d.name]
+                            [dept.name]: {
+                              ...prev[dept.name],
+                              [year]: !prev[dept.name]?.[year]
+                            }
                           }));
                         }}
                         className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
                       />
-                      <span className="text-xs font-bold">{d.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
+                      <label htmlFor={`year-${dept.id}-${year}`} className="font-bold text-sm cursor-pointer">
+                        Year {year}
+                      </label>
+                      <span className="text-[10px] text-white/30 ml-auto">
+                        {YEAR_CONFIG[year].length} sections available
+                      </span>
+                    </div>
 
-            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest pl-1 block mt-2">Select Years &amp; Sections</span>
-
-            {YEAR_ORDER.map((year) => (
-              <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
-                <div className="flex items-center gap-3 mb-3">
-                  <Checkbox
-                    id={`year-${year}`}
-                    checked={!!selectedYears[year]}
-                    onCheckedChange={() => toggleYear(year)}
-                    className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
-                  />
-                  <label htmlFor={`year-${year}`} className="font-bold text-sm cursor-pointer">
-                    Year {year}
-                  </label>
-                  <span className="text-[10px] text-white/30 ml-auto">
-                    {YEAR_CONFIG[year].length} sections available
-                  </span>
-                </div>
-
-                {selectedYears[year] && (
-                  <div className="flex gap-2 pl-7">
-                    {YEAR_CONFIG[year].map((sec) => (
-                      <button
-                        key={sec}
-                        onClick={() => toggleSection(year, sec)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                          selectedSections[year]?.[sec]
-                            ? 'bg-white/15 border-white/30 text-white'
-                            : 'bg-white/3 border-white/10 text-white/30'
-                        }`}
-                      >
-                        Sec {sec}
-                      </button>
-                    ))}
+                    {selectedYears[dept.name]?.[year] && (
+                      <div className="flex gap-2 pl-7">
+                        {YEAR_CONFIG[year].map((sec) => (
+                          <button
+                            key={sec}
+                            onClick={() => {
+                              setSelectedSections((prev) => ({
+                                ...prev,
+                                [dept.name]: {
+                                  ...prev[dept.name],
+                                  [year]: {
+                                    ...prev[dept.name]?.[year],
+                                    [sec]: !prev[dept.name]?.[year]?.[sec]
+                                  }
+                                }
+                              }));
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                              selectedSections[dept.name]?.[year]?.[sec]
+                                ? 'bg-white/15 border-white/30 text-white'
+                                : 'bg-white/3 border-white/10 text-white/30'
+                            }`}
+                          >
+                            Sec {sec}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
             ))}
 
             <div className="flex items-center justify-between pt-2">
               <p className="text-xs text-white/25">
-                {getWizardSelection().reduce((n, s) => n + s.sections.length, 0) * Object.keys(selectedDepts).filter(n => selectedDepts[n]).length} section(s) selected
+                {getWizardSelection().reduce((sum, d) => sum + d.selectedYears.reduce((n, s) => n + s.sections.length, 0), 0)} section(s) selected
               </p>
               <Button
                 onClick={handleNext}
-                disabled={getWizardSelection().length === 0 || Object.keys(selectedDepts).filter(n => selectedDepts[n]).length === 0}
+                disabled={getWizardSelection().length === 0}
                 className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >
                 Next <ArrowRight className="h-3.5 w-3.5" />
@@ -325,24 +340,21 @@ export function GenerateWizardModal({
         )}
 
         {step === 2 && (
-          <div className="space-y-3 mt-2">
+          <div className="space-y-3 mt-2 max-h-[60vh] overflow-y-auto pr-1">
             {loadingHours ? (
               <div className="py-8 text-center text-white/30 text-sm">Checking hour configurations…</div>
             ) : (
               <>
                 {hourChecks.map((check) => (
-                  <div key={`${check.deptName}-${check.year}`} className={`flex items-center gap-4 rounded-xl border p-4 ${
+                  <div key={check.year} className={`flex items-center gap-4 rounded-xl border p-4 ${
                     check.status === 'ok'      ? 'border-emerald-500/30 bg-emerald-500/8' :
                     check.status === 'warning' ? 'border-amber-500/30 bg-amber-500/8' :
                                                  'border-red-500/30 bg-red-500/8'
                   }`}>
-                    <div className="text-[11px] font-bold text-white/80 w-24 leading-snug">
-                      <div className="text-emerald-400 truncate">{check.deptName}</div>
-                      <div>Year {check.year}</div>
-                    </div>
+                    <div className="text-xs font-bold text-white/80 w-44 truncate" title={check.year}>{check.year}</div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <div className={`text-xl font-bold ${
+                        <div className={`text-lg font-bold ${
                           check.status === 'ok' ? 'text-emerald-300' :
                           check.status === 'warning' ? 'text-amber-300' : 'text-red-300'
                         }`}>{check.totalHours}h</div>
@@ -364,7 +376,7 @@ export function GenerateWizardModal({
                         <>
                           <AlertTriangle className="h-5 w-5 text-amber-400" />
                           <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects/${encodeURIComponent(check.year)}`); }}
+                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
                             className="flex items-center gap-1 text-[10px] text-amber-300 hover:text-amber-200 underline"
                           >
                             Edit <ExternalLink className="h-3 w-3" />
@@ -375,7 +387,7 @@ export function GenerateWizardModal({
                         <>
                           <XCircle className="h-5 w-5 text-red-400" />
                           <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects/${encodeURIComponent(check.year)}`); }}
+                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
                             className="flex items-center gap-1 text-[10px] text-red-300 hover:text-red-200 underline"
                           >
                             Fix <ExternalLink className="h-3 w-3" />
@@ -404,11 +416,7 @@ export function GenerateWizardModal({
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
               <Button
-                onClick={() => {
-                  onClose();
-                  const activeDeptNames = Object.keys(selectedDepts).filter(name => selectedDepts[name]);
-                  onProceed(getWizardSelection(), activeDeptNames);
-                }}
+                onClick={() => { onClose(); onProceed(getWizardSelection()); }}
                 disabled={!canProceed || loadingHours}
                 className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >

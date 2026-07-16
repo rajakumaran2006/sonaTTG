@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ interface AdminUser {
   department?: {
     name: string;
   };
+  admin_departments?: { department_id: string }[];
 }
 
 interface Department {
@@ -44,6 +45,7 @@ const AdminManagement = () => {
     name: "",
     email: "",
     department_id: "",
+    department_ids: [] as string[],
     password: ""
   });
 
@@ -120,7 +122,7 @@ const AdminManagement = () => {
       const [adminsRes, deptsRes] = await Promise.all([
         (supabase as any)
           .from('admin_users')
-          .select('*')
+          .select('*, admin_departments(department_id)')
           .order('created_at', { ascending: false }),
         (supabase as any)
           .from('departments')
@@ -200,7 +202,7 @@ const AdminManagement = () => {
   };
 
   const handleCreateAdmin = async () => {
-    if (!formData.name || !formData.email || !formData.department_id || !formData.password) {
+    if (!formData.name || !formData.email || formData.department_ids.length === 0 || !formData.password) {
       toast.error('Please fill in all fields');
       return;
     }
@@ -219,41 +221,43 @@ const AdminManagement = () => {
       console.log('Creating admin with data:', {
         name: formData.name,
         email: formData.email,
-        department_id: formData.department_id,
+        department_ids: formData.department_ids,
         password_hash: hashResult ? '[HASHED]' : '[NO HASH]'
       });
 
-      // First check if department exists
-      console.log('Checking if department exists:', formData.department_id);
-      const { data: deptCheck, error: deptError } = await (supabase as any)
-        .from('departments')
-        .select('id, name')
-        .eq('id', formData.department_id)
-        .single();
-
-      if (deptError || !deptCheck) {
-        console.error('Department not found:', formData.department_id, deptError);
-        toast.error(`Selected department does not exist: ${formData.department_id}`);
-        return;
-      }
-
-      console.log('Department verified:', deptCheck);
-
-      const { error } = await (supabase as any)
+      // Insert admin user
+      const { data: newAdmins, error } = await (supabase as any)
         .from('admin_users')
         .insert({
           name: formData.name,
           email: formData.email,
-          department_id: formData.department_id,
+          department_id: formData.department_ids[0], // fallback primary
           password_hash: hashResult,
           is_active: true
-        });
+        })
+        .select();
 
-      if (error) {
+      if (error || !newAdmins || newAdmins.length === 0) {
         console.error('Supabase error creating admin:', error);
-        console.error('Error details:', error.details, error.message, error.hint);
-        toast.error(`Failed to create admin: ${error.message || error.details || 'Unknown error'}`);
+        toast.error(`Failed to create admin: ${error?.message || 'Unknown error'}`);
         return;
+      }
+
+      const newAdmin = newAdmins[0];
+
+      // Insert mappings into admin_departments
+      const deptInserts = formData.department_ids.map(deptId => ({
+        admin_id: newAdmin.id,
+        department_id: deptId
+      }));
+
+      const { error: deptError } = await (supabase as any)
+        .from('admin_departments')
+        .insert(deptInserts);
+
+      if (deptError) {
+        console.error('Error mapping departments:', deptError);
+        toast.error('Admin created, but department mapping failed.');
       }
 
       console.log('Admin created successfully');
@@ -261,30 +265,10 @@ const AdminManagement = () => {
       // Wait a moment before reloading to ensure database commit
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      console.log('Admin created successfully, reloading data...');
       toast.success('Admin created successfully');
       setOpenCreate(false);
       resetForm();
-
-      console.log('About to reload data after admin creation...');
-      await loadData(); // Ensure data is reloaded
-      console.log('Data reloaded after admin creation');
-
-      // Verify the admin exists in the loaded data
-      console.log('Checking if admin exists in current admins array...');
-      console.log('Current admins count:', admins.length);
-      console.log('Looking for email:', formData.email);
-
-      const createdAdmin = admins.find(a => a.email === formData.email);
-      if (createdAdmin) {
-        console.log('Admin creation verified in loaded data:', createdAdmin);
-        toast.success(`Admin ${createdAdmin.name} created and verified`);
-      } else {
-        console.warn('Admin creation may have failed - admin not found in loaded data');
-        console.log('Current admins in state:', admins);
-        console.log('Available admin emails:', admins.map(a => a.email));
-        toast.error('Admin created but not found in list. Please refresh the page.');
-      }
+      await loadData();
     } catch (error) {
       console.error('Error creating admin:', error);
       toast.error('Failed to create admin');
@@ -298,7 +282,7 @@ const AdminManagement = () => {
       const updateData: any = {
         name: formData.name,
         email: formData.email,
-        department_id: formData.department_id,
+        department_id: formData.department_ids[0] || null,
       };
 
       if (formData.password) {
@@ -321,6 +305,26 @@ const AdminManagement = () => {
       if (error) {
         toast.error('Failed to update admin');
         return;
+      }
+
+      // Sync admin_departments: delete old and insert new
+      await (supabase as any)
+        .from('admin_departments')
+        .delete()
+        .eq('admin_id', editingAdmin.id);
+
+      if (formData.department_ids.length > 0) {
+        const deptInserts = formData.department_ids.map(deptId => ({
+          admin_id: editingAdmin.id,
+          department_id: deptId
+        }));
+        const { error: deptError } = await (supabase as any)
+          .from('admin_departments')
+          .insert(deptInserts);
+
+        if (deptError) {
+          console.error('Error updating department mappings:', deptError);
+        }
       }
 
       toast.success('Admin updated successfully');
@@ -380,16 +384,21 @@ const AdminManagement = () => {
       name: "",
       email: "",
       department_id: "",
+      department_ids: [],
       password: ""
     });
   };
 
   const openEditDialog = (admin: AdminUser) => {
     setEditingAdmin(admin);
+    const deptIds = (admin.admin_departments && admin.admin_departments.length > 0)
+      ? admin.admin_departments.map(d => d.department_id)
+      : (admin.department_id ? [admin.department_id] : []);
     setFormData({
       name: admin.name,
       email: admin.email,
-      department_id: admin.department_id,
+      department_id: admin.department_id || "",
+      department_ids: deptIds,
       password: ""
     });
   };
@@ -438,22 +447,31 @@ const AdminManagement = () => {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="department">Department</Label>
-                    <Select
-                      value={formData.department_id}
-                      onValueChange={(value) => setFormData({ ...formData, department_id: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={departments.length === 0 ? "No departments available" : "Select department"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Departments <span className="text-muted-foreground text-xs">(select one or more)</span></Label>
+                    <div className="border rounded-lg p-3 max-h-44 overflow-y-auto space-y-2">
+                      {departments.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No departments available</p>
+                      ) : departments.map((dept) => {
+                        const checked = formData.department_ids.includes(dept.id);
+                        return (
+                          <label key={dept.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/40 px-2 py-1 rounded-md transition-colors">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(c) => {
+                                const ids = c
+                                  ? [...formData.department_ids, dept.id]
+                                  : formData.department_ids.filter(id => id !== dept.id);
+                                setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
+                              }}
+                            />
+                            <span className="text-sm">{dept.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {formData.department_ids.length > 0 && (
+                      <p className="text-xs text-muted-foreground">{formData.department_ids.length} department(s) selected</p>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="password">Password</Label>
@@ -526,11 +544,21 @@ const AdminManagement = () => {
                   },
                   {
                     key: "department",
-                    header: "Department",
+                    header: "Departments",
                     sortable: true,
                     render: (row) => {
-                      const dept = departments.find(d => d.id === row.department_id);
-                      return <span className="text-slate-700 dark:text-slate-300">{dept?.name || 'Unknown'}</span>;
+                      const deptIds = (row.admin_departments && row.admin_departments.length > 0)
+                        ? row.admin_departments.map((d: any) => d.department_id)
+                        : (row.department_id ? [row.department_id] : []);
+                      const names = deptIds.map((id: string) => departments.find(d => d.id === id)?.name).filter(Boolean);
+                      if (names.length === 0) return <span className="text-slate-400 dark:text-slate-500 text-xs">Not assigned</span>;
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {names.map((name: string, i: number) => (
+                            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">{name}</span>
+                          ))}
+                        </div>
+                      );
                     }
                   },
                   {
@@ -607,8 +635,17 @@ const AdminManagement = () => {
                         </Badge>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{row.email}</p>
-                      <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
-                        <span>Dept: {departments.find(d => d.id === row.department_id)?.name || 'Unknown'}</span>
+                      <div className="mt-3 flex flex-wrap items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                        {(() => {
+                          const deptIds = (row.admin_departments && row.admin_departments.length > 0)
+                            ? row.admin_departments.map((d: any) => d.department_id)
+                            : (row.department_id ? [row.department_id] : []);
+                          const names = deptIds.map((id: string) => departments.find(d => d.id === id)?.name).filter(Boolean);
+                          if (names.length === 0) return <span>No dept assigned</span>;
+                          return names.map((name: string, i: number) => (
+                            <span key={i} className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded">{name}</span>
+                          ));
+                        })()}
                         <span>•</span>
                         <span>Created: {new Date(row.created_at).toLocaleDateString()}</span>
                       </div>
@@ -673,22 +710,31 @@ const AdminManagement = () => {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="edit-department">Department</Label>
-                <Select
-                  value={formData.department_id}
-                  onValueChange={(value) => setFormData({ ...formData, department_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Departments <span className="text-muted-foreground text-xs">(select one or more)</span></Label>
+                <div className="border rounded-lg p-3 max-h-44 overflow-y-auto space-y-2">
+                  {departments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No departments available</p>
+                  ) : departments.map((dept) => {
+                    const checked = formData.department_ids.includes(dept.id);
+                    return (
+                      <label key={dept.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/40 px-2 py-1 rounded-md transition-colors">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(c) => {
+                            const ids = c
+                              ? [...formData.department_ids, dept.id]
+                              : formData.department_ids.filter(id => id !== dept.id);
+                            setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
+                          }}
+                        />
+                        <span className="text-sm">{dept.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {formData.department_ids.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{formData.department_ids.length} department(s) selected</p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-password">New Password (leave blank to keep current)</Label>

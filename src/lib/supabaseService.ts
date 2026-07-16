@@ -15,6 +15,7 @@ type DbSubject = {
   staff: string | null;
   max_faculty_count?: number;
   credits?: number;
+  elective_group_name?: string | null;
 };
 
 type DbDepartment = { id: string; name: string };
@@ -337,6 +338,7 @@ function dbSubjectToSubject(dbSubject: DbSubject): Subject {
     staff: dbSubject.staff || undefined,
     maxFacultyCount: dbSubject.max_faculty_count,
     credits: dbSubject.credits || 3,
+    elective_group_name: dbSubject.elective_group_name || undefined,
   };
 }
 
