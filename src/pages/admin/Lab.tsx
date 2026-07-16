@@ -806,6 +806,135 @@ const Lab = () => {
     }
   };
 
+  const exportLabSchedulePDF = async (lab: Lab) => {
+    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
+    const vfsFonts = await import('pdfmake/build/vfs_fonts');
+    // @ts-ignore
+    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+
+    const daysList = [
+      { name: 'MON', value: 1 },
+      { name: 'TUE', value: 2 },
+      { name: 'WED', value: 3 },
+      { name: 'THU', value: 4 },
+      { name: 'FRI', value: 5 },
+      { name: 'SAT', value: 6 }
+    ];
+
+    const headerRow = [
+      { text: 'DAY', style: 'tableHeader', alignment: 'center' },
+      { text: '1\n9:00 to 9:55', style: 'tableHeader', alignment: 'center' },
+      { text: '2\n9:55 to 10:50', style: 'tableHeader', alignment: 'center' },
+      { text: '3\n11:05 to 12:00', style: 'tableHeader', alignment: 'center' },
+      { text: '4\n12:00 to 12:55', style: 'tableHeader', alignment: 'center' },
+      { text: '12.55\nto 1.55', style: 'tableHeader', alignment: 'center' },
+      { text: '5\n1.55 to 2:50', style: 'tableHeader', alignment: 'center' },
+      { text: '6\n2.50 to 03:45', style: 'tableHeader', alignment: 'center' },
+      { text: '7\n3.55 to 4:50', style: 'tableHeader', alignment: 'center' }
+    ];
+
+    const gridRows = daysList.map((day) => {
+      const rowCells: any[] = [{ text: day.name, style: 'dayHeader', alignment: 'center', bold: true }];
+      
+      for (let p = 1; p <= 4; p++) {
+        const sched = labSchedules.find(s => s.lab_id === lab.id && s.day_of_week === day.value && s.slot_number === p);
+        rowCells.push({
+          text: sched ? (sched.semester || 'Allocated') : '',
+          alignment: 'center',
+          fontSize: 8
+        });
+      }
+
+      if (day.value === 1) {
+        rowCells.push({ text: 'L\nU\nN\nC\nH', rowSpan: 6, alignment: 'center', bold: true, fontSize: 9 });
+      } else {
+        rowCells.push('');
+      }
+
+      for (let p = 5; p <= 7; p++) {
+        const sched = labSchedules.find(s => s.lab_id === lab.id && s.day_of_week === day.value && s.slot_number === p);
+        rowCells.push({
+          text: sched ? (sched.semester || 'Allocated') : '',
+          alignment: 'center',
+          fontSize: 8
+        });
+      }
+
+      return rowCells;
+    });
+
+    const scheduledLabsForThisLab = labSchedules.filter(s => s.lab_id === lab.id);
+    const uniqueSubjectNames = Array.from(new Set(scheduledLabsForThisLab.map(s => {
+      const parsed = parseScheduleInfo(s.semester || '');
+      return parsed.subject || parsed.raw || '';
+    }).filter(Boolean)));
+
+    const legendRows: any[] = [];
+    uniqueSubjectNames.forEach(subjName => {
+      const matched = itAdsLabs.find(s => s.name.toLowerCase().trim() === subjName.toLowerCase().trim() || s.abbreviation?.toLowerCase().trim() === subjName.toLowerCase().trim());
+      
+      const countHrs = scheduledLabsForThisLab.filter(s => {
+        const parsed = parseScheduleInfo(s.semester || '');
+        const name = parsed.subject || parsed.raw || '';
+        return name.toLowerCase().trim() === subjName.toLowerCase().trim();
+      }).length;
+
+      const staffIncharge = matched ? (matched.staff || '-') : '-';
+
+      legendRows.push([
+        { text: matched ? (matched.code || '-') : '-', alignment: 'center' },
+        { text: matched ? (matched.abbreviation || subjName) : subjName, alignment: 'center' },
+        { text: matched ? matched.name : subjName, alignment: 'left' },
+        { text: countHrs.toString(), alignment: 'center' },
+        { text: staffIncharge, alignment: 'left' }
+      ]);
+    });
+
+    const doc: any = {
+      content: [
+        { text: 'Computing Lab Slot 1', style: 'mainHeader', alignment: 'center' },
+        { text: `LAB SCHEDULE: ${lab.name.toUpperCase()} (${lab.lab_code})`, style: 'subHeader', alignment: 'center', margin: [0, 0, 0, 15] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [40, '*', '*', '*', '*', 20, '*', '*', '*'],
+            body: [headerRow, ...gridRows]
+          },
+          margin: [0, 0, 0, 20]
+        },
+        { text: 'PRACTICAL COURSE DETAILS', style: 'sectionHeader', margin: [0, 10, 0, 5] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [80, 80, '*', 60, '*'],
+            body: [
+              [
+                { text: 'SUBJECT CODE', style: 'tableHeader', alignment: 'center' },
+                { text: 'Abbreviation', style: 'tableHeader', alignment: 'center' },
+                { text: 'COURSE TITLE', style: 'tableHeader', alignment: 'center' },
+                { text: 'NO. OF HOURS', style: 'tableHeader', alignment: 'center' },
+                { text: 'STAFF INCHARGE', style: 'tableHeader', alignment: 'center' }
+              ],
+              ...legendRows.length > 0 ? legendRows : [[{ text: 'No scheduled labs', colSpan: 5, alignment: 'center' }, '', '', '', '']]
+            ]
+          }
+        }
+      ],
+      styles: {
+        mainHeader: { fontSize: 16, bold: true, margin: [0, 0, 0, 2] },
+        subHeader: { fontSize: 11, bold: true, color: '#555555' },
+        sectionHeader: { fontSize: 11, bold: true, decoration: 'underline' },
+        tableHeader: { fontSize: 9, bold: true, fillColor: '#eeeeee' },
+        dayHeader: { fontSize: 9, bold: true, fillColor: '#f9f9f9' }
+      },
+      defaultStyle: {
+        fontSize: 9
+      }
+    };
+
+    pdfMake.createPdf(doc).download(`${lab.name.replace(/\s+/g, '_')}_schedule.pdf`);
+  };
+
   const ready = selection.department;
 
   const LabTable = CustomTable<Lab>;
@@ -1132,6 +1261,17 @@ const Lab = () => {
             <DialogTitle>
               Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
             </DialogTitle>
+            {selectedLabForSchedule && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportLabSchedulePDF(selectedLabForSchedule)}
+                className="flex items-center gap-1.5 h-9 rounded-xl border border-slate-200 hover:bg-slate-50 transition-all font-semibold"
+              >
+                <Download className="h-4 w-4" />
+                <span>Export PDF</span>
+              </Button>
+            )}
           </DialogHeader>
 
           {selectedLabForSchedule && (
