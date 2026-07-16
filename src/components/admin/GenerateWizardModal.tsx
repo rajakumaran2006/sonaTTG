@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours } from "@/lib/supabaseService";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 const YEAR_CONFIG: Record<string, string[]> = {
   "II":  ["A", "B", "C"],
@@ -92,6 +93,7 @@ export function GenerateWizardModal({
   onProceed,
 }: GenerateWizardModalProps) {
   const navigate = useNavigate();
+  const { isDark } = useDarkMode();
   const [step, setStep] = useState<1 | 2>(1);
 
   const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
@@ -205,40 +207,46 @@ export function GenerateWizardModal({
 
   const canProceed = hourChecks.length > 0 && !hourChecks.some((c) => c.status === "error");
 
-  const YEAR_COLORS: Record<string, string> = {
-    II:  "bg-white/5 border-white/20 text-white",
-    III: "bg-white/5 border-white/20 text-white",
-    IV:  "bg-white/5 border-white/20 text-white",
-  };
-
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-xl bg-[#0e0e1a] border-white/10 text-white rounded-2xl shadow-2xl"
-        style={{ backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 55%)' }}
+      <DialogContent className={`max-w-xl border rounded-2xl shadow-2xl transition-colors duration-300 ${
+        isDark 
+          ? "bg-[#0e0e1a] border-white/10 text-white" 
+          : "bg-white border-slate-200 text-slate-900"
+      }`}
+        style={isDark ? { backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(16,185,129,0.08) 0%, transparent 55%)' } : {}}
       >
         <DialogHeader>
           <div className="flex items-center gap-3 mb-1">
-            <div className="p-2 rounded-xl bg-violet-500/15">
-              <Zap className="h-4 w-4 text-violet-400" />
+            <div className={`p-2 rounded-xl ${isDark ? "bg-emerald-500/15" : "bg-emerald-50"}`}>
+              <Zap className={`h-4 w-4 ${isDark ? "text-emerald-400" : "text-emerald-600"}`} />
             </div>
             <div>
-              <DialogTitle className="text-base font-bold text-white">
+              <DialogTitle className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>
                 {step === 1 ? "Select Departments, Years & Sections" : "Hour Validation"}
               </DialogTitle>
-              <p className="text-xs text-white/30 mt-0.5">Step {step} of 2</p>
+              <p className={`text-xs mt-0.5 ${isDark ? "text-white/30" : "text-slate-400"}`}>Step {step} of 2</p>
             </div>
           </div>
           <div className="flex gap-1.5 mt-1">
-            <div className={`h-1 flex-1 rounded-full ${step >= 1 ? 'bg-violet-500' : 'bg-white/10'}`} />
-            <div className={`h-1 flex-1 rounded-full ${step >= 2 ? 'bg-violet-500' : 'bg-white/10'}`} />
+            <div className={`h-1 flex-1 rounded-full ${
+              step >= 1 ? 'bg-emerald-500' : (isDark ? 'bg-white/10' : 'bg-slate-100')
+            }`} />
+            <div className={`h-1 flex-1 rounded-full ${
+              step >= 2 ? 'bg-emerald-500' : (isDark ? 'bg-white/10' : 'bg-slate-100')
+            }`} />
           </div>
         </DialogHeader>
 
         {step === 1 && (
           <div className="space-y-4 mt-2 max-h-[60vh] overflow-y-auto pr-1">
             {/* Department selection boxes */}
-            <div className="rounded-xl border border-white/10 p-4 bg-white/2">
-              <label className="text-xs font-bold text-white/55 uppercase tracking-wider mb-3 block">
+            <div className={`rounded-xl border p-4 transition-colors duration-300 ${
+              isDark ? "border-white/10 bg-white/2" : "border-slate-200 bg-slate-50/50"
+            }`}>
+              <label className={`text-xs font-bold uppercase tracking-wider mb-3 block ${
+                isDark ? "text-white/55" : "text-slate-500"
+              }`}>
                 Select Departments
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -250,9 +258,13 @@ export function GenerateWizardModal({
                       onCheckedChange={() => {
                         setSelectedDepts((prev) => ({ ...prev, [d.name]: !prev[d.name] }));
                       }}
-                      className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
+                      className={`data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 ${
+                        isDark ? "border-white/30" : "border-slate-300"
+                      }`}
                     />
-                    <label htmlFor={`dept-${d.id}`} className="text-xs font-semibold cursor-pointer truncate" title={d.name}>
+                    <label htmlFor={`dept-${d.id}`} className={`text-xs font-semibold cursor-pointer truncate ${
+                      isDark ? "text-white" : "text-slate-700"
+                    }`} title={d.name}>
                       {d.name}
                     </label>
                   </div>
@@ -263,75 +275,93 @@ export function GenerateWizardModal({
             {/* Render years & sections for active/checked departments */}
             {departments.filter(d => selectedDepts[d.name]).map((dept) => (
               <div key={dept.id} className="space-y-3">
-                <div className="text-xs font-bold text-violet-400 border-b border-white/10 pb-1 mt-4">
+                <div className={`text-xs font-bold border-b pb-1 mt-4 ${
+                  isDark ? "text-emerald-400 border-white/10" : "text-emerald-600 border-slate-200"
+                }`}>
                   {dept.name}
                 </div>
-                {YEAR_ORDER.map((year) => (
-                  <div key={year} className={`rounded-xl border p-4 transition-all ${selectedYears[dept.name]?.[year] ? YEAR_COLORS[year] : 'border-white/8 bg-white/2'}`}>
-                    <div className="flex items-center gap-3 mb-3">
-                      <Checkbox
-                        id={`year-${dept.id}-${year}`}
-                        checked={!!selectedYears[dept.name]?.[year]}
-                        onCheckedChange={() => {
-                          setSelectedYears((prev) => ({
-                            ...prev,
-                            [dept.name]: {
-                              ...prev[dept.name],
-                              [year]: !prev[dept.name]?.[year]
-                            }
-                          }));
-                        }}
-                        className="border-white/30 data-[state=checked]:bg-violet-500 data-[state=checked]:border-violet-500"
-                      />
-                      <label htmlFor={`year-${dept.id}-${year}`} className="font-bold text-sm cursor-pointer">
-                        Year {year}
-                      </label>
-                      <span className="text-[10px] text-white/30 ml-auto">
-                        {YEAR_CONFIG[year].length} sections available
-                      </span>
-                    </div>
-
-                    {selectedYears[dept.name]?.[year] && (
-                      <div className="flex gap-2 pl-7">
-                        {YEAR_CONFIG[year].map((sec) => (
-                          <button
-                            key={sec}
-                            onClick={() => {
-                              setSelectedSections((prev) => ({
-                                ...prev,
-                                [dept.name]: {
-                                  ...prev[dept.name],
-                                  [year]: {
-                                    ...prev[dept.name]?.[year],
-                                    [sec]: !prev[dept.name]?.[year]?.[sec]
-                                  }
-                                }
-                              }));
-                            }}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-                              selectedSections[dept.name]?.[year]?.[sec]
-                                ? 'bg-white/15 border-white/30 text-white'
-                                : 'bg-white/3 border-white/10 text-white/30'
-                            }`}
-                          >
-                            Sec {sec}
-                          </button>
-                        ))}
+                {YEAR_ORDER.map((year) => {
+                  const isChecked = !!selectedYears[dept.name]?.[year];
+                  const itemBgBorder = isChecked
+                    ? (isDark ? "bg-emerald-500/5 border-emerald-500/30 text-white" : "bg-emerald-50/40 border-emerald-250 text-slate-900")
+                    : (isDark ? "border-white/8 bg-white/2 text-white/50" : "border-slate-200 bg-slate-50/20 text-slate-500");
+                  
+                  return (
+                    <div key={year} className={`rounded-xl border p-4 transition-all duration-200 ${itemBgBorder}`}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <Checkbox
+                          id={`year-${dept.id}-${year}`}
+                          checked={isChecked}
+                          onCheckedChange={() => {
+                            setSelectedYears((prev) => ({
+                              ...prev,
+                              [dept.name]: {
+                                ...prev[dept.name],
+                                [year]: !prev[dept.name]?.[year]
+                              }
+                            }));
+                          }}
+                          className={`data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 ${
+                            isDark ? "border-white/30" : "border-slate-300"
+                          }`}
+                        />
+                        <label htmlFor={`year-${dept.id}-${year}`} className={`font-bold text-sm cursor-pointer ${
+                          isDark ? "text-white" : "text-slate-800"
+                        }`}>
+                          Year {year}
+                        </label>
+                        <span className={`text-[10px] ml-auto ${
+                          isDark ? "text-white/30" : "text-slate-400"
+                        }`}>
+                          {YEAR_CONFIG[year].length} sections available
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {isChecked && (
+                        <div className="flex gap-2 pl-7">
+                          {YEAR_CONFIG[year].map((sec) => {
+                            const isSecSelected = !!selectedSections[dept.name]?.[year]?.[sec];
+                            return (
+                              <button
+                                key={sec}
+                                onClick={() => {
+                                  setSelectedSections((prev) => ({
+                                    ...prev,
+                                    [dept.name]: {
+                                      ...prev[dept.name],
+                                      [year]: {
+                                        ...prev[dept.name]?.[year],
+                                        [sec]: !prev[dept.name]?.[year]?.[sec]
+                                      }
+                                    }
+                                  }));
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 ${
+                                  isSecSelected
+                                    ? (isDark ? 'bg-emerald-500/20 border-emerald-500 text-white' : 'bg-emerald-500 text-white border-emerald-600')
+                                    : (isDark ? 'bg-white/3 border-white/10 text-white/30 hover:border-white/20' : 'bg-slate-100 border-slate-200 text-slate-450 hover:border-slate-300')
+                                }`}
+                              >
+                                Sec {sec}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))}
 
             <div className="flex items-center justify-between pt-2">
-              <p className="text-xs text-white/25">
+              <p className={`text-xs ${isDark ? "text-white/25" : "text-slate-400"}`}>
                 {getWizardSelection().reduce((sum, d) => sum + d.selectedYears.reduce((n, s) => n + s.sections.length, 0), 0)} section(s) selected
               </p>
               <Button
                 onClick={handleNext}
                 disabled={getWizardSelection().length === 0}
-                className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
+                className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >
                 Next <ArrowRight className="h-3.5 w-3.5" />
               </Button>
@@ -342,69 +372,95 @@ export function GenerateWizardModal({
         {step === 2 && (
           <div className="space-y-3 mt-2 max-h-[60vh] overflow-y-auto pr-1">
             {loadingHours ? (
-              <div className="py-8 text-center text-white/30 text-sm">Checking hour configurations…</div>
+              <div className={`py-8 text-center text-sm ${isDark ? "text-white/30" : "text-slate-450"}`}>Checking hour configurations…</div>
             ) : (
               <>
-                {hourChecks.map((check) => (
-                  <div key={check.year} className={`flex items-center gap-4 rounded-xl border p-4 ${
-                    check.status === 'ok'      ? 'border-emerald-500/30 bg-emerald-500/8' :
-                    check.status === 'warning' ? 'border-amber-500/30 bg-amber-500/8' :
-                                                 'border-red-500/30 bg-red-500/8'
-                  }`}>
-                    <div className="text-xs font-bold text-white/80 w-44 truncate" title={check.year}>{check.year}</div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className={`text-lg font-bold ${
-                          check.status === 'ok' ? 'text-emerald-300' :
-                          check.status === 'warning' ? 'text-amber-300' : 'text-red-300'
-                        }`}>{check.totalHours}h</div>
-                        <span className="text-[10px] text-white/25">/ {TOTAL_HOURS}h required</span>
+                {hourChecks.map((check) => {
+                  let borderClass = "";
+                  let bgClass = "";
+                  let textClass = "";
+                  let progressBg = "";
+                  
+                  if (check.status === "ok") {
+                    borderClass = isDark ? "border-emerald-500/30" : "border-emerald-250";
+                    bgClass = isDark ? "bg-emerald-500/8" : "bg-emerald-50/50";
+                    textClass = isDark ? "text-emerald-300" : "text-emerald-600";
+                    progressBg = "bg-emerald-500";
+                  } else if (check.status === "warning") {
+                    borderClass = isDark ? "border-amber-500/30" : "border-amber-250";
+                    bgClass = isDark ? "bg-amber-500/8" : "bg-amber-50/50";
+                    textClass = isDark ? "text-amber-400" : "text-amber-600";
+                    progressBg = "bg-amber-500";
+                  } else {
+                    borderClass = isDark ? "border-red-500/30" : "border-red-250";
+                    bgClass = isDark ? "bg-red-500/8" : "bg-red-50/50";
+                    textClass = isDark ? "text-red-400" : "text-red-600";
+                    progressBg = "bg-red-500";
+                  }
+
+                  return (
+                    <div key={check.year} className={`flex items-center gap-4 rounded-xl border p-4 transition-colors duration-300 ${borderClass} ${bgClass}`}>
+                      <div className={`text-xs font-bold w-44 truncate ${isDark ? "text-white/80" : "text-slate-700"}`} title={check.year}>{check.year}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className={`text-lg font-bold ${textClass}`}>{check.totalHours}h</div>
+                          <span className={`text-[10px] ${isDark ? "text-white/25" : "text-slate-400"}`}>/ {TOTAL_HOURS}h required</span>
+                        </div>
+                        <div className={`h-1.5 w-full rounded-full mt-1.5 ${isDark ? "bg-white/10" : "bg-slate-200"}`}>
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${progressBg}`}
+                            style={{ width: `${Math.min(100, (check.totalHours / TOTAL_HOURS) * 100)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-1.5 w-full bg-white/10 rounded-full mt-1.5">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            check.status === 'ok' ? 'bg-emerald-400' :
-                            check.status === 'warning' ? 'bg-amber-400' : 'bg-red-400'
-                          }`}
-                          style={{ width: `${Math.min(100, (check.totalHours / TOTAL_HOURS) * 100)}%` }}
-                        />
+                      <div className="flex flex-col items-end gap-1">
+                        {check.status === 'ok' && <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+                        {check.status === 'warning' && (
+                          <>
+                            <AlertTriangle className="h-5 w-5 text-amber-500" />
+                            <button
+                              onClick={() => { onClose(); navigate(`/admin/subjects`); }}
+                              className={`flex items-center gap-1 text-[10px] underline ${
+                                isDark ? "text-amber-300 hover:text-amber-200" : "text-amber-600 hover:text-amber-700"
+                              }`}
+                            >
+                              Edit <ExternalLink className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
+                        {check.status === 'error' && (
+                          <>
+                            <XCircle className="h-5 w-5 text-red-500" />
+                            <button
+                              onClick={() => { onClose(); navigate(`/admin/subjects`); }}
+                              className={`flex items-center gap-1 text-[10px] underline ${
+                                isDark ? "text-red-300 hover:text-red-200" : "text-red-650 hover:text-red-800"
+                              }`}
+                            >
+                              Fix <ExternalLink className="h-3 w-3" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      {check.status === 'ok' && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
-                      {check.status === 'warning' && (
-                        <>
-                          <AlertTriangle className="h-5 w-5 text-amber-400" />
-                          <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
-                            className="flex items-center gap-1 text-[10px] text-amber-300 hover:text-amber-200 underline"
-                          >
-                            Edit <ExternalLink className="h-3 w-3" />
-                          </button>
-                        </>
-                      )}
-                      {check.status === 'error' && (
-                        <>
-                          <XCircle className="h-5 w-5 text-red-400" />
-                          <button
-                            onClick={() => { onClose(); navigate(`/admin/subjects`); }}
-                            className="flex items-center gap-1 text-[10px] text-red-300 hover:text-red-200 underline"
-                          >
-                            Fix <ExternalLink className="h-3 w-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {hourChecks.some((c) => c.status === 'warning') && (
-                  <p className="text-[11px] text-amber-300/70 bg-amber-500/8 border border-amber-500/20 rounded-xl px-3 py-2">
+                  <p className={`text-[11px] border rounded-xl px-3 py-2 ${
+                    isDark 
+                      ? "text-amber-300/70 bg-amber-500/8 border-amber-500/20" 
+                      : "text-amber-750 bg-amber-50/50 border-amber-250"
+                  }`}>
                     ⚠️ Some sections have fewer than 42 hours. Generation will proceed but those timetables may have empty slots.
                   </p>
                 )}
                 {hourChecks.some((c) => c.status === 'error') && (
-                  <p className="text-[11px] text-red-300/70 bg-red-500/8 border border-red-500/20 rounded-xl px-3 py-2">
+                  <p className={`text-[11px] border rounded-xl px-3 py-2 ${
+                    isDark 
+                      ? "text-red-300/70 bg-red-500/8 border-red-500/20" 
+                      : "text-red-750 bg-red-50/50 border-red-250"
+                  }`}>
                     ✗ Some sections have more than 42 hours. This is not allowed. Please modify section subjects first.
                   </p>
                 )}
@@ -412,13 +468,15 @@ export function GenerateWizardModal({
             )}
 
             <div className="flex items-center justify-between pt-2">
-              <button onClick={() => setStep(1)} className="flex items-center gap-1.5 text-sm text-white/40 hover:text-white transition-colors">
+              <button onClick={() => setStep(1)} className={`flex items-center gap-1.5 text-sm transition-colors ${
+                isDark ? "text-white/40 hover:text-white" : "text-slate-400 hover:text-slate-700"
+              }`}>
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
               <Button
                 onClick={() => { onClose(); onProceed(getWizardSelection()); }}
                 disabled={!canProceed || loadingHours}
-                className="bg-violet-500 hover:bg-violet-600 text-white rounded-xl gap-2 disabled:opacity-40"
+                className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >
                 Proceed to Review <ArrowRight className="h-3.5 w-3.5" />
               </Button>
@@ -429,3 +487,5 @@ export function GenerateWizardModal({
     </Dialog>
   );
 }
+
+

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Edit2, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface SpecialHoursConfig {
   id?: string;
@@ -26,19 +27,51 @@ interface SpecialHoursManagerProps {
   year: string;
   onConfigUpdate: (configs: SpecialHoursConfig[]) => void;
   className?: string;
+  /** When true, renders without the outer Card wrapper (for use inside a Dialog) */
+  embedded?: boolean;
 }
 
-export function SpecialHoursManager({ departmentId, year, onConfigUpdate, className }: SpecialHoursManagerProps) {
+export function SpecialHoursManager({ departmentId, year, onConfigUpdate, className, embedded }: SpecialHoursManagerProps) {
   const { toast } = useToast();
   const [configs, setConfigs] = useState<SpecialHoursConfig[]>([]);
   const [editingConfig, setEditingConfig] = useState<SpecialHoursConfig | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [sections, setSections] = useState<string[]>(['A', 'B', 'C']);
 
   // Load existing configurations and ensure defaults exist
   useEffect(() => {
     loadConfigurations();
     ensureDefaultConfigs();
+
+    // Load active sections for the department + year
+    const fetchSections = async () => {
+      try {
+        const { data: ttData } = await supabase
+          .from('timetables')
+          .select('section')
+          .eq('department_id', departmentId)
+          .eq('year', year);
+          
+        const { data: ssData } = await supabase
+          .from('section_subjects')
+          .select('section')
+          .eq('department_id', departmentId)
+          .eq('year', year);
+
+        const sectionsList = Array.from(new Set([
+          ...(ttData || []).map(r => r.section),
+          ...(ssData || []).map(r => r.section)
+        ])).filter(Boolean).sort() as string[];
+
+        if (sectionsList.length > 0) {
+          setSections(sectionsList);
+        }
+      } catch (e) {
+        console.error('Failed to load sections for special hours manager:', e);
+      }
+    };
+    fetchSections();
   }, [departmentId, year]);
 
   const loadConfigurations = async () => {
@@ -247,6 +280,133 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
     return configs.reduce((total, config) => total + config.total_hours, 0);
   };
 
+  const innerContent = (
+    <>
+      {/* ── Config list ─────────────────────────────────────── */}
+      {configs.length === 0 && !isDialogOpen ? (
+        <p className="text-center text-muted-foreground py-8 text-sm">
+          No special hours configured. Click "+" to create one.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {configs.map((config) => (
+            <div key={config.id} className="border rounded-xl p-4 space-y-3 bg-white/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold capitalize text-sm">{config.special_type}</h3>
+                  <Badge variant="secondary">{config.total_hours}h total</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEditDialog(config)}
+                    className="rounded-lg"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => config.id && deleteConfiguration(config.id)}
+                    className="rounded-lg text-red-500 hover:text-red-600 hover:border-red-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
+                <div>
+                  <span>Saturday:</span>
+                  <div className="font-medium text-foreground">
+                    {config.saturday_hours}h • {formatPeriods(Array.isArray(config.saturday_periods) ? config.saturday_periods : [])}
+                  </div>
+                </div>
+                <div>
+                  <span>Weekdays:</span>
+                  <div className="font-medium text-foreground">
+                    {config.weekdays_hours}h • {formatPeriods(Array.isArray(config.weekdays_periods) ? config.weekdays_periods : [])}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Inline editor (shown when embedded=true, otherwise Dialog) ── */}
+      {embedded && isDialogOpen && editingConfig && (
+        <div className="border-2 border-emerald-200 rounded-2xl p-5 mt-4 bg-emerald-50/30 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-emerald-900">
+              {isCreating ? 'Create' : 'Edit'} Special Hours Configuration
+            </h3>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => { setIsDialogOpen(false); setEditingConfig(null); }}
+              className="h-7 w-7 p-0 rounded-full text-slate-400 hover:text-slate-600"
+            >
+              ✕
+            </Button>
+          </div>
+          <SpecialHoursEditor
+            config={editingConfig}
+            onChange={setEditingConfig}
+            onSave={() => saveConfiguration(editingConfig)}
+            onCancel={() => { setIsDialogOpen(false); setEditingConfig(null); }}
+            sections={sections}
+          />
+        </div>
+      )}
+
+      {/* ── Modal dialog (when NOT embedded) ── */}
+      {!embedded && (
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {isCreating ? 'Create' : 'Edit'} Special Hours Configuration
+              </DialogTitle>
+            </DialogHeader>
+            {editingConfig && (
+              <SpecialHoursEditor
+                config={editingConfig}
+                onChange={setEditingConfig}
+                onSave={() => saveConfiguration(editingConfig)}
+                onCancel={() => setIsDialogOpen(false)}
+                sections={sections}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className={`space-y-4 ${className || ''}`}>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            {getTotalHours()} hours configured
+          </p>
+          <Button
+            onClick={() => openEditDialog()}
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 rounded-lg text-xs font-semibold"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add Special Hours
+          </Button>
+        </div>
+        {innerContent}
+      </div>
+    );
+  }
+
   return (
     <Card className={`rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm ${className || ''}`}>
       <CardHeader className="pb-2">
@@ -265,7 +425,7 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
       <CardContent className="space-y-4 pt-0">
         {configs.length === 0 ? (
           <p className="text-center text-muted-foreground py-8">
-            No special hours configured. Click "Add Special" to create one.
+            No special hours configured. Click "+" to create one.
           </p>
         ) : (
           configs.map((config) => (
@@ -276,34 +436,34 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
                   <Badge variant="secondary">{config.total_hours}h total</Badge>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => openEditDialog(config)}
                   >
                     <Edit2 className="h-4 w-4" />
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => config.id && deleteConfiguration(config.id)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Saturday:</span>
                   <div className="font-medium">
-                    {config.saturday_hours}h • {formatPeriods(config.saturday_periods)}
+                    {config.saturday_hours}h • {formatPeriods(Array.isArray(config.saturday_periods) ? config.saturday_periods : [])}
                   </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Weekdays:</span>
                   <div className="font-medium">
-                    {config.weekdays_hours}h • {formatPeriods(config.weekdays_periods)}
+                    {config.weekdays_hours}h • {formatPeriods(Array.isArray(config.weekdays_periods) ? config.weekdays_periods : [])}
                   </div>
                 </div>
               </div>
@@ -318,13 +478,14 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
                 {isCreating ? 'Create' : 'Edit'} Special Hours Configuration
               </DialogTitle>
             </DialogHeader>
-            
+
             {editingConfig && (
               <SpecialHoursEditor
                 config={editingConfig}
                 onChange={setEditingConfig}
                 onSave={() => saveConfiguration(editingConfig)}
                 onCancel={() => setIsDialogOpen(false)}
+                sections={sections}
               />
             )}
           </DialogContent>
@@ -339,164 +500,283 @@ interface SpecialHoursEditorProps {
   onChange: (config: SpecialHoursConfig) => void;
   onSave: () => void;
   onCancel: () => void;
+  sections: string[];
 }
 
-function SpecialHoursEditor({ config, onChange, onSave, onCancel }: SpecialHoursEditorProps) {
-  const [saturdayEnabled, setSaturdayEnabled] = useState(config.saturday_hours > 0);
-  const [weekdaysEnabled, setWeekdaysEnabled] = useState(config.weekdays_hours > 0);
+function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: SpecialHoursEditorProps) {
+  const [activeTab, setActiveTab] = useState<string>(sections[0] || 'A');
 
   const updateConfig = (updates: Partial<SpecialHoursConfig>) => {
     onChange({ ...config, ...updates });
   };
 
-  const togglePeriod = (periodType: 'saturday' | 'weekdays', period: number) => {
-    const key = periodType === 'saturday' ? 'saturday_periods' : 'weekdays_periods';
-    const currentPeriods = config[key];
-    const newPeriods = currentPeriods.includes(period)
-      ? currentPeriods.filter(p => p !== period)
-      : [...currentPeriods, period].sort((a, b) => a - b);
-    
-    updateConfig({ [key]: newPeriods });
+  const getDayIndex = (day: string): number => {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return days.indexOf(day);
   };
 
-  const isValid = () => {
-    return config.special_type.trim() !== '' && 
-           config.total_hours === config.saturday_hours + config.weekdays_hours &&
-           config.total_hours > 0;
+  const parsePeriodValue = (p: any, isSatField: boolean = false): { day: number; period: number } | null => {
+    if (typeof p === 'string') {
+      const parts = p.split('-');
+      if (parts.length === 2) {
+        const dayMap: Record<string, number> = {
+          'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5,
+          'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5
+        };
+        const d = dayMap[parts[0]];
+        const pr = parseInt(parts[1]);
+        if (d !== undefined && !isNaN(pr)) {
+          return { day: d, period: pr };
+        }
+      }
+    } else if (typeof p === 'number') {
+      if (p > 10) {
+        const d = Math.floor(p / 10);
+        const pr = p % 10;
+        return { day: d, period: pr };
+      } else {
+        return { day: isSatField ? 5 : 0, period: p };
+      }
+    }
+    return null;
+  };
+
+  const getSecList = (val: any, sec: string): any[] => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    return val[sec] || [];
+  };
+
+  const isSlotSelected = (sectionName: string, day: string, period: number): boolean => {
+    const key = day === 'Sat' ? 'saturday_periods' : 'weekdays_periods';
+    const val = config[key];
+    if (!val) return false;
+    
+    if (Array.isArray(val)) {
+      return val.some(p => {
+        const parsed = parsePeriodValue(p, day === 'Sat');
+        return parsed && parsed.day === getDayIndex(day) && parsed.period === period;
+      });
+    }
+    
+    if (typeof val === 'object') {
+      const list = val[sectionName] || [];
+      return list.some((p: any) => {
+        const parsed = parsePeriodValue(p, day === 'Sat');
+        return parsed && parsed.day === getDayIndex(day) && parsed.period === period;
+      });
+    }
+    
+    return false;
+  };
+
+  const toggleSlot = (sectionName: string, day: string, period: number) => {
+    const key = day === 'Sat' ? 'saturday_periods' : 'weekdays_periods';
+    const currentVal = config[key] || [];
+    
+    let newObj: Record<string, any[]> = {};
+    if (Array.isArray(currentVal)) {
+      sections.forEach(sec => {
+        newObj[sec] = [...currentVal];
+      });
+    } else if (typeof currentVal === 'object') {
+      newObj = { ...currentVal };
+    }
+    
+    const sectionPeriods = newObj[sectionName] || [];
+    const slotStr = `${day}-${period}`;
+    
+    const normalizedPeriods = sectionPeriods.map(p => {
+      const parsed = parsePeriodValue(p, day === 'Sat');
+      return parsed ? `${DAYS[parsed.day]}-${parsed.period}` : null;
+    }).filter(Boolean) as string[];
+    
+    let updatedPeriods: string[];
+    if (normalizedPeriods.includes(slotStr)) {
+      updatedPeriods = normalizedPeriods.filter(p => p !== slotStr);
+    } else {
+      updatedPeriods = [...normalizedPeriods, slotStr];
+    }
+    
+    // Separate into Sat and weekday for saving
+    const satPeriods = updatedPeriods.filter(p => p.startsWith('Sat'));
+    const wdPeriods = updatedPeriods.filter(p => !p.startsWith('Sat'));
+    
+    const otherKey = day === 'Sat' ? 'weekdays_periods' : 'saturday_periods';
+    const otherVal = config[otherKey] || [];
+    
+    let otherObj: Record<string, any[]> = {};
+    if (Array.isArray(otherVal)) {
+      sections.forEach(sec => {
+        otherObj[sec] = [...otherVal];
+      });
+    } else if (typeof otherVal === 'object') {
+      otherObj = { ...otherVal };
+    }
+    
+    newObj[sectionName] = day === 'Sat' ? satPeriods : wdPeriods;
+    otherObj[sectionName] = otherObj[sectionName] || [];
+    
+    // Calculate new max counts across all sections
+    let maxTotal = 0;
+    let maxSat = 0;
+    let maxWd = 0;
+    
+    sections.forEach(sec => {
+      const sPeriods = (sec === sectionName && day === 'Sat') ? satPeriods : getSecList(day === 'Sat' ? newObj : otherObj, sec);
+      const wPeriods = (sec === sectionName && day !== 'Sat') ? wdPeriods : getSecList(day !== 'Sat' ? newObj : otherObj, sec);
+      
+      const sCount = sPeriods.length;
+      const wCount = wPeriods.length;
+      
+      maxSat = Math.max(maxSat, sCount);
+      maxWd = Math.max(maxWd, wCount);
+      maxTotal = Math.max(maxTotal, sCount + wCount);
+    });
+    
+    onChange({
+      ...config,
+      [key]: newObj,
+      [otherKey]: otherObj,
+      total_hours: maxTotal,
+      saturday_hours: maxSat,
+      weekdays_hours: maxWd
+    });
+  };
+
+  const copyToAllSections = (sourceSection: string) => {
+    const satVal = config.saturday_periods;
+    const wdVal = config.weekdays_periods;
+    
+    const sourceSat = getSecList(satVal, sourceSection);
+    const sourceWd = getSecList(wdVal, sourceSection);
+    
+    const newSatObj: Record<string, any[]> = {};
+    const newWdObj: Record<string, any[]> = {};
+    
+    sections.forEach(sec => {
+      newSatObj[sec] = [...sourceSat];
+      newWdObj[sec] = [...sourceWd];
+    });
+    
+    const satCount = sourceSat.length;
+    const wdCount = sourceWd.length;
+    
+    onChange({
+      ...config,
+      saturday_periods: newSatObj,
+      weekdays_periods: newWdObj,
+      total_hours: satCount + wdCount,
+      saturday_hours: satCount,
+      weekdays_hours: wdCount
+    });
+  };
+
+  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const PERIODS = [1, 2, 3, 4, 5, 6, 7];
+
+  const getSectionSelectedCount = (sec: string) => {
+    const satCount = getSecList(config.saturday_periods, sec).length;
+    const wdCount = getSecList(config.weekdays_periods, sec).length;
+    return satCount + wdCount;
   };
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="special_type">Special Type Name</Label>
-        <Input
-          id="special_type"
-          value={config.special_type}
-          onChange={(e) => updateConfig({ special_type: e.target.value })}
-          placeholder="e.g., Seminar, Library, Counselling"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="total_hours">Total Hours per Week</Label>
-        <Input
-          id="total_hours"
-          type="number"
-          min="1"
-          max="10"
-          value={config.total_hours}
-          onChange={(e) => updateConfig({ total_hours: parseInt(e.target.value) || 0 })}
-        />
-      </div>
-
-      {/* Saturday Configuration */}
-      <div className="space-y-4 border rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <Label>Saturday Allocation</Label>
-          <Switch
-            checked={saturdayEnabled}
-            onCheckedChange={(checked) => {
-              setSaturdayEnabled(checked);
-              if (!checked) {
-                updateConfig({ saturday_hours: 0, saturday_periods: [] });
-              }
-            }}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="special_type" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Special Type Name</Label>
+          <Input
+            id="special_type"
+            value={config.special_type}
+            onChange={(e) => updateConfig({ special_type: e.target.value })}
+            placeholder="e.g., Seminar, Library, Counselling"
+            className="rounded-xl border-slate-200"
           />
         </div>
 
-        {saturdayEnabled && (
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="saturday_hours">Saturday Hours</Label>
-              <Input
-                id="saturday_hours"
-                type="number"
-                min="0"
-                max={config.total_hours}
-                value={config.saturday_hours}
-                onChange={(e) => updateConfig({ saturday_hours: parseInt(e.target.value) || 0 })}
-              />
-            </div>
-
-            <div>
-              <Label>Saturday Periods (1-7)</Label>
-              <div className="grid grid-cols-7 gap-2 mt-2">
-                {[1, 2, 3, 4, 5, 6, 7].map((period) => (
-                  <Button
-                    key={period}
-                    variant={config.saturday_periods.includes(period) ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => togglePeriod('saturday', period)}
-                  >
-                    P{period}
-                  </Button>
-                ))}
-              </div>
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="total_hours" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Hours configured (Auto-calculated)</Label>
+          <div className="h-10 flex items-center px-3 border border-slate-200 rounded-xl bg-slate-50 font-bold text-sm">
+            {config.total_hours} hour(s) per week
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Weekdays Configuration */}
-      <div className="space-y-4 border rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <Label>Weekdays Allocation</Label>
-          <Switch
-            checked={weekdaysEnabled}
-            onCheckedChange={(checked) => {
-              setWeekdaysEnabled(checked);
-              if (!checked) {
-                updateConfig({ weekdays_hours: 0, weekdays_periods: [] });
-              }
-            }}
-          />
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between mb-4">
+          <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Schedule Grid per Section</Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => copyToAllSections(activeTab)}
+            className="text-[10px] uppercase font-bold tracking-wider h-8 rounded-lg"
+          >
+            Apply Section {activeTab} to All Sections
+          </Button>
         </div>
 
-        {weekdaysEnabled && (
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="weekdays_hours">Weekdays Hours</Label>
-              <Input
-                id="weekdays_hours"
-                type="number"
-                min="0"
-                max={config.total_hours}
-                value={config.weekdays_hours}
-                onChange={(e) => updateConfig({ weekdays_hours: parseInt(e.target.value) || 0 })}
-              />
-            </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid grid-cols-3 mb-4 rounded-xl p-1 bg-slate-100">
+            {sections.map((sec) => (
+              <TabsTrigger key={sec} value={sec} className="rounded-lg font-semibold py-1.5 text-xs">
+                Section {sec} <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-slate-250 text-slate-800" variant="secondary">{getSectionSelectedCount(sec)}h</Badge>
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-            <div>
-              <Label>Weekdays Periods (1-7)</Label>
-              <div className="grid grid-cols-7 gap-2 mt-2">
-                {[1, 2, 3, 4, 5, 6, 7].map((period) => (
-                  <Button
-                    key={period}
-                    variant={config.weekdays_periods.includes(period) ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => togglePeriod('weekdays', period)}
-                  >
-                    P{period}
-                  </Button>
-                ))}
+          {sections.map((sec) => (
+            <TabsContent key={sec} value={sec} className="space-y-4 outline-none">
+              <div className="overflow-x-auto rounded-xl border border-slate-250 bg-white p-4 shadow-sm">
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr>
+                      <th className="p-2 text-left font-bold text-slate-500 w-16">Day</th>
+                      {PERIODS.map(p => (
+                        <th key={p} className="p-2 text-center font-bold text-slate-500">Period {p}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DAYS.map(day => (
+                      <tr key={day} className="border-t border-slate-100">
+                        <td className="p-2 font-bold text-slate-700">{day}</td>
+                        {PERIODS.map(p => {
+                          const isSelected = isSlotSelected(sec, day, p);
+                          return (
+                            <td key={p} className="p-1.5 text-center">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={isSelected ? "default" : "outline"}
+                                onClick={() => toggleSlot(sec, day, p)}
+                                className={`h-8 w-16 p-0 text-[10px] font-bold rounded-lg transition-all ${
+                                  isSelected 
+                                    ? "bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm" 
+                                    : "hover:bg-slate-50 border-slate-200"
+                                }`}
+                              >
+                                {isSelected ? "Selected" : `Slot P${p}`}
+                              </Button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          </div>
-        )}
+            </TabsContent>
+          ))}
+        </Tabs>
       </div>
 
-      {/* Validation Status */}
-      {config.total_hours !== config.saturday_hours + config.weekdays_hours && (
-        <div className="text-destructive text-sm">
-          Total hours ({config.total_hours}) must equal Saturday hours ({config.saturday_hours}) + Weekdays hours ({config.weekdays_hours})
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={onCancel}>
+      <div className="flex justify-end gap-2 border-t pt-4">
+        <Button variant="outline" onClick={onCancel} className="rounded-xl px-4">
           Cancel
         </Button>
-        <Button onClick={onSave} disabled={!isValid()}>
+        <Button onClick={onSave} disabled={!config.special_type.trim()} className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl px-5">
           Save Configuration
         </Button>
       </div>

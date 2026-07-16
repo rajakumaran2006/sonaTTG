@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus, Layers } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface SubjectRow {
@@ -86,6 +86,10 @@ const YearSubjects = () => {
   }, [type]);
   const [activeTab, setActiveTab] = useState<'theory' | 'lab' | 'open elective' | 'special'>('theory');
   const [isCumulative, setIsCumulative] = useState<boolean>(true);
+  // Open Elective Config
+  const [oeConfigOpen, setOeConfigOpen] = useState(false);
+  const [openElectiveTotalHours, setOpenElectiveTotalHours] = useState<number>(5);
+  const [oeConfigHoursInput, setOeConfigHoursInput] = useState<number>(5);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -130,22 +134,9 @@ const YearSubjects = () => {
   const openElectiveHours = useMemo(() => {
     const oes = subjects.filter(s => s.type === 'open elective');
     if (oes.length === 0) return 0;
-    if (isCumulative) {
-      return 5;
-    }
-    const oeGroups = new Map<string, number>();
-    let untaggedMax = 0;
-    oes.forEach(s => {
-      const groupTag = (s.tags || []).find(t => /oe_group_\d+/i.test(t) || /^oe\d+/i.test(t));
-      if (groupTag) {
-        oeGroups.set(groupTag, Math.max(oeGroups.get(groupTag) || 0, s.hours_per_week));
-      } else {
-        untaggedMax = Math.max(untaggedMax, s.hours_per_week);
-      }
-    });
-    const groupedTotal = Array.from(oeGroups.values()).reduce((a, b) => a + b, 0);
-    return groupedTotal + (oeGroups.size === 0 ? untaggedMax : 0);
-  }, [subjects, isCumulative]);
+    // Always return the configured total hours when open electives are present
+    return openElectiveTotalHours;
+  }, [subjects, openElectiveTotalHours]);
 
   const theoryHours = useMemo(() => {
     const traditionalTheory = subjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hours_per_week || 0), 0);
@@ -1327,25 +1318,79 @@ const YearSubjects = () => {
         </div>
 
         {activeTab === 'open elective' && (
-          <div className="flex items-center gap-2 mb-6 bg-card border border-border/80 px-4 py-2.5 rounded-xl w-fit shadow-sm">
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Cumulative Hours (5h):</span>
-            <button
-              onClick={() => setIsCumulative(!isCumulative)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                isCumulative ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-750'
-              }`}
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-2 bg-card border border-border/80 px-4 py-2.5 rounded-xl shadow-sm">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Total Hours:</span>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{openElectiveTotalHours}h</span>
+              <span className="text-xs text-slate-400 dark:text-slate-500">(shared slot)</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setOeConfigHoursInput(openElectiveTotalHours);
+                setOeConfigOpen(true);
+              }}
+              className="flex items-center gap-2 border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold"
             >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  isCumulative ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              {isCumulative ? 'Enabled (5h parallel)' : 'Disabled (Specified hours)'}
-            </span>
+              <Settings className="h-4 w-4" />
+              Config
+            </Button>
           </div>
         )}
+
+        {/* Open Elective Config Dialog */}
+        <Dialog open={oeConfigOpen} onOpenChange={setOeConfigOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-emerald-500" />
+                Open Elective Config
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Set the total number of hours per week allocated for the Open Elective slot.
+                All open elective subjects share this single slot in the timetable.
+              </p>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Total Hours per Week</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[1, 2, 3, 4, 5, 6].map(h => (
+                    <button
+                      key={h}
+                      onClick={() => setOeConfigHoursInput(h)}
+                      className={`w-12 h-12 rounded-xl font-bold text-base border-2 transition-all ${
+                        oeConfigHoursInput === h
+                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-lg scale-105'
+                          : 'bg-card border-border text-slate-700 dark:text-slate-300 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                      }`}
+                    >
+                      {h}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  Currently set to <strong>{oeConfigHoursInput}h</strong> per week.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setOeConfigOpen(false)}>Cancel</Button>
+              <Button
+                className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                onClick={() => {
+                  setOpenElectiveTotalHours(oeConfigHoursInput);
+                  setIsCumulative(true);
+                  setOeConfigOpen(false);
+                  toast.success(`Open Elective total hours set to ${oeConfigHoursInput}h`);
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Elective Grouping Button — only shown on theory tab and for admins */}
         {activeTab === 'theory' && userType !== 'faculty' && (

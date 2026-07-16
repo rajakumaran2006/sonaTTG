@@ -7,6 +7,7 @@ import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SelectionHeader from '@/components/admin/SelectionHeader';
 import { Upload } from 'lucide-react';
 import Navbar from '@/components/navbar/facultyadmin';
+import { useTimetableStore } from '@/store/timetableStore';
 
 interface YearStats {
   year: string;
@@ -27,23 +28,70 @@ const AdminDepartmentYears = () => {
     return null;
   }, [adminUser, facultyUser]);
 
-  const departmentId = sessionUser?.department_id;
   const [deptName, setDeptName] = useState<string>("");
   const [yearStats, setYearStats] = useState<YearStats[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+  const [activeDeptId, setActiveDeptId] = useState<string>("");
+
   useEffect(() => {
-    if (!userType || !departmentId) {
-      navigate('/', { replace: true });
+    if (!sessionUser) return;
+
+    // First try admin_departments table for multi-dept support
+    (async () => {
+      let deptIds: string[] = [];
+
+      if (sessionUser.id) {
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', sessionUser.id);
+
+        if (adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        }
+      }
+
+      // Fallback: legacy fields
+      if (deptIds.length === 0) {
+        if (sessionUser.department_ids && sessionUser.department_ids.length > 0) {
+          deptIds = sessionUser.department_ids;
+        } else if (sessionUser.department_id) {
+          deptIds = [sessionUser.department_id];
+        }
+      }
+
+      if (deptIds.length > 0) {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .in('id', deptIds)
+          .order('name');
+
+        if (data) {
+          setAllocatedDepts(data);
+          const currentActive = sessionUser.department_id && data.some((d: any) => d.id === sessionUser.department_id)
+            ? sessionUser.department_id
+            : data[0]?.id;
+          setActiveDeptId(currentActive || '');
+        }
+      }
+    })();
+  }, [adminUser, facultyUser, sessionUser]);
+
+  useEffect(() => {
+    if (!userType || !activeDeptId) {
       return;
     }
 
     (async () => {
+      setLoading(true);
       try {
         const [deptRes, subsRes, specialRes] = await Promise.all([
-          (supabase as any).from('departments').select('name').eq('id', departmentId).single(),
-          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', departmentId),
-          (supabase as any).from('special_hours_config').select('year,special_type,day_index,period').eq('department_id', departmentId).eq('is_active', true)
+          (supabase as any).from('departments').select('name').eq('id', activeDeptId).single(),
+          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', activeDeptId),
+          (supabase as any).from('special_hours_config').select('year,special_type,day_index,period').eq('department_id', activeDeptId).eq('is_active', true)
         ]);
 
         setDeptName(deptRes?.data?.name || "");
@@ -109,7 +157,7 @@ const AdminDepartmentYears = () => {
         setLoading(false);
       }
     })();
-  }, [userType, departmentId, navigate]);
+  }, [userType, activeDeptId, navigate]);
 
   const handleManageYear = (year: string) => {
     if (userType === 'admin') {
@@ -125,6 +173,37 @@ const AdminDepartmentYears = () => {
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
         <SelectionHeader />
         <section className="container py-4">
+          {allocatedDepts.length > 0 && (
+            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === activeDeptId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => {
+                      setActiveDeptId(dept.id);
+                      if (adminUser) {
+                        const parsed = JSON.parse(adminUser);
+                        parsed.department_id = dept.id;
+                        localStorage.setItem("adminUser", JSON.stringify(parsed));
+                      }
+                      useTimetableStore.setState(state => ({
+                        ...state,
+                        selection: { ...state.selection, department: dept.name }
+                      }));
+                    }}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Course Subjects</h1>

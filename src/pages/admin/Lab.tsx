@@ -68,6 +68,8 @@ interface LabScheduleDetail {
   semester?: string;
   academic_year?: string;
   labs?: { name: string };
+  year?: string | null;
+  section?: string | null;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -109,6 +111,21 @@ const parseScheduleInfo = (info: string) => {
   return { raw: info };
 };
 
+const generateLabCode = (name: string) => {
+  const words = name.trim().split(/\s+/);
+  let code = words
+    .map(word => word.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean)
+    .map(word => (/^\d+$/.test(word) ? word : word[0].toUpperCase()))
+    .join("");
+  
+  if (!code) {
+    code = "LAB-" + Math.floor(100 + Math.random() * 900);
+  }
+  return code;
+};
+
+
 const Lab = () => {
   const navigate = useNavigate();
   const { isDark } = useDarkMode();
@@ -142,10 +159,33 @@ const Lab = () => {
   const [labs, setLabs] = useState<Lab[]>([]);
   const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [allAdminDeptIds, setAllAdminDeptIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(null);
+  const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(() => {
+    try {
+      const adminData = localStorage.getItem("adminUser");
+      if (adminData) {
+        const parsed = JSON.parse(adminData);
+        return parsed?.department_id || null;
+      }
+    } catch (e) {
+      console.error("Error parsing adminUser from localStorage on init:", e);
+    }
+    return null;
+  });
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>(() => {
+    try {
+      const adminData = localStorage.getItem("adminUser");
+      if (adminData) {
+        const parsed = JSON.parse(adminData);
+        return parsed?.department_id || "all-departments";
+      }
+    } catch (e) {
+      console.error("Error parsing adminUser from localStorage on init:", e);
+    }
+    return "all-departments";
+  });
 
   // Table UI state
   const [labSearch, setLabSearch] = useState("");
@@ -228,14 +268,15 @@ const Lab = () => {
     }
 
     try {
+      const generatedCode = generateLabCode(labForm.name);
       const labData = {
         ...labForm,
+        lab_code: generatedCode,
         department_id: adminDepartmentId, // Fixed: use department_id as expected by DB
         departments: [adminDepartmentId], 
-        // Fallback for legacy: use the first allowed class if any, or null
-        year: labForm.year === "null_value" || !labForm.year ? (labForm.allowed_classes[0]?.year || null) : labForm.year,
-        section: labForm.section === "null_value" || !labForm.section ? (labForm.allowed_classes[0]?.section || null) : labForm.section,
-        allowed_classes: labForm.allowed_classes,
+        year: null,
+        section: null,
+        allowed_classes: [],
         is_active: true
       };
 
@@ -277,15 +318,38 @@ const Lab = () => {
       return;
     }
 
-    // Load departments for this admin's department only and set selection
+    // Load ALL departments for this admin (multi-dept support)
     (async () => {
       try {
         const parsedAdmin = JSON.parse(adminData);
-        if (!parsedAdmin || !parsedAdmin.department_id) throw new Error("Invalid admin data");
+        if (!parsedAdmin || !parsedAdmin.id) throw new Error("Invalid admin data");
+
+        // Try admin_departments table first (multi-dept)
+        const { data: adminDepts, error: adminDeptsError } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', parsedAdmin.id);
+
+        let deptIds: string[] = [];
+
+        if (!adminDeptsError && adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        } else if (parsedAdmin.department_id) {
+          // Fallback: use legacy single department_id
+          deptIds = [parsedAdmin.department_id];
+        }
+
+        if (deptIds.length === 0) {
+          toast.error('No departments found. Please contact your Super Admin.');
+          setLoading(false);
+          return;
+        }
+
         const { data, error } = await (supabase as any)
           .from('departments')
           .select('*')
-          .eq('id', parsedAdmin.department_id);
+          .in('id', deptIds)
+          .order('name');
 
         if (error) {
           console.error('Error loading departments:', error);
@@ -300,10 +364,12 @@ const Lab = () => {
           return;
         }
 
-        // Set admin's department for selection
         setDepartments(data);
-        setAdminDepartmentId(parsedAdmin.department_id);
-        setSelectedDepartment(parsedAdmin.department_id); // Lock to admin's department
+        setAllAdminDeptIds(deptIds);
+        // Set primary department for legacy operations
+        const primaryDeptId = parsedAdmin.department_id || deptIds[0];
+        setAdminDepartmentId(primaryDeptId);
+        setSelectedDepartment(primaryDeptId);
 
         setLoading(false);
       } catch (error) {
@@ -344,36 +410,44 @@ const Lab = () => {
     setSelectedLabForSchedule(lab);
     setScheduleViewDialog(true);
 
-    // Fetch subjects for the departments associated with this lab,
-    // filtered to only the years/sections allocated to this lab
+    // Fetch ALL lab-type subjects from ALL departments this admin manages.
+    // Since labs are shared campus facilities, show subjects from every allocated dept.
     try {
-      if (lab.departments && lab.departments.length > 0) {
-        const { data: subjs, error: subjsError } = await (supabase as any)
-          .from('subjects')
-          .select('*')
-          .eq('type', 'lab')
-          .in('department_id', lab.departments);
+      // Collect dept IDs: union of lab.departments + all admin depts
+      const adminData = localStorage.getItem("adminUser");
+      let deptIds: string[] = [...(lab.departments || [])];
 
-        if (subjsError) throw subjsError;
+      if (adminData) {
+        const parsedAdmin = JSON.parse(adminData);
+        // Try admin_departments first
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', parsedAdmin.id);
 
-        let allSubjs = subjs || [];
-
-        // Determine which years are allowed for this lab
-        const allowedClasses = lab.allowed_classes || [];
-        if (allowedClasses.length > 0) {
-          // Get unique allowed years
-          const allowedYears = [...new Set(allowedClasses.map(c => c.year))];
-          // Filter subjects to only those whose year is in the allowed years
-          allSubjs = allSubjs.filter((s: any) => allowedYears.includes(s.year));
-        } else if (lab.year) {
-          // Legacy fallback: filter by single year field
-          allSubjs = allSubjs.filter((s: any) => s.year === lab.year);
+        if (adminDepts && adminDepts.length > 0) {
+          const ids = adminDepts.map((d: any) => d.department_id);
+          deptIds = [...new Set([...deptIds, ...ids])];
+        } else if (parsedAdmin.department_id) {
+          deptIds = [...new Set([...deptIds, parsedAdmin.department_id])];
         }
-
-        setItAdsLabs(allSubjs);
-      } else {
-        setItAdsLabs([]);
       }
+
+      if (deptIds.length === 0) {
+        setItAdsLabs([]);
+        return;
+      }
+
+      const { data: subjs, error: subjsError } = await (supabase as any)
+        .from('subjects')
+        .select('*, departments(name)')
+        .eq('type', 'lab')
+        .in('department_id', deptIds)
+        .order('year')
+        .order('name');
+
+      if (subjsError) throw subjsError;
+      setItAdsLabs(subjs || []);
     } catch (error) {
       console.error('Error loading subjects for lab:', error);
     }
@@ -382,47 +456,41 @@ const Lab = () => {
   const loadLabs = async () => {
     try {
       setLoading(true);
+
+      // Determine which dept IDs to filter by
+      const adminData = localStorage.getItem("adminUser");
+      let deptIdsForFilter: string[] = [];
+
+      if (adminData) {
+        const parsedAdmin = JSON.parse(adminData);
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', parsedAdmin.id);
+
+        if (adminDepts && adminDepts.length > 0) {
+          deptIdsForFilter = adminDepts.map((d: any) => d.department_id);
+        } else if (parsedAdmin.department_id) {
+          deptIdsForFilter = [parsedAdmin.department_id];
+        }
+      }
+
       let query = (supabase as any)
         .from('labs')
         .select('*')
         .eq('is_active', true)
-        .select('*')
-        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (selectedDepartment && selectedDepartment !== "all-departments") {
-        query = query.contains('departments', [selectedDepartment]);
-      } else if (adminDepartmentId) {
-        query = query.contains('departments', [adminDepartmentId]);
+      // Filter labs: show any lab that contains at least one of the admin's depts
+      // We use OR across all dept IDs using overlaps operator
+      if (deptIdsForFilter.length > 0) {
+        query = query.overlaps('departments', deptIdsForFilter);
       }
 
       const { data, error } = await query;
       if (error) throw error;
-      
-      // Filter logic: Only show labs that contain the current selection in their allowed_classes
-      let filteredLabs = data || [];
 
-      // If a specific selection is active (not All Departments / All Years), apply filtering
-      // However, if we are in admin view (no specific year/section selected in header top), we might want to see all our department's labs.
-      // The user requirement says "only that class can access the lab".
-      // Assuming "selection" from store reflects the current VIEW context.
-      
-      if (selection.department && selection.year && selection.section) {
-          filteredLabs = filteredLabs.filter((lab: Lab) => {
-              // Backward compatibility: Check legacy columns first if allowed_classes is empty/null which might happen before migration fully propagates
-              const allowed = lab.allowed_classes || [];
-              if (allowed.length > 0) {
-                  return allowed.some(c => 
-                      c.year === selection.year && 
-                      (c.section === selection.section || c.section === "All Sections")
-                  );
-              }
-              // Fallback to legacy
-              return (!lab.year || lab.year === selection.year) && (!lab.section || lab.section === selection.section);
-          });
-      }
-
-      setLabs(filteredLabs);
+      setLabs(data || []);
     } catch (error) {
       console.error('Error loading labs:', error);
       toast.error('Failed to load labs');
@@ -452,7 +520,7 @@ const Lab = () => {
   useEffect(() => {
     loadLabs();
     loadLabSchedules();
-  }, [selectedDepartment]);
+  }, []);  // runs once on mount; loadLabs reads admin depts from localStorage
 
   const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
     return labSchedules.find(schedule =>
@@ -564,7 +632,7 @@ const Lab = () => {
       for (let i = 0; i < duration; i++) {
         const currentSlotNum = slot.slotNumber + i;
         
-        // Check collision locally against current state
+        // A. Check if the lab itself is already occupied (this is a lab collision)
         const isOccupied = labSchedules.find(s => 
           s.lab_id === slot.labId && 
           s.day_of_week === slot.day && 
@@ -572,8 +640,23 @@ const Lab = () => {
         );
 
         if (isOccupied) {
-          toast.error(`Period ${currentSlotNum} is already occupied. Cannot book ${duration} consecutive hours.`);
+          toast.error(`Conflict: Period ${currentSlotNum} is already occupied by ${isOccupied.semester || 'another session'}.`);
           return;
+        }
+
+        // B. Check if this class/section is already assigned to ANY lab in this period!
+        if (parsedYear && parsedSection) {
+          const classConflict = labSchedules.find(s =>
+            s.year === parsedYear &&
+            s.section === parsedSection &&
+            s.day_of_week === slot.day &&
+            s.slot_number === currentSlotNum
+          );
+          if (classConflict) {
+            const conflictingLabName = classConflict.labs?.name || labs.find(l => l.id === classConflict.lab_id)?.name || 'another lab';
+            toast.error(`Conflict: Year ${parsedYear} Sec ${parsedSection} is already allocated to ${conflictingLabName} during Period ${currentSlotNum}.`);
+            return;
+          }
         }
 
         const periodData = periods.find(p => parseInt(p.id.replace('P', '')) === currentSlotNum);
@@ -766,14 +849,10 @@ const Lab = () => {
                     <DialogTitle>Add New Lab</DialogTitle>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <div className="grid gap-2">
                         <Label htmlFor="name">Lab Name *</Label>
                         <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="lab_code">Lab Code *</Label>
-                        <Input id="lab_code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CS101" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
@@ -800,96 +879,6 @@ const Lab = () => {
                         <Label htmlFor="capacity">Capacity</Label>
                         <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
                       </div>
-                    </div>
-                    
-                    
-                    <div className="grid gap-2">
-                       <Label>Allowed Classes (Who can access this lab)</Label>
-                       <div className="flex gap-2 items-end">
-                          <div className="grid gap-2 flex-1">
-                            <Label htmlFor="year-select" className="text-xs">Year</Label>
-                             <Select 
-                              value={labForm.year} 
-                              onValueChange={(v) => {
-                                setLabForm({ ...labForm, year: v, section: "" }); // Reset section on year change
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Year" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableYears.map((y) => (
-                                  <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                           <div className="grid gap-2 flex-1">
-                             <Label htmlFor="section-select" className="text-xs">Section</Label>
-                            <Select 
-                              value={labForm.section} 
-                              onValueChange={(v) => setLabForm({ ...labForm, section: v })}
-                              disabled={!labForm.year}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Section" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                 <SelectItem value="All Sections">All Sections</SelectItem>
-                                {availableSections.map((s) => (
-                                  <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button 
-                            type="button"
-                            onClick={() => {
-                                if (labForm.year && labForm.section) {
-                                  // Avoid duplicates
-                                  const exists = labForm.allowed_classes.some(
-                                      c => c.year === labForm.year && c.section === labForm.section
-                                  );
-                                  if (!exists) {
-                                      setLabForm({
-                                          ...labForm,
-                                          allowed_classes: [...labForm.allowed_classes, { year: labForm.year, section: labForm.section }],
-                                          year: "", // Reset selectors
-                                          section: ""
-                                      });
-                                  } else {
-                                      toast.error("Class already added");
-                                  }
-                                } else {
-                                    toast.error("Please select both Year and Section");
-                                }
-                            }}
-                          >
-                            Add
-                          </Button>
-                       </div>
-                    
-                       {/* List of added classes */}
-                       <div className="flex flex-wrap gap-2 mt-2">
-                          {labForm.allowed_classes.length === 0 && (
-                              <span className="text-xs text-muted-foreground italic">No classes permitted yet. Lab will be hidden.</span>
-                          )}
-                          {labForm.allowed_classes.map((cls, idx) => (
-                              <Badge key={`${cls.year}-${cls.section}-${idx}`} variant="secondary" className="flex items-center gap-1">
-                                  Year {cls.year} - {cls.section}
-                                  <button 
-                                      onClick={() => {
-                                          const newClasses = [...labForm.allowed_classes];
-                                          newClasses.splice(idx, 1);
-                                          setLabForm({ ...labForm, allowed_classes: newClasses });
-                                      }}
-                                      className="ml-1 hover:text-destructive"
-                                  >
-                                      <Trash2 className="h-3 w-3" />
-                                  </button>
-                              </Badge>
-                          ))}
-                       </div>
                     </div>
                   </div>
                   <DialogFooter>
@@ -980,7 +969,7 @@ const Lab = () => {
                               ))
                             : (lab.year || lab.section)
                               ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">{lab.year} {lab.section}</span>
-                              : <span className="text-slate-500 text-xs">—</span>
+                              : <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">All Classes</span>
                           }
                         </div>
                       )
@@ -1037,13 +1026,25 @@ const Lab = () => {
                             <span>{lab.capacity} students</span>
                             {lab.room_number && <><span>•</span><span>Room {lab.room_number}</span></>}
                           </div>
-                          {(lab.allowed_classes && lab.allowed_classes.length > 0) && (
+                          {(lab.allowed_classes && lab.allowed_classes.length > 0) ? (
                             <div className="flex gap-1 flex-wrap mt-2.5">
                               {lab.allowed_classes.map((cls, idx) => (
                                 <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
                                   Yr {cls.year} • {cls.section}
                                 </span>
                               ))}
+                            </div>
+                          ) : (lab.year || lab.section) ? (
+                            <div className="flex gap-1 flex-wrap mt-2.5">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                {lab.year} {lab.section}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1 flex-wrap mt-2.5">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                All Classes
+                              </span>
                             </div>
                           )}
                         </div>
@@ -1154,7 +1155,7 @@ const Lab = () => {
                       </Badge>
                     </div>
                   ) : (
-                    <p className="font-semibold text-orange-600">Shared Campus Facility</p>
+                    <p className="font-semibold text-orange-600">Shared Campus Facility (All Classes)</p>
                   )}
                 </div>
                 <div>
@@ -1259,7 +1260,7 @@ const Lab = () => {
                                           {itAdsLabs.map((subj) => (
                                             <CommandItem
                                               key={subj.id}
-                                              value={subj.name}
+                                              value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
                                               onSelect={() => {
                                                 const slot = {
                                                   day: day.value,
@@ -1277,12 +1278,17 @@ const Lab = () => {
                                                 <div className="flex justify-between items-center mb-1">
                                                   <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
                                                   <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
+                                                    <span className="text-[10px] bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800 font-medium">
                                                       {subj.hours_per_week || 1}h
                                                     </span>
                                                     <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
                                                   </div>
                                                 </div>
+                                                {subj.departments?.name && (
+                                                  <span className="text-[10px] text-muted-foreground mb-1 truncate">
+                                                    Dept: {subj.departments.name}
+                                                  </span>
+                                                )}
                                                 <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
                                                   {(() => {
                                                     // Get allowed sections for this subject's year from the lab's allowed_classes

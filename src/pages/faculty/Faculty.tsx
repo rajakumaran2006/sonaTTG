@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useTimetableStore } from "@/store/timetableStore";
 import { supabase } from "@/integrations/supabase/client";
 import { getDepartments, createFaculty, deleteFaculty, deleteFacultyBulk, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 import Papa from "papaparse";
@@ -40,6 +41,64 @@ const FacultyPage = () => {
   const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [adminDeptId, setAdminDeptId] = useState<string>("");
+
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        const parsed = JSON.parse(adminData);
+        const deptIds: string[] = parsed.department_ids && parsed.department_ids.length > 0
+          ? parsed.department_ids
+          : (parsed.department_id ? [parsed.department_id] : []);
+        if (deptIds.length > 0) {
+          (supabase as any)
+            .from('departments')
+            .select('id, name')
+            .in('id', deptIds)
+            .order('name')
+            .then(({ data }: { data: any[] | null }) => {
+              if (data) {
+                setAllocatedDepts(data);
+                const currentActive = parsed.department_id && data.some(d => d.id === parsed.department_id)
+                  ? parsed.department_id
+                  : data[0]?.id;
+                if (currentActive) {
+                  setAdminDeptId(currentActive);
+                  setDeptFilterId(currentActive);
+                }
+              }
+            });
+        }
+      } catch (e) {
+        console.error("Error fetching allocated depts for admin:", e);
+      }
+    }
+  }, []);
+
+  const handleDepartmentSwitch = (deptId: string, deptName: string) => {
+    setDeptFilterId(deptId);
+    setAdminDeptId(deptId);
+    
+    // Sync with local storage
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        const parsed = JSON.parse(adminData);
+        parsed.department_id = deptId;
+        localStorage.setItem("adminUser", JSON.stringify(parsed));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    
+    // Sync with Zustand store
+    useTimetableStore.setState(state => ({
+      ...state,
+      selection: { ...state.selection, department: deptName }
+    }));
+  };
 
 
   // Add form state
@@ -911,6 +970,26 @@ const FacultyPage = () => {
       }`}>
         <SelectionHeader />
         <section className="container py-4">
+          {allocatedDepts.length > 0 && (
+            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === deptFilterId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => handleDepartmentSwitch(dept.id, dept.name)}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
         {/* Summary cards */}
         <div className="grid gap-4 md:grid-cols-4 mb-6">

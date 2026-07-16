@@ -8,6 +8,8 @@ import { useTimetableStore } from "@/store/timetableStore";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { createPullRequest } from "@/lib/supabaseService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, LayoutGrid, List } from "lucide-react";
@@ -65,6 +67,7 @@ function Timetable() {
     labDays: Record<string, number[]>;
   } | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
+  const [facultyBeforeAfternoon, setFacultyBeforeAfternoon] = useState(false);
 
   // Auto-switch to list view on small screens or just let the user toggle
   useEffect(() => {
@@ -120,7 +123,14 @@ function Timetable() {
     const formattedParts = parts.map(part => {
       const subject = selected.find(s => s.name === part);
       if (subject?.type === 'open elective' || part === 'Open Elective') {
-        return 'Open Elective';
+        // Show actual subject name with OE indicator
+        return subject?.name || 'Open Elective';
+      }
+      if (subject?.type === 'elective') {
+        const peTag = (subject.tags || []).find((t: string) =>
+          /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+)$/i.test(t.trim())
+        );
+        return peTag ? peTag.trim().toUpperCase() : 'Professional Elective';
       }
       return part;
     });
@@ -160,7 +170,8 @@ function Timetable() {
         year: selection.year,
         section: selection.section,
         openElectiveMode,
-        electiveMode
+        electiveMode,
+        facultyBeforeAfternoon
       });
       const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
       setTimetable(gridAsStrings);
@@ -424,6 +435,16 @@ function Timetable() {
                   <span className="hidden sm:inline">List</span>
                 </Button>
               </div>
+              <div className="flex items-center gap-2 mr-2 border-r pr-3 border-border">
+                <Switch
+                  checked={facultyBeforeAfternoon}
+                  onCheckedChange={setFacultyBeforeAfternoon}
+                  id="faculty-before-afternoon-toggle"
+                />
+                <Label htmlFor="faculty-before-afternoon-toggle" className="text-xs font-semibold cursor-pointer select-none">
+                  Professor before afternoon
+                </Label>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="soft" size="sm" onClick={regenerate} className="h-10">Regenerate</Button>
                 <Button variant="outline" size="sm" onClick={exportPDF} className="h-10">PDF</Button>
@@ -621,7 +642,26 @@ function Timetable() {
                 <tbody>
                   {(() => {
                     const openElectives = selected.filter((s) => s.type === 'open elective');
-                    const otherSubjects = selected.filter((s) => s.type !== 'open elective');
+                    
+                    // Group electives by tag
+                    const electiveGroups = new Map<string, typeof selected>();
+                    const ungroupedElectives: typeof selected = [];
+                    
+                    selected.filter(s => s.type === 'elective').forEach(s => {
+                      const peTag = (s.tags || []).find((t: string) =>
+                        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\d+)$/i.test(t.trim())
+                      );
+                      if (peTag) {
+                        const key = peTag.trim().toUpperCase();
+                        if (!electiveGroups.has(key)) electiveGroups.set(key, []);
+                        electiveGroups.get(key)!.push(s);
+                      } else {
+                        ungroupedElectives.push(s);
+                      }
+                    });
+
+                    const otherSubjects = selected.filter((s) => s.type !== 'open elective' && s.type !== 'elective');
+                    
                     return (
                       <>
                         {otherSubjects.map((s, idx) => (
@@ -629,11 +669,52 @@ function Timetable() {
                             <td className="p-2">{s.code || '-'}</td>
                             <td className="p-2">{s.abbreviation || s.id}</td>
                             <td className="p-2">{s.name}</td>
-                            <td className="p-2">{s.type === 'open elective' ? '-' : s.hoursPerWeek}</td>
+                            <td className="p-2">{s.hoursPerWeek}</td>
                             <td className="p-2 capitalize">{s.type}</td>
                             <td className="p-2">{subjectToFaculty[s.id] || s.staff || '-'}</td>
                           </tr>
                         ))}
+                        
+                        {Array.from(electiveGroups.entries()).map(([groupName, groupSubjects]) => (
+                          <tr key={groupName} className="border-b bg-blue-50/20">
+                            <td className="p-2" colSpan={6}>
+                              <div className="font-semibold text-blue-900">{groupName} Group</div>
+                              <div className="mt-2 space-y-2">
+                                {groupSubjects.map((s) => (
+                                  <div key={s.id} className="flex flex-wrap items-center gap-3">
+                                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">{s.code || '-'}</span>
+                                    <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
+                                    <span className="font-medium">{s.name}</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-bold">•</span>
+                                    <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        
+                        {ungroupedElectives.length > 0 && (
+                          <tr className="border-b bg-blue-50/20">
+                            <td className="p-2" colSpan={6}>
+                              <div className="font-semibold text-blue-900">Professional Electives</div>
+                              <div className="mt-2 space-y-2">
+                                {ungroupedElectives.map((s) => (
+                                  <div key={s.id} className="flex flex-wrap items-center gap-3">
+                                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">{s.code || '-'}</span>
+                                    <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
+                                    <span className="font-medium">{s.name}</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-bold">•</span>
+                                    <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+
                         {openElectives.length > 0 && (
                           <tr className="border-b bg-purple-50/40">
                             <td className="p-2" colSpan={6}>

@@ -369,7 +369,7 @@ const Index = () => {
                           }}
                           className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-200 select-none ${
                             isChecked
-                              ? "bg-emerald-500/10 border-emerald-500 text-white"
+                              ? "bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-450 font-semibold"
                               : `${inputBg} border-white/10 hover:border-white/20`
                           }`}
                         >

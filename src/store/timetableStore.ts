@@ -29,8 +29,8 @@ export interface SpecialHoursConfig {
   total_hours: number;
   saturday_hours: number;
   weekdays_hours: number;
-  saturday_periods: number[];
-  weekdays_periods: number[];
+  saturday_periods: any;
+  weekdays_periods: any;
   is_active: boolean;
 }
 
