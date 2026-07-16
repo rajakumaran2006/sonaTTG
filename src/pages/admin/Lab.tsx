@@ -228,8 +228,14 @@ const Lab = () => {
     }
 
     try {
+      // Auto-generate lab_code from name since the input field was removed
+      const generatedLabCode = labForm.name
+        ? labForm.name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15)
+        : `LAB-${Date.now().toString().slice(-4)}`;
+
       const labData = {
         ...labForm,
+        lab_code: generatedLabCode,
         department_id: adminDepartmentId, // Fixed: use department_id as expected by DB
         departments: [adminDepartmentId], 
         // Fallback for legacy: use the first allowed class if any, or null
@@ -277,15 +283,14 @@ const Lab = () => {
       return;
     }
 
-    // Load departments for this admin's department only and set selection
+    // Load all departments and set selection
     (async () => {
       try {
         const parsedAdmin = JSON.parse(adminData);
         if (!parsedAdmin || !parsedAdmin.department_id) throw new Error("Invalid admin data");
         const { data, error } = await (supabase as any)
           .from('departments')
-          .select('*')
-          .eq('id', parsedAdmin.department_id);
+          .select('*');
 
         if (error) {
           console.error('Error loading departments:', error);
@@ -300,7 +305,7 @@ const Lab = () => {
           return;
         }
 
-        // Set admin's department for selection
+        // Set departments list
         setDepartments(data);
         setAdminDepartmentId(parsedAdmin.department_id);
         setSelectedDepartment(parsedAdmin.department_id); // Lock to admin's department
@@ -340,23 +345,91 @@ const Lab = () => {
     fetchSections();
   }, [adminDepartmentId, labForm.year]);
 
+  const getEquivalentDepartmentIds = (targetIds: string[]) => {
+    const equivalentIds = new Set<string>(targetIds);
+    
+    const getAcronym = (name: string) => {
+      return name
+        .toUpperCase()
+        .replace(/\b(AND|OF|THE|FOR)\b/g, '')
+        .match(/\b[A-Z]/g)
+        ?.join('') || '';
+    };
+
+    const areEquivalent = (name1: string, name2: string) => {
+      const n1 = name1.trim().toLowerCase();
+      const n2 = name2.trim().toLowerCase();
+      if (n1 === n2) return true;
+
+      const shortNames: Record<string, string[]> = {
+        'it': ['information technology'],
+        'aids': ['artificial intelligence and data science', 'artificial intelligence & data science'],
+        'ece': ['electronics and communication engineering', 'electronics & communication engineering'],
+        'mech': ['mechanical engineering']
+      };
+
+      for (const [short, longs] of Object.entries(shortNames)) {
+        if ((n1 === short && longs.includes(n2)) || (n2 === short && longs.includes(n1))) {
+          return true;
+        }
+      }
+
+      const ac1 = getAcronym(name1);
+      const ac2 = getAcronym(name2);
+      if (ac1 && ac2 && ac1 === ac2) return true;
+      if (ac1 && ac1.toLowerCase() === n2) return true;
+      if (ac2 && ac2.toLowerCase() === n1) return true;
+
+      return false;
+    };
+
+    const targetDepts = departments.filter(d => targetIds.includes(d.id));
+    
+    departments.forEach(dept => {
+      if (targetDepts.some(td => areEquivalent(td.name, dept.name))) {
+        equivalentIds.add(dept.id);
+      }
+    });
+
+    return Array.from(equivalentIds);
+  };
+
   const openScheduleViewDialog = async (lab: Lab) => {
     setSelectedLabForSchedule(lab);
     setScheduleViewDialog(true);
 
-    // Fetch subjects for the departments associated with this lab,
-    // filtered to only the years/sections allocated to this lab
     try {
-      if (lab.departments && lab.departments.length > 0) {
+      const deptIds = (lab.departments && lab.departments.length > 0)
+        ? [...lab.departments]
+        : [];
+
+      if (adminDepartmentId && !deptIds.includes(adminDepartmentId)) {
+        deptIds.push(adminDepartmentId);
+      }
+
+      const expandedDeptIds = getEquivalentDepartmentIds(deptIds);
+
+      if (expandedDeptIds.length > 0) {
         const { data: subjs, error: subjsError } = await (supabase as any)
           .from('subjects')
           .select('*')
           .eq('type', 'lab')
-          .in('department_id', lab.departments);
+          .in('department_id', expandedDeptIds);
 
         if (subjsError) throw subjsError;
 
         let allSubjs = subjs || [];
+
+        // Fallback: If no subjects found for these departments, load ALL lab subjects in the system
+        if (allSubjs.length === 0) {
+          const { data: allLabSubjs, error: fallbackError } = await (supabase as any)
+            .from('subjects')
+            .select('*')
+            .eq('type', 'lab');
+          if (!fallbackError && allLabSubjs) {
+            allSubjs = allLabSubjs;
+          }
+        }
 
         // Determine which years are allowed for this lab
         const allowedClasses = lab.allowed_classes || [];
@@ -372,7 +445,16 @@ const Lab = () => {
 
         setItAdsLabs(allSubjs);
       } else {
-        setItAdsLabs([]);
+        // Fallback: load ALL lab subjects in the system
+        const { data: allLabSubjs, error: fallbackError } = await (supabase as any)
+          .from('subjects')
+          .select('*')
+          .eq('type', 'lab');
+        if (!fallbackError && allLabSubjs) {
+          setItAdsLabs(allLabSubjs);
+        } else {
+          setItAdsLabs([]);
+        }
       }
     } catch (error) {
       console.error('Error loading subjects for lab:', error);
@@ -761,7 +843,7 @@ const Lab = () => {
               </TabsList>
 
               <Dialog open={labDialog} onOpenChange={setLabDialog}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-md">
                   <DialogHeader>
                     <DialogTitle>Add New Lab</DialogTitle>
                   </DialogHeader>
@@ -770,16 +852,6 @@ const Lab = () => {
                       <div className="grid gap-2">
                         <Label htmlFor="name">Lab Name *</Label>
                         <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="lab_code">Lab Code *</Label>
-                        <Input id="lab_code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CS101" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="grid gap-2">
-                        <Label htmlFor="room">Room Number</Label>
-                        <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} placeholder="e.g. 301" />
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="type">Lab Type</Label>
@@ -795,101 +867,15 @@ const Lab = () => {
                         </Select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="room">Room Number</Label>
+                        <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} placeholder="e.g. 301" />
+                      </div>
                       <div className="grid gap-2">
                         <Label htmlFor="capacity">Capacity</Label>
                         <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
                       </div>
-                    </div>
-                    
-                    
-                    <div className="grid gap-2">
-                       <Label>Allowed Classes (Who can access this lab)</Label>
-                       <div className="flex gap-2 items-end">
-                          <div className="grid gap-2 flex-1">
-                            <Label htmlFor="year-select" className="text-xs">Year</Label>
-                             <Select 
-                              value={labForm.year} 
-                              onValueChange={(v) => {
-                                setLabForm({ ...labForm, year: v, section: "" }); // Reset section on year change
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Year" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableYears.map((y) => (
-                                  <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                           <div className="grid gap-2 flex-1">
-                             <Label htmlFor="section-select" className="text-xs">Section</Label>
-                            <Select 
-                              value={labForm.section} 
-                              onValueChange={(v) => setLabForm({ ...labForm, section: v })}
-                              disabled={!labForm.year}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Section" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                 <SelectItem value="All Sections">All Sections</SelectItem>
-                                {availableSections.map((s) => (
-                                  <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button 
-                            type="button"
-                            onClick={() => {
-                                if (labForm.year && labForm.section) {
-                                  // Avoid duplicates
-                                  const exists = labForm.allowed_classes.some(
-                                      c => c.year === labForm.year && c.section === labForm.section
-                                  );
-                                  if (!exists) {
-                                      setLabForm({
-                                          ...labForm,
-                                          allowed_classes: [...labForm.allowed_classes, { year: labForm.year, section: labForm.section }],
-                                          year: "", // Reset selectors
-                                          section: ""
-                                      });
-                                  } else {
-                                      toast.error("Class already added");
-                                  }
-                                } else {
-                                    toast.error("Please select both Year and Section");
-                                }
-                            }}
-                          >
-                            Add
-                          </Button>
-                       </div>
-                    
-                       {/* List of added classes */}
-                       <div className="flex flex-wrap gap-2 mt-2">
-                          {labForm.allowed_classes.length === 0 && (
-                              <span className="text-xs text-muted-foreground italic">No classes permitted yet. Lab will be hidden.</span>
-                          )}
-                          {labForm.allowed_classes.map((cls, idx) => (
-                              <Badge key={`${cls.year}-${cls.section}-${idx}`} variant="secondary" className="flex items-center gap-1">
-                                  Year {cls.year} - {cls.section}
-                                  <button 
-                                      onClick={() => {
-                                          const newClasses = [...labForm.allowed_classes];
-                                          newClasses.splice(idx, 1);
-                                          setLabForm({ ...labForm, allowed_classes: newClasses });
-                                      }}
-                                      className="ml-1 hover:text-destructive"
-                                  >
-                                      <Trash2 className="h-3 w-3" />
-                                  </button>
-                              </Badge>
-                          ))}
-                       </div>
                     </div>
                   </div>
                   <DialogFooter>
@@ -1131,6 +1117,21 @@ const Lab = () => {
             <DialogTitle>
               Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
             </DialogTitle>
+            <Button
+              onClick={() => {
+                setExtraClassForm({
+                  day: "",
+                  period: "",
+                  subject: "",
+                  notes: ""
+                });
+                setExtraClassDialog(true);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2 mr-8 h-9 rounded-lg"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add Session Manually</span>
+            </Button>
           </DialogHeader>
 
           {selectedLabForSchedule && (
@@ -1253,8 +1254,28 @@ const Lab = () => {
                                       <CommandInput placeholder="Search subject..." className="h-9 border-b" />
                                       <CommandList
                                         className="max-h-[350px] overflow-y-auto scrollbar-thin"
+                                        onWheel={(e) => e.stopPropagation()}
                                       >
-                                        <CommandEmpty>No subject found.</CommandEmpty>
+                                        <CommandEmpty className="py-6 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
+                                          <span>No subject found.</span>
+                                          <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            onClick={() => {
+                                              setOpenPopoverId(null);
+                                              setExtraClassForm({
+                                                day: day.value.toString(),
+                                                period: period.id,
+                                                subject: "",
+                                                notes: ""
+                                              });
+                                              setExtraClassDialog(true);
+                                            }}
+                                            className="text-xs h-7 mt-1 border-dashed hover:border-emerald-500 hover:text-emerald-600 cursor-pointer"
+                                          >
+                                            Book manually instead
+                                          </Button>
+                                        </CommandEmpty>
                                         <CommandGroup>
                                           {itAdsLabs.map((subj) => (
                                             <CommandItem

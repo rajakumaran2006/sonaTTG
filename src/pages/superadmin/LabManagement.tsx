@@ -279,24 +279,103 @@ const LabManagement = () => {
 
 
 
+  const getEquivalentDepartmentIds = (targetIds: string[]) => {
+    const equivalentIds = new Set<string>(targetIds);
+    
+    const getAcronym = (name: string) => {
+      return name
+        .toUpperCase()
+        .replace(/\b(AND|OF|THE|FOR)\b/g, '')
+        .match(/\b[A-Z]/g)
+        ?.join('') || '';
+    };
+
+    const areEquivalent = (name1: string, name2: string) => {
+      const n1 = name1.trim().toLowerCase();
+      const n2 = name2.trim().toLowerCase();
+      if (n1 === n2) return true;
+
+      const shortNames: Record<string, string[]> = {
+        'it': ['information technology'],
+        'aids': ['artificial intelligence and data science', 'artificial intelligence & data science'],
+        'ece': ['electronics and communication engineering', 'electronics & communication engineering'],
+        'mech': ['mechanical engineering']
+      };
+
+      for (const [short, longs] of Object.entries(shortNames)) {
+        if ((n1 === short && longs.includes(n2)) || (n2 === short && longs.includes(n1))) {
+          return true;
+        }
+      }
+
+      const ac1 = getAcronym(name1);
+      const ac2 = getAcronym(name2);
+      if (ac1 && ac2 && ac1 === ac2) return true;
+      if (ac1 && ac1.toLowerCase() === n2) return true;
+      if (ac2 && ac2.toLowerCase() === n1) return true;
+
+      return false;
+    };
+
+    const targetDepts = departments.filter(d => targetIds.includes(d.id));
+    
+    departments.forEach(dept => {
+      if (targetDepts.some(td => areEquivalent(td.name, dept.name))) {
+        equivalentIds.add(dept.id);
+      }
+    });
+
+    return Array.from(equivalentIds);
+  };
+
   const openScheduleViewDialog = async (lab: Lab) => {
     setSelectedLabForSchedule(lab);
     setScheduleViewDialog(true);
 
-    // Fetch subjects for the departments associated with this lab
     try {
-      if (lab.departments && lab.departments.length > 0) {
+      const deptIds = (lab.departments && lab.departments.length > 0)
+        ? [...lab.departments]
+        : [];
+
+      const expandedDeptIds = getEquivalentDepartmentIds(deptIds);
+
+      if (expandedDeptIds.length > 0) {
         const { data: subjs, error: subjsError } = await (supabase as any)
           .from('subjects')
           .select('*')
           .eq('type', 'lab')
-          .in('department_id', lab.departments)
+          .in('department_id', expandedDeptIds)
           .order('name');
 
         if (subjsError) throw subjsError;
-        setItAdsLabs(subjs || []);
+        
+        let allSubjs = subjs || [];
+
+        // Fallback: If no subjects found, load all lab subjects
+        if (allSubjs.length === 0) {
+          const { data: allLabSubjs, error: fallbackError } = await (supabase as any)
+            .from('subjects')
+            .select('*')
+            .eq('type', 'lab')
+            .order('name');
+          if (!fallbackError && allLabSubjs) {
+            allSubjs = allLabSubjs;
+          }
+        }
+
+        setItAdsLabs(allSubjs);
       } else {
-        setItAdsLabs([]);
+        // Fallback: load ALL lab subjects in the system
+        const { data: allLabSubjs, error: fallbackError } = await (supabase as any)
+          .from('subjects')
+          .select('*')
+          .eq('type', 'lab')
+          .order('name');
+        if (!fallbackError && allLabSubjs) {
+          setItAdsLabs(allLabSubjs);
+        } else {
+          setItAdsLabs([]);
+        }
       }
     } catch (error) {
       console.error('Error loading subjects for lab:', error);
@@ -728,6 +807,7 @@ const LabManagement = () => {
                                       <CommandInput placeholder="Search subject..." className="h-9 border-b" />
                                       <CommandList
                                         className="max-h-[350px] overflow-y-auto scrollbar-thin"
+                                        onWheel={(e) => e.stopPropagation()}
                                       >
                                         <CommandEmpty>No subject found.</CommandEmpty>
                                         <CommandGroup>
