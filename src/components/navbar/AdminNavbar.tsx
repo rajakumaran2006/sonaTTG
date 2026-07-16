@@ -59,7 +59,42 @@ const AdminNavbar = () => {
         const parsed = JSON.parse(adminData);
         if (parsed && parsed.email) {
             setAdminUser(parsed);
-            // Fetch all allocated department details
+
+            // Fetch latest department details from database in background to sync cache
+            (async () => {
+              try {
+                const { data: adminDb, error } = await (supabase as any)
+                  .from('admin_users')
+                  .select('*, admin_departments(department_id)')
+                  .eq('id', parsed.id)
+                  .single();
+                
+                if (!error && adminDb) {
+                  const deptIds = (adminDb.admin_departments && adminDb.admin_departments.length > 0)
+                    ? adminDb.admin_departments.map((d: any) => d.department_id)
+                    : (adminDb.department_id ? [adminDb.department_id] : []);
+                  
+                  const updatedAdmin = {
+                    ...parsed,
+                    department_ids: deptIds
+                  };
+                  localStorage.setItem("adminUser", JSON.stringify(updatedAdmin));
+                  setAdminUser(updatedAdmin);
+                  
+                  if (deptIds.length > 0) {
+                    const { data: depts } = await (supabase as any)
+                      .from('departments')
+                      .select('id, name')
+                      .in('id', deptIds);
+                    if (depts) setAllocatedDepts(depts);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to sync admin departments in background:", e);
+              }
+            })();
+
+            // Initial load from cached data
             const deptIds: string[] = parsed.department_ids && parsed.department_ids.length > 0
               ? parsed.department_ids
               : (parsed.department_id ? [parsed.department_id] : []);

@@ -153,16 +153,23 @@ const LabManagement = () => {
         .eq('is_active', true)
         .order('name');
 
-      // Note: departments field may not exist in current schema
-      // Filter by department if selected (skip if "all-departments")
+      const { data, error } = await query;
+      if (error) throw error;
+      
+      let filteredLabs = data || [];
+
+      // Filter by department in-memory to handle duplicate departments
       if (selectedDepartment && selectedDepartment !== "all-departments") {
-        query = query.contains('departments', [selectedDepartment]);
+        const equivalentDepts = getEquivalentDepartmentIds([selectedDepartment]);
+        filteredLabs = filteredLabs.filter((lab: Lab) => {
+          // If lab has no departments specified, treat it as shared/visible
+          if (!lab.departments || lab.departments.length === 0) return true;
+          // Show lab if it contains any of the equivalent department IDs
+          return lab.departments.some(dId => equivalentDepts.includes(dId));
+        });
       }
 
-      const { data, error } = await query;
-
-      if (error) throw error;
-      setLabs(data || []);
+      setLabs(filteredLabs);
     } catch (error) {
       console.error('Error loading labs:', error);
       toast.error('Failed to load labs');

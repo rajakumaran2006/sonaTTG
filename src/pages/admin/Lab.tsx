@@ -480,21 +480,28 @@ const Lab = () => {
         .from('labs')
         .select('*')
         .eq('is_active', true)
-        .select('*')
-        .eq('is_active', true)
         .order('created_at', { ascending: false });
-
-      if (selectedDepartment && selectedDepartment !== "all-departments") {
-        query = query.contains('departments', [selectedDepartment]);
-      } else if (adminDepartmentId) {
-        query = query.contains('departments', [adminDepartmentId]);
-      }
 
       const { data, error } = await query;
       if (error) throw error;
       
       // Filter logic: Only show labs that contain the current selection in their allowed_classes
       let filteredLabs = data || [];
+
+      // Filter by department in-memory to handle duplicate departments
+      const targetDept = selectedDepartment && selectedDepartment !== "all-departments"
+        ? selectedDepartment
+        : adminDepartmentId;
+
+      if (targetDept) {
+        const equivalentDepts = getEquivalentDepartmentIds([targetDept]);
+        filteredLabs = filteredLabs.filter((lab: Lab) => {
+          // If lab has no departments specified, treat it as shared/visible
+          if (!lab.departments || lab.departments.length === 0) return true;
+          // Show lab if it contains any of the equivalent department IDs
+          return lab.departments.some(dId => equivalentDepts.includes(dId));
+        });
+      }
 
       // If a specific selection is active (not All Departments / All Years), apply filtering
       // However, if we are in admin view (no specific year/section selected in header top), we might want to see all our department's labs.
