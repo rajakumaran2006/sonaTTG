@@ -142,24 +142,26 @@ const AdminNavbar = () => {
     }`}>
 
       {/* Logo */}
-      <div className="flex h-[72px] items-center px-5 gap-3">
+      <div className={`flex h-16 items-center px-5 gap-3 border-b ${
+        isDark ? 'border-white/[0.06]' : 'border-black/[0.05]'
+      }`}>
         {/* Geometric logo mark */}
-        <div className={`h-10 w-10 rounded-xl flex items-center justify-center shadow-sm shrink-0 overflow-hidden ${
+        <div className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-sm shrink-0 overflow-hidden ${
           isDark ? 'bg-white/10' : 'bg-white shadow-md'
         }`}>
-          <svg viewBox="0 0 40 40" fill="none" className="h-8 w-8">
+          <svg viewBox="0 0 40 40" fill="none" className="h-7 w-7">
             <circle cx="20" cy="20" r="20" fill={isDark ? '#1e1e2a' : '#f0f0f0'} />
             <path d="M20 8 L20 32" stroke={isDark ? '#a3a3b3' : '#333'} strokeWidth="2" strokeLinecap="round"/>
             <path d="M8 20 L32 20" stroke={isDark ? '#a3a3b3' : '#333'} strokeWidth="2" strokeLinecap="round"/>
             <circle cx="20" cy="20" r="5" fill="none" stroke={isDark ? '#a3a3b3' : '#333'} strokeWidth="2"/>
           </svg>
         </div>
-        <div className="flex-1 min-w-0">
-          <span className={`text-base font-bold tracking-tight block ${
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <span className={`text-base font-bold tracking-tight leading-tight block ${
             isDark ? 'text-white' : 'text-slate-900'
           }`}>OptiTime</span>
-          <span className={`text-[10px] font-medium ${
-            isDark ? 'text-white/30' : 'text-slate-400'
+          <span className={`text-[10px] font-medium leading-none block ${
+            isDark ? 'text-white/40' : 'text-slate-400'
           }`}>Admin Console</span>
         </div>
         {/* Dark mode toggle */}

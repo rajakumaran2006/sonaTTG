@@ -92,6 +92,7 @@ const YearSubjects = () => {
   const [oeConfigHoursInput, setOeConfigHoursInput] = useState<number>(5);
   const [oeGroupName, setOeGroupName] = useState<string>("Open elective");
   const [oeIsSharedSlot, setOeIsSharedSlot] = useState<boolean>(true);
+  const [oeSelectedSlots, setOeSelectedSlots] = useState<string[]>(['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -130,8 +131,9 @@ const YearSubjects = () => {
         untaggedSum += s.hours_per_week;
       }
     });
-    const groupedTotal = Array.from(peGroups.values()).reduce((a, b) => a + b, 0);
-    return groupedTotal + untaggedSum;
+    let groupSum = 0;
+    peGroups.forEach(h => { groupSum += h; });
+    return groupSum + untaggedSum;
   }, [subjects]);
 
   const openElectiveHours = useMemo(() => {
@@ -1376,7 +1378,7 @@ const YearSubjects = () => {
 
         {/* Open Elective Config & Grouping Dialog */}
         <Dialog open={oeConfigOpen} onOpenChange={setOeConfigOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5 text-emerald-500" />
@@ -1427,7 +1429,67 @@ const YearSubjects = () => {
                 </p>
               </div>
 
-              {/* 3. Shared Slot Toggle */}
+              {/* 3. Static Timetable Slot Allocation Grid */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Static Timetable Slot Allocation ({oeSelectedSlots.length} slots selected)
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-semibold"
+                    onClick={() => {
+                      const defs = ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2'];
+                      setOeSelectedSlots(defs);
+                      setOeConfigHoursInput(defs.length);
+                    }}
+                  >
+                    Reset Default Slots
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Select the exact timetable periods where Open Electives will statically fit across all sections for Year {year}.
+                </p>
+                <div className="border rounded-xl p-3 bg-card space-y-1.5 overflow-x-auto shadow-sm">
+                  <div className="grid grid-cols-8 gap-1 text-[10px] font-bold text-center text-muted-foreground uppercase border-b pb-1.5">
+                    <div>Day</div>
+                    {[1, 2, 3, 4, 5, 6, 7].map(p => <div key={p}>P{p}</div>)}
+                  </div>
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                    <div key={day} className="grid grid-cols-8 gap-1 items-center">
+                      <div className="text-[11px] font-bold text-slate-600 dark:text-slate-400 text-center">{day}</div>
+                      {[1, 2, 3, 4, 5, 6, 7].map(period => {
+                        const slotKey = `${day}-${period}`;
+                        const isSelected = oeSelectedSlots.includes(slotKey);
+                        return (
+                          <button
+                            key={slotKey}
+                            type="button"
+                            onClick={() => {
+                              const next = isSelected
+                                ? oeSelectedSlots.filter(s => s !== slotKey)
+                                : [...oeSelectedSlots, slotKey];
+                              setOeSelectedSlots(next);
+                              setOeConfigHoursInput(next.length);
+                            }}
+                            className={`h-7 rounded-md font-semibold text-[11px] border transition-all ${
+                              isSelected
+                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold scale-[1.03]'
+                                : 'bg-muted/40 border-transparent hover:border-emerald-300 text-slate-700 dark:text-slate-300 hover:bg-emerald-50/50'
+                            }`}
+                          >
+                            {isSelected ? '✓' : `P${period}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 4. Shared Slot Toggle */}
               <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-start gap-3">
                 <Checkbox
                   id="sharedSlotCheck"
@@ -1445,7 +1507,7 @@ const YearSubjects = () => {
                 </label>
               </div>
 
-              {/* 4. Open Elective Subjects Summary */}
+              {/* 5. Open Elective Subjects Summary */}
               <div className="space-y-2">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center justify-between">
                   <span>Open Elective Subjects ({subjects.filter(s => s.type === 'open elective').length})</span>
@@ -1488,6 +1550,7 @@ const YearSubjects = () => {
                       hours: oeConfigHoursInput,
                       group_name: finalGroupName,
                       is_shared_slot: oeIsSharedSlot,
+                      selected_slots: oeSelectedSlots
                     });
                   }
 

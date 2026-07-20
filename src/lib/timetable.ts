@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear, getSectionSubjects } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getOpenElectiveConfig, OpenElectiveConfig, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear, getSectionSubjects } from "./supabaseService";
 import {
   buildFacultyAllocationMap,
   findAvailableFacultyForSlot,
@@ -55,9 +55,9 @@ const isSSA = (s: Subject) =>
 interface LoadedContext {
   facultyMap: Map<string, FacultyAllocation>;
   departmentId: string | undefined;
-  classCounselorName: string | null;
+  classCounselorInfo: { name: string | null; id: string | null } | null;
   manualLabs: Array<{ day: number; period: number; labName: string }>;
-  openElectiveHours: number;
+  openElectiveConfig: OpenElectiveConfig;
 }
 
 async function loadAllContext(
@@ -66,13 +66,20 @@ async function loadAllContext(
   section: string | undefined,
   specialHoursConfigs: SpecialHoursConfig[]
 ): Promise<LoadedContext> {
+  const defaultOeConfig: OpenElectiveConfig = {
+    hours: 5,
+    group_name: "Open elective",
+    is_shared_slot: true,
+    selected_slots: ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+  };
+
   if (!departmentName || !year || !section) {
     return {
       facultyMap: new Map(),
       departmentId: undefined,
-      classCounselorName: null,
+      classCounselorInfo: null,
       manualLabs: [],
-      openElectiveHours: 0,
+      openElectiveConfig: defaultOeConfig,
     };
   }
 
@@ -82,16 +89,16 @@ async function loadAllContext(
     return {
       facultyMap: new Map(),
       departmentId: undefined,
-      classCounselorName: null,
+      classCounselorInfo: null,
       manualLabs: [],
-      openElectiveHours: 0,
+      openElectiveConfig: defaultOeConfig,
     };
   }
 
   const deptId = department.id;
 
   // Fire all independent queries in parallel
-  const [facultyMap, counselorResult, manualLabs, openElectiveHours] =
+  const [facultyMap, counselorResult, manualLabs, openElectiveConfig] =
     await Promise.all([
       // Faculty allocation map (cross-section conflict awareness)
       buildFacultyAllocationMap(deptId, year, section).catch((err) => {
@@ -99,13 +106,16 @@ async function loadAllContext(
         return new Map<string, FacultyAllocation>();
       }),
 
-      // Class counselor name (for special hours label)
+      // Class counselor info (for special hours allocation & label)
       (async () => {
         try {
           const counselor = await getClassCounselor(deptId, year, section);
           if (counselor) {
             const details = await getFacultyById(counselor.faculty_id);
-            return details?.name ?? null;
+            return {
+              name: details?.name ?? null,
+              id: counselor.faculty_id
+            };
           }
         } catch (e) {
           console.warn("[Phase 0] Could not load class counselor:", e);
@@ -119,16 +129,16 @@ async function loadAllContext(
         return [] as Array<{ day: number; period: number; labName: string }>;
       }),
 
-      // Configured open elective hours for this year
-      getOpenElectiveHours(deptId, year).catch(() => 0),
+      // Configured open elective config for this year
+      getOpenElectiveConfig(deptId, year).catch(() => defaultOeConfig),
     ]);
 
   return {
     facultyMap,
     departmentId: deptId,
-    classCounselorName: counselorResult,
+    classCounselorInfo: counselorResult,
     manualLabs,
-    openElectiveHours,
+    openElectiveConfig,
   };
 }
 
@@ -177,10 +187,13 @@ function getPeriodsForSection(periodsField: any, section?: string): any[] {
 function lockSpecialHours(
   grid: Grid,
   specialHoursConfigs: SpecialHoursConfig[],
-  classCounselorName: string | null,
-  section?: string
+  classCounselorInfo: { name: string | null; id: string | null } | null,
+  section?: string,
+  facultyMap?: Map<string, FacultyAllocation>
 ): void {
   const sat = 5; // Saturday index
+  const classCounselorName = classCounselorInfo?.name || null;
+  const classCounselorFacultyId = classCounselorInfo?.id || null;
 
   for (const config of specialHoursConfigs) {
     if (!config.is_active) continue;
@@ -216,12 +229,19 @@ function lockSpecialHours(
     processPeriods(satPeriods, true);
     processPeriods(wdPeriods, false);
 
+    const allocateCounselor = (d: number, p: number) => {
+      if (classCounselorFacultyId && facultyMap) {
+        allocateFacultyToSlot(classCounselorFacultyId, d, p, facultyMap);
+      }
+    };
+
     // 1. Lock day-specific slots first
     for (const slot of daySpecificSlots) {
       const d = slot.day;
       const p = slot.period - 1;
       if (d >= 0 && d < 6 && p >= 0 && p < PERIODS && grid[d][p] === null) {
         grid[d][p] = label;
+        allocateCounselor(d, p);
       }
     }
 
@@ -232,6 +252,7 @@ function lockSpecialHours(
       const p = period - 1;
       if (p >= 0 && p < PERIODS && grid[sat][p] === null) {
         grid[sat][p] = label;
+        allocateCounselor(sat, p);
         satPlaced++;
       }
     }
@@ -245,6 +266,7 @@ function lockSpecialHours(
         const p = period - 1;
         if (p >= 0 && p < PERIODS && grid[dayIndex][p] === null) {
           grid[dayIndex][p] = label;
+          allocateCounselor(dayIndex, p);
           wdPlaced++;
         }
       }
@@ -321,19 +343,42 @@ function staffPreCheck(
 
 function placeOpenElectives(
   grid: Grid,
-  openElectiveHours: number,
+  openElectiveConfig: OpenElectiveConfig,
   oeSubjects: Subject[] = [],
   remaining?: Map<string, number>,
   facultyMap?: Map<string, FacultyAllocation>
 ): void {
-  // Fixed OE slots: Mon P1, Wed P1, Thu P1, Sat P1, Sat P2
-  const OE_SLOTS: { d: number; p: number }[] = [
-    { d: 0, p: 0 }, // Mon Period 1
-    { d: 2, p: 0 }, // Wed Period 1
-    { d: 3, p: 0 }, // Thu Period 1
-    { d: 5, p: 0 }, // Sat Period 1
-    { d: 5, p: 1 }, // Sat Period 2
-  ];
+  const dayNameMap: Record<string, number> = {
+    'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5,
+    'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5
+  };
+
+  let OE_SLOTS: { d: number; p: number }[] = [];
+  if (openElectiveConfig.selected_slots && openElectiveConfig.selected_slots.length > 0) {
+    for (const slotStr of openElectiveConfig.selected_slots) {
+      const parts = slotStr.split('-');
+      if (parts.length === 2) {
+        const d = dayNameMap[parts[0]];
+        const pr = parseInt(parts[1], 10) - 1;
+        if (d !== undefined && d >= 0 && d < 6 && pr >= 0 && pr < PERIODS) {
+          OE_SLOTS.push({ d, p: pr });
+        }
+      }
+    }
+  }
+
+  // Fallback to default slots if none specified
+  if (OE_SLOTS.length === 0) {
+    OE_SLOTS = [
+      { d: 0, p: 0 }, // Mon Period 1
+      { d: 2, p: 0 }, // Wed Period 1
+      { d: 3, p: 0 }, // Thu Period 1
+      { d: 5, p: 0 }, // Sat Period 1
+      { d: 5, p: 1 }, // Sat Period 2
+    ];
+  }
+
+  const openElectiveHours = openElectiveConfig.hours || OE_SLOTS.length;
 
   if (oeSubjects.length > 0) {
     for (const subj of oeSubjects) {
@@ -359,7 +404,7 @@ function placeOpenElectives(
     for (const { d, p } of OE_SLOTS) {
       if (hoursLeft <= 0) break;
       if (grid[d][p] === null) {
-        grid[d][p] = "Open Elective";
+        grid[d][p] = openElectiveConfig.group_name || "Open Elective";
         hoursLeft--;
       }
     }
@@ -842,8 +887,8 @@ export async function generateTimetable({
   );
 
   // ── PHASE 1: Lock Static Slots ─────────────────────────────────────────────
-  // Special hours first (immutable)
-  lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorName, section);
+  // Special hours first (immutable & assigned to Class Counselor)
+  lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorInfo, section, ctx.facultyMap);
 
   const labs = subjects.filter((s) => s.type === "lab");
 
@@ -903,7 +948,7 @@ export async function generateTimetable({
 
   // ── Open Elective slots ──────────────────────────────────────────────────
   const oeSubjects = subjects.filter((s) => s.type === "open elective");
-  placeOpenElectives(grid, ctx.openElectiveHours, oeSubjects, remaining, ctx.facultyMap);
+  placeOpenElectives(grid, ctx.openElectiveConfig, oeSubjects, remaining, ctx.facultyMap);
 
   // ── Auto-allocate remaining lab hours (edge case: no DB entry) ───────────
   autoAllocateRemainingLabs(grid, labs, remaining, ctx.facultyMap);

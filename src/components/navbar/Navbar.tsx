@@ -137,7 +137,7 @@ const Navbar = () => {
   const SidebarContent = () => (
     <div className={`flex h-full flex-col border-r shadow-sm transition-colors duration-300 ${isDark ? 'bg-gray-950 border-gray-800' : 'bg-white border-slate-100'}`}>
       {/* Logo Area */}
-      <div className={`flex h-20 items-center px-6 border-b ${isDark ? 'border-gray-800' : 'border-slate-100'}`}>
+      <div className={`flex h-16 items-center px-6 border-b ${isDark ? 'border-gray-800' : 'border-slate-100'}`}>
         <Link to="/super-admin" className="flex items-center gap-2">
           <div className="h-7 w-7 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">

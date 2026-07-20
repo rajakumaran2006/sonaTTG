@@ -1139,7 +1139,7 @@ export default function GenerateReviewPage() {
       </div>
 
       {/* Persistent Bottom Bar */}
-      <footer className={`fixed bottom-0 left-0 right-0 z-40 border-t backdrop-blur-md px-6 py-4 flex items-center justify-between md:pl-[300px] lg:pl-[330px] transition-colors duration-300 ${
+      <footer className={`fixed bottom-0 left-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 right-0 z-40 border-t backdrop-blur-md px-6 py-4 flex items-center justify-between transition-colors duration-300 ${
         isDark ? "bg-[#0e0e1a]/95 border-white/10 text-white" : "bg-white/95 border-slate-200 text-slate-900 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]"
       }`}>
         <div className="flex flex-col gap-0.5 max-w-[60%] overflow-hidden">

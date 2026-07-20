@@ -223,26 +223,33 @@ export interface OpenElectiveConfig {
   hours: number;
   group_name: string;
   is_shared_slot: boolean;
+  selected_slots?: string[];
 }
 
 export async function getOpenElectiveConfig(departmentId: string, year: string): Promise<OpenElectiveConfig> {
   const defaultConfig: OpenElectiveConfig = {
     hours: 5,
     group_name: "Open elective",
-    is_shared_slot: true
+    is_shared_slot: true,
+    selected_slots: ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
   };
   try {
     const { data, error } = await (supabase as any)
       .from('open_elective_settings')
-      .select('hours, group_name, is_shared_slot')
+      .select('hours, group_name, is_shared_slot, selected_slots')
       .eq('department_id', departmentId)
       .eq('year', year)
       .maybeSingle();
     if (!error && data) {
+      let slots = defaultConfig.selected_slots;
+      if (Array.isArray(data.selected_slots) && data.selected_slots.length > 0) {
+        slots = data.selected_slots;
+      }
       return {
         hours: typeof data.hours === 'number' ? data.hours : defaultConfig.hours,
         group_name: data.group_name || defaultConfig.group_name,
         is_shared_slot: data.is_shared_slot !== undefined ? Boolean(data.is_shared_slot) : true,
+        selected_slots: slots,
       };
     }
   } catch (e: any) {}
@@ -255,6 +262,7 @@ export async function getOpenElectiveConfig(departmentId: string, year: string):
         hours: typeof parsed.hours === 'number' ? parsed.hours : defaultConfig.hours,
         group_name: parsed.group_name || defaultConfig.group_name,
         is_shared_slot: parsed.is_shared_slot !== undefined ? Boolean(parsed.is_shared_slot) : true,
+        selected_slots: Array.isArray(parsed.selected_slots) && parsed.selected_slots.length > 0 ? parsed.selected_slots : defaultConfig.selected_slots,
       };
     }
   } catch {}
@@ -274,7 +282,8 @@ export async function setOpenElectiveConfig(
         year,
         hours: config.hours,
         group_name: config.group_name,
-        is_shared_slot: config.is_shared_slot
+        is_shared_slot: config.is_shared_slot,
+        selected_slots: config.selected_slots || ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
       })
       .maybeSingle();
   } catch (e: any) {}
