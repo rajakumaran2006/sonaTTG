@@ -75,14 +75,15 @@ const Index = () => {
   const ready = selection.department && selection.year && selection.section;
 
 
-  // Load stats for the currently selected department
-  const loadStatsForDept = useCallback(async (deptId: string) => {
+  // Load combined stats across all allocated departments
+  const loadStatsForDepts = useCallback(async (deptIds: string[]) => {
+    if (!deptIds || deptIds.length === 0) return;
     setStatsLoading(true);
     try {
       const [subjectsRes, facultyRes, timetablesRes] = await Promise.all([
-        (supabase as any).from('subjects').select('id', { count: 'exact', head: true }).eq('department_id', deptId),
-        (supabase as any).from('faculty_members').select('id', { count: 'exact', head: true }).eq('department_id', deptId),
-        (supabase as any).from('timetables').select('id', { count: 'exact', head: true }).eq('department_id', deptId)
+        (supabase as any).from('subjects').select('id', { count: 'exact', head: true }).in('department_id', deptIds),
+        (supabase as any).from('faculty_members').select('id', { count: 'exact', head: true }).in('department_id', deptIds),
+        (supabase as any).from('timetables').select('id', { count: 'exact', head: true }).in('department_id', deptIds)
       ]);
       setStats({
         subjects: subjectsRes.count || 0,
@@ -154,10 +155,10 @@ const Index = () => {
 
           setDepartments(deptData);
           setSelection({ department: deptData[0].name });
-          setSelectedDashboardDepts([deptData[0].name]);
+          setSelectedDashboardDepts(deptData.map(d => d.name));
 
-          // Load stats for the first department
-          await loadStatsForDept(deptData[0].id);
+          // Load stats combined for all allocated departments
+          await loadStatsForDepts(deptIds);
 
           setLoading(false);
           loadingRef.current = false;
@@ -184,7 +185,7 @@ const Index = () => {
     }
 
     return () => timeoutId && clearTimeout(timeoutId);
-  }, [navigate, setSelection, loadStatsForDept]);
+  }, [navigate, setSelection, loadStatsForDepts]);
 
   useEffect(() => {
     (async () => {
@@ -323,7 +324,9 @@ const Index = () => {
                   <p className={`text-5xl font-bold tracking-tight ${textPrimary} mb-2 transition-opacity duration-200 ${statsLoading ? 'opacity-30' : 'opacity-100'}`}>
                     {statsLoading ? '—' : card.value}
                   </p>
-                  <p className={`text-sm ${textMuted} truncate`}>{selection.department || "—"}</p>
+                  <p className={`text-sm font-medium ${textMuted} truncate`}>
+                    {departments.map(d => d.name).join(", ") || "All Allocated Depts"}
+                  </p>
                 </div>
               </div>
             ))}
@@ -352,19 +355,10 @@ const Index = () => {
                         <div
                           key={d.id}
                           onClick={() => {
-                            let next;
                             if (isChecked) {
-                              next = selectedDashboardDepts.filter(name => name !== d.name);
+                              setSelectedDashboardDepts(prev => prev.filter(name => name !== d.name));
                             } else {
-                              next = [...selectedDashboardDepts, d.name];
-                            }
-                            setSelectedDashboardDepts(next);
-                            if (next.length > 0) {
-                              setSelection({ department: next[0] });
-                              const nextDeptObj = departments.find(dept => dept.name === next[0]);
-                              if (nextDeptObj) loadStatsForDept(nextDeptObj.id);
-                            } else {
-                              setSelection({ department: "" });
+                              setSelectedDashboardDepts(prev => [...prev, d.name]);
                             }
                           }}
                           className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-200 select-none ${

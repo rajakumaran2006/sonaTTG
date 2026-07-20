@@ -8,6 +8,7 @@ import SelectionHeader from '@/components/admin/SelectionHeader';
 import { Upload } from 'lucide-react';
 import Navbar from '@/components/navbar/facultyadmin';
 import { useTimetableStore } from '@/store/timetableStore';
+import { calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
 
 interface YearStats {
   year: string;
@@ -69,11 +70,9 @@ const AdminDepartmentYears = () => {
           .in('id', deptIds)
           .order('name');
 
-        if (data) {
+        if (data && data.length > 0) {
           setAllocatedDepts(data);
-          const currentActive = sessionUser.department_id && data.some((d: any) => d.id === sessionUser.department_id)
-            ? sessionUser.department_id
-            : data[0]?.id;
+          const currentActive = data[0]?.id || sessionUser.department_id;
           setActiveDeptId(currentActive || '');
         }
       }
@@ -88,62 +87,41 @@ const AdminDepartmentYears = () => {
     (async () => {
       setLoading(true);
       try {
-        const [deptRes, subsRes, specialRes] = await Promise.all([
+        const [deptRes, subsRes, specialRes, oeRes] = await Promise.all([
           (supabase as any).from('departments').select('name').eq('id', activeDeptId).single(),
           (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', activeDeptId),
-          (supabase as any).from('special_hours_config').select('year,special_type,day_index,period').eq('department_id', activeDeptId).eq('is_active', true)
+          (supabase as any).from('special_hours_config').select('year,special_type,total_hours,is_active').eq('department_id', activeDeptId).eq('is_active', true),
+          (supabase as any).from('open_elective_settings').select('year,hours').eq('department_id', activeDeptId),
         ]);
 
         setDeptName(deptRes?.data?.name || "");
 
         const subs = subsRes.data || [];
         const specialConfigs = specialRes.data || [];
+        const oeSettingsList = oeRes?.data || [];
         const map = new Map<string, { subjects: number; totalHours: number }>();
-        
-        ['I', 'II', 'III', 'IV'].forEach(yr => {
+
+        for (const yr of ['I', 'II', 'III', 'IV']) {
           const yrSubs = subs.filter((s: any) => s.year === yr);
           const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
-          
-          const subjectsCount = yrSubs.length;
+          const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
 
-          // Theory hours (traditional theory)
-          const theoryHoursVal = yrSubs.filter((s: any) => s.type === 'theory').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          
-          // Lab hours
-          const labHoursVal = yrSubs.filter((s: any) => s.type === 'lab').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          
-          // Professional elective hours (grouped by pe_group_ tag, untagged are summed)
-          const pes = yrSubs.filter((s: any) => s.type === 'elective');
-          const peGroups = new Map<string, number>();
-          let peUntaggedSum = 0;
-          pes.forEach((s: any) => {
-            const groupTag = (s.tags || []).find((t: string) => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
-            if (groupTag) {
-              peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, s.hours_per_week));
-            } else {
-              peUntaggedSum += s.hours_per_week;
-            }
+          let oeHoursSetting = 5;
+          const foundOe = oeSettingsList.find((o: any) => o.year === yr);
+          if (foundOe && typeof foundOe.hours === 'number') {
+            oeHoursSetting = foundOe.hours;
+          } else {
+            oeHoursSetting = await getOpenElectiveHours(activeDeptId, yr).catch(() => 5);
+          }
+
+          const calc = calculateYearGrandTotalHours({
+            subjects: yrSubs,
+            specialConfigHours: configSpecialHours,
+            openElectiveHoursSetting: oeHoursSetting
           });
-          const electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + peUntaggedSum;
 
-          // Open elective hours (cumulative 5h if present, else 0)
-          const oes = yrSubs.filter((s: any) => s.type === 'open elective');
-          const openElectiveHours = oes.length > 0 ? 5 : 0;
-
-          // Special hours: config slots + special subjects in subjects table
-          const uniqueSlots = new Set<string>();
-          yrSpecs.forEach((c: any) => {
-            uniqueSlots.add(`${c.day_index}-${c.period}`);
-          });
-          const configSpecialHours = uniqueSlots.size;
-          const subjectSpecialHours = yrSubs.filter((s: any) => s.type === 'special').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          const totalSpecialHours = configSpecialHours + subjectSpecialHours;
-
-          // Grand total hours
-          const totalHours = theoryHoursVal + labHoursVal + electiveHours + openElectiveHours + totalSpecialHours;
-
-          map.set(yr, { subjects: subjectsCount, totalHours });
-        });
+          map.set(yr, { subjects: calc.subjectsCount, totalHours: calc.grandTotalHours });
+        }
 
         const arr = ['I', 'II', 'III', 'IV'].map(yr => ({
           year: yr,

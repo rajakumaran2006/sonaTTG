@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { getAllYears, addYear, updateYear, deleteYear, ensureDefaultYears } from '@/lib/supabaseService';
+import { getAllYears, addYear, updateYear, deleteYear, ensureDefaultYears, calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
 import Navbar from '@/components/navbar/Navbar';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 
@@ -52,31 +52,54 @@ const DepartmentDetails = () => {
     if (!isLoggedIn) { navigate('/super-admin-login', { replace: true }); return; }
     if (!id) return;
     (async () => {
-      const [deptRes, subsRes, ttsRes, facRes, settingsRes] = await Promise.all([
+      const [deptRes, subsRes, ttsRes, facRes, settingsRes, specialRes, oeRes] = await Promise.all([
         (supabase as any).from('departments').select('name').eq('id', id).single(),
-        (supabase as any).from('subjects').select('year,hours_per_week').eq('department_id', id),
+        (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', id),
         (supabase as any).from('timetables').select('section').eq('department_id', id),
         (supabase as any).from('faculty_members').select('id,name,email,designation').eq('department_id', id).order('name'),
         (supabase as any).from('department_settings').select('*').eq('department_id', id).maybeSingle(),
+        (supabase as any).from('special_hours_config').select('year,special_type,total_hours,is_active').eq('department_id', id).eq('is_active', true),
+        (supabase as any).from('open_elective_settings').select('year,hours').eq('department_id', id),
       ]);
 
       setDeptName(deptRes?.data?.name || "");
 
       const subs = subsRes.data || [];
+      const specialConfigs = specialRes.data || [];
+      const oeSettingsList = oeRes?.data || [];
       const map = new Map<string, { subjects: number; totalHours: number }>();
-      (subs || []).forEach((s: any) => {
-        const cur = map.get(s.year) || { subjects: 0, totalHours: 0 };
-        cur.subjects += 1; cur.totalHours += s.hours_per_week || 0;
-        map.set(s.year, cur);
-      });
+
+      const yearsList = ['I', 'II', 'III', 'IV'];
+      for (const yr of yearsList) {
+        const yrSubs = subs.filter((s: any) => s.year === yr);
+        const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
+        const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
+
+        let oeHoursSetting = 5;
+        const foundOe = oeSettingsList.find((o: any) => o.year === yr);
+        if (foundOe && typeof foundOe.hours === 'number') {
+          oeHoursSetting = foundOe.hours;
+        } else {
+          oeHoursSetting = await getOpenElectiveHours(id, yr).catch(() => 5);
+        }
+
+        const calc = calculateYearGrandTotalHours({
+          subjects: yrSubs,
+          specialConfigHours: configSpecialHours,
+          openElectiveHoursSetting: oeHoursSetting
+        });
+
+        map.set(yr, { subjects: calc.subjectsCount, totalHours: calc.grandTotalHours });
+      }
+
       const arr = Array.from(map.entries()).map(([year, v]) => ({ year, ...v }));
       arr.sort((a, b) => a.year.localeCompare(b.year));
       setYearStats(arr);
 
       const sections = new Set((ttsRes.data || []).map((t: any) => t.section)).size;
-      const totalWeeklyPeriods = subs.reduce((acc: number, s: any) => acc + (s.hours_per_week || 0), 0);
+      const totalWeeklyPeriods = arr.reduce((acc: number, y: any) => acc + (y.totalHours || 0), 0);
       const facultyList = facRes.data || [];
-        setDeptStats({ sections, faculty: facultyList.length, totalWeeklyPeriods });
+      setDeptStats({ sections, faculty: facultyList.length, totalWeeklyPeriods });
 
       if (settingsRes?.data) {
         const s = settingsRes.data;

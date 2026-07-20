@@ -59,11 +59,9 @@ const FacultyPage = () => {
             .in('id', deptIds)
             .order('name')
             .then(({ data }: { data: any[] | null }) => {
-              if (data) {
+              if (data && data.length > 0) {
                 setAllocatedDepts(data);
-                const currentActive = parsed.department_id && data.some(d => d.id === parsed.department_id)
-                  ? parsed.department_id
-                  : data[0]?.id;
+                const currentActive = data[0]?.id || parsed.department_id;
                 if (currentActive) {
                   setAdminDeptId(currentActive);
                   setDeptFilterId(currentActive);

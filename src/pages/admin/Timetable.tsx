@@ -118,6 +118,9 @@ function Timetable() {
     if (cell === 'BREAK' || cell === 'LUNCH') return cell;
 
     const subjectName = cell.trim();
+    if (subjectName.toLowerCase().includes('open elective')) {
+      return 'Open Elective';
+    }
     const parts = subjectName.includes(' / ') ? subjectName.split(' / ').map(p => p.trim()) : [subjectName];
     
     const formattedParts = parts.map(part => {

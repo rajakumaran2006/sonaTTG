@@ -65,6 +65,75 @@ export async function ensureDepartment(name: string): Promise<DbDepartment> {
 }
 
 // Subject operations
+export interface CalculateHoursParams {
+  subjects: Array<{
+    type: string;
+    hours_per_week?: number;
+    hoursPerWeek?: number;
+    tags?: string[];
+  }>;
+  specialConfigHours?: number;
+  openElectiveHoursSetting?: number;
+}
+
+export function calculateYearGrandTotalHours({
+  subjects,
+  specialConfigHours = 0,
+  openElectiveHoursSetting = 5
+}: CalculateHoursParams) {
+  const subjectsCount = subjects.length;
+
+  const traditionalTheory = subjects
+    .filter(s => s.type === 'theory')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const labHours = subjects
+    .filter(s => s.type === 'lab')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const pes = subjects.filter(s => s.type === 'elective');
+  let electiveHours = 0;
+  if (pes.length > 0) {
+    const peGroups = new Map<string, number>();
+    let untaggedSum = 0;
+    pes.forEach(s => {
+      const groupTag = (s.tags || []).find(t => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
+      const h = s.hours_per_week ?? s.hoursPerWeek ?? 0;
+      if (groupTag) {
+        peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, h));
+      } else {
+        untaggedSum += h;
+      }
+    });
+    electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + untaggedSum;
+  }
+
+  const oes = subjects.filter(s => s.type === 'open elective');
+  const openElectiveHours = oes.length > 0 ? openElectiveHoursSetting : 0;
+
+  const theoryHours = traditionalTheory + electiveHours + openElectiveHours;
+
+  const subjectSpecialHours = subjects
+    .filter(s => s.type === 'special')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const totalSpecialHours = specialConfigHours + subjectSpecialHours;
+  const totalSubjectHours = theoryHours + labHours;
+  const grandTotalHours = totalSubjectHours + totalSpecialHours;
+
+  return {
+    subjectsCount,
+    theoryHours,
+    labHours,
+    electiveHours,
+    openElectiveHours,
+    subjectSpecialHours,
+    totalSpecialHours,
+    totalSubjectHours,
+    grandTotalHours
+  };
+}
+
 export async function getSubjectsForYear(departmentId: string, year: string): Promise<Subject[]> {
   const { data, error } = await (supabase as any)
     .from('subjects')
@@ -148,6 +217,72 @@ export async function getOpenElectiveHours(departmentId: string, year: string): 
   } catch {
     return 0;
   }
+}
+
+export interface OpenElectiveConfig {
+  hours: number;
+  group_name: string;
+  is_shared_slot: boolean;
+}
+
+export async function getOpenElectiveConfig(departmentId: string, year: string): Promise<OpenElectiveConfig> {
+  const defaultConfig: OpenElectiveConfig = {
+    hours: 5,
+    group_name: "Open elective",
+    is_shared_slot: true
+  };
+  try {
+    const { data, error } = await (supabase as any)
+      .from('open_elective_settings')
+      .select('hours, group_name, is_shared_slot')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .maybeSingle();
+    if (!error && data) {
+      return {
+        hours: typeof data.hours === 'number' ? data.hours : defaultConfig.hours,
+        group_name: data.group_name || defaultConfig.group_name,
+        is_shared_slot: data.is_shared_slot !== undefined ? Boolean(data.is_shared_slot) : true,
+      };
+    }
+  } catch (e: any) {}
+  try {
+    const key = `oe_config:${departmentId}:${year}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        hours: typeof parsed.hours === 'number' ? parsed.hours : defaultConfig.hours,
+        group_name: parsed.group_name || defaultConfig.group_name,
+        is_shared_slot: parsed.is_shared_slot !== undefined ? Boolean(parsed.is_shared_slot) : true,
+      };
+    }
+  } catch {}
+  return defaultConfig;
+}
+
+export async function setOpenElectiveConfig(
+  departmentId: string,
+  year: string,
+  config: OpenElectiveConfig
+): Promise<void> {
+  try {
+    await (supabase as any)
+      .from('open_elective_settings')
+      .upsert({
+        department_id: departmentId,
+        year,
+        hours: config.hours,
+        group_name: config.group_name,
+        is_shared_slot: config.is_shared_slot
+      })
+      .maybeSingle();
+  } catch (e: any) {}
+  try {
+    const key = `oe_config:${departmentId}:${year}`;
+    localStorage.setItem(key, JSON.stringify(config));
+    localStorage.setItem(`oe_hours:${departmentId}:${year}`, String(config.hours));
+  } catch {}
 }
 
 export async function setOpenElectiveHours(

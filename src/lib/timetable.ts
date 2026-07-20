@@ -321,28 +321,47 @@ function staffPreCheck(
 
 function placeOpenElectives(
   grid: Grid,
-  openElectiveHours: number
+  openElectiveHours: number,
+  oeSubjects: Subject[] = [],
+  remaining?: Map<string, number>,
+  facultyMap?: Map<string, FacultyAllocation>
 ): void {
-  if (openElectiveHours <= 0) return;
-
-  // Fixed OE slots in priority order:
-  // Mon P1 → Wed P1 → Fri P1 → Sat P1 → Sat P2
-  // Day indices: Mon=0, Wed=2, Fri=4, Sat=5
-  // Period index: 0 = Period 1, 1 = Period 2
+  // Fixed OE slots: Mon P1, Wed P1, Thu P1, Sat P1, Sat P2
   const OE_SLOTS: { d: number; p: number }[] = [
     { d: 0, p: 0 }, // Mon Period 1
     { d: 2, p: 0 }, // Wed Period 1
-    { d: 4, p: 0 }, // Fri Period 1
+    { d: 3, p: 0 }, // Thu Period 1
     { d: 5, p: 0 }, // Sat Period 1
     { d: 5, p: 1 }, // Sat Period 2
   ];
 
-  let hoursLeft = openElectiveHours;
-  for (const { d, p } of OE_SLOTS) {
-    if (hoursLeft <= 0) break;
-    if (grid[d][p] === null) {
-      grid[d][p] = "Open Elective";
-      hoursLeft--;
+  if (oeSubjects.length > 0) {
+    for (const subj of oeSubjects) {
+      let hoursLeft = remaining?.get(subj.id) ?? subj.hoursPerWeek;
+      for (const { d, p } of OE_SLOTS) {
+        if (hoursLeft <= 0) break;
+        if (grid[d][p] === null) {
+          grid[d][p] = subj.name;
+          if (facultyMap) {
+            const facultyResult = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
+            if (facultyResult.success && facultyResult.facultyId) {
+              allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap);
+            }
+          }
+          hoursLeft--;
+          remaining?.set(subj.id, hoursLeft);
+        }
+      }
+    }
+  } else {
+    if (openElectiveHours <= 0) return;
+    let hoursLeft = openElectiveHours;
+    for (const { d, p } of OE_SLOTS) {
+      if (hoursLeft <= 0) break;
+      if (grid[d][p] === null) {
+        grid[d][p] = "Open Elective";
+        hoursLeft--;
+      }
     }
   }
 }
@@ -882,11 +901,9 @@ export async function generateTimetable({
   );
   staffPreCheck(theory, ctx.facultyMap);
 
-  // ── Open Elective placeholder slots ──────────────────────────────────────
-  // Only place generic placeholders if we have no open elective subjects in the list
-  if (!hasOeSubjects) {
-    placeOpenElectives(grid, ctx.openElectiveHours);
-  }
+  // ── Open Elective slots ──────────────────────────────────────────────────
+  const oeSubjects = subjects.filter((s) => s.type === "open elective");
+  placeOpenElectives(grid, ctx.openElectiveHours, oeSubjects, remaining, ctx.facultyMap);
 
   // ── Auto-allocate remaining lab hours (edge case: no DB entry) ───────────
   autoAllocateRemainingLabs(grid, labs, remaining, ctx.facultyMap);

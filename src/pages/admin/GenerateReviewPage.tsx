@@ -133,7 +133,7 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
                         ${isDimmed ? 'opacity-20' : ''}
                       `}>
                         <span className="px-1 truncate max-w-full font-semibold leading-tight" style={{ fontSize: '9px' }}>
-                          {cell || ''}
+                          {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
                         </span>
                       </div>
                     </td>

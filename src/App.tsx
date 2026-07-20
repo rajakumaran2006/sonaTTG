@@ -61,6 +61,7 @@ const App = () => (
             <Route path="/admin/faculty" element={<Faculty />} />
             <Route path="/admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/lab" element={<Lab />} />
+            <Route path="/admin/lab-allocation" element={<Lab />} />
             <Route path="/csv-upload" element={<CSVUpload />} />
             <Route path="/faculty/csv-upload" element={<FacultyCSVUpload />} />
             <Route path="/pull-requests" element={<PullRequests />} />

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { getSubjectsForYear } from "@/lib/supabaseService";
+import { getSubjectsForYear, getOpenElectiveHours, getOpenElectiveConfig, setOpenElectiveConfig } from "@/lib/supabaseService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface SubjectRow {
@@ -86,10 +86,12 @@ const YearSubjects = () => {
   }, [type]);
   const [activeTab, setActiveTab] = useState<'theory' | 'lab' | 'open elective' | 'special'>('theory');
   const [isCumulative, setIsCumulative] = useState<boolean>(true);
-  // Open Elective Config
+  // Open Elective Config & Grouping
   const [oeConfigOpen, setOeConfigOpen] = useState(false);
   const [openElectiveTotalHours, setOpenElectiveTotalHours] = useState<number>(5);
   const [oeConfigHoursInput, setOeConfigHoursInput] = useState<number>(5);
+  const [oeGroupName, setOeGroupName] = useState<string>("Open elective");
+  const [oeIsSharedSlot, setOeIsSharedSlot] = useState<boolean>(true);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -102,6 +104,7 @@ const YearSubjects = () => {
   const [groupingOpen, setGroupingOpen] = useState(false);
   const [groupSelectedIds, setGroupSelectedIds] = useState<string[]>([]);
   const [groupName, setGroupName] = useState('');
+  const [groupHoursInput, setGroupHoursInput] = useState<number>(3);
   const [groupingSaving, setGroupingSaving] = useState(false);
 
   const filteredSubjects = useMemo(() => {
@@ -213,15 +216,22 @@ const YearSubjects = () => {
       // Sort subjects alphabetically by name
       const sortedList = (list || []).sort((a, b) => a.name.localeCompare(b.name));
       setSubjects(sortedList);
-      const [ttRes, fsaRes, shRes] = await Promise.all([
+      const [ttRes, fsaRes, shRes, oeConfig] = await Promise.all([
         (supabase as any).from('timetables').select('section').eq('department_id', targetDeptId).eq('year', year),
         (supabase as any).from('faculty_subject_assignments').select('*', { count: 'exact', head: true }).eq('department_id', targetDeptId).eq('year', year),
-        (supabase as any).from('special_hours_config').select('*').eq('department_id', targetDeptId).eq('year', year).eq('is_active', true).order('special_type')
+        (supabase as any).from('special_hours_config').select('*').eq('department_id', targetDeptId).eq('year', year).eq('is_active', true).order('special_type'),
+        getOpenElectiveConfig(targetDeptId, year).catch(() => ({ hours: 5, group_name: "Open elective", is_shared_slot: true }))
       ]);
       const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section))));
       setSections(secs);
       setFacultyInYear(fsaRes?.count || 0);
       setSpecialHours(shRes.data || []);
+      if (oeConfig) {
+        setOpenElectiveTotalHours(oeConfig.hours);
+        setOeConfigHoursInput(oeConfig.hours);
+        setOeGroupName(oeConfig.group_name || "Open elective");
+        setOeIsSharedSlot(oeConfig.is_shared_slot ?? true);
+      }
       setLoading(false);
     })();
   }, [isLoggedIn, id, year]);
@@ -588,17 +598,26 @@ const YearSubjects = () => {
         const newTags = Array.from(new Set([...existingTags, groupTag]));
         const { error } = await (supabase as any)
           .from('subjects')
-          .update({ tags: newTags, elective_group_name: groupName.trim() })
+          .update({
+            tags: newTags,
+            elective_group_name: groupName.trim(),
+            hours_per_week: groupHoursInput
+          })
           .eq('id', sid);
         if (error) throw error;
       }
       // Update local state
       setSubjects(prev => prev.map(s =>
         groupSelectedIds.includes(s.id)
-          ? { ...s, elective_group_name: groupName.trim(), tags: Array.from(new Set([...(s.tags || []).filter(t => !/^PE_Group_\d+$/i.test(t)), groupTag])) }
+          ? {
+              ...s,
+              hours_per_week: groupHoursInput,
+              elective_group_name: groupName.trim(),
+              tags: Array.from(new Set([...(s.tags || []).filter(t => !/^PE_Group_\d+$/i.test(t)), groupTag]))
+            }
           : s
       ));
-      toast.success(`Grouped ${groupSelectedIds.length} electives under "${groupName.trim()}"`);
+      toast.success(`Grouped ${groupSelectedIds.length} electives under "${groupName.trim()}" (${groupHoursInput}h/week)`);
       setGroupingOpen(false);
       setGroupSelectedIds([]);
       setGroupName('');
@@ -1318,75 +1337,176 @@ const YearSubjects = () => {
         </div>
 
         {activeTab === 'open elective' && (
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center gap-2 bg-card border border-border/80 px-4 py-2.5 rounded-xl shadow-sm">
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Total Hours:</span>
-              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{openElectiveTotalHours}h</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500">(shared slot)</span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 p-4 rounded-2xl bg-card border border-border/80 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+                <Layers className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Group:</span>
+                <span className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">{oeGroupName}</span>
+              </div>
+              <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-xl border border-border">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-semibold text-foreground">Total Hours:</span>
+                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{openElectiveTotalHours}h</span>
+              </div>
+              {oeIsSharedSlot && (
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                  Shared Slot
+                </span>
+              )}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setOeConfigHoursInput(openElectiveTotalHours);
-                setOeConfigOpen(true);
-              }}
-              className="flex items-center gap-2 border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold"
-            >
-              <Settings className="h-4 w-4" />
-              Config
-            </Button>
+
+            {userType !== 'faculty' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOeConfigHoursInput(openElectiveTotalHours);
+                  setOeConfigOpen(true);
+                }}
+                className="flex items-center gap-2 border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold"
+              >
+                <Settings className="h-4 w-4" />
+                <span>Group & Slot Config</span>
+              </Button>
+            )}
           </div>
         )}
 
-        {/* Open Elective Config Dialog */}
+        {/* Open Elective Config & Grouping Dialog */}
         <Dialog open={oeConfigOpen} onOpenChange={setOeConfigOpen}>
-          <DialogContent className="max-w-sm">
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5 text-emerald-500" />
-                Open Elective Config
+                Open Elective Group & Slot Config
               </DialogTitle>
             </DialogHeader>
-            <div className="py-4 space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Set the total number of hours per week allocated for the Open Elective slot.
-                All open elective subjects share this single slot in the timetable.
-              </p>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Total Hours per Week</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[1, 2, 3, 4, 5, 6].map(h => (
-                    <button
-                      key={h}
-                      onClick={() => setOeConfigHoursInput(h)}
-                      className={`w-12 h-12 rounded-xl font-bold text-base border-2 transition-all ${
-                        oeConfigHoursInput === h
-                          ? 'bg-emerald-500 border-emerald-500 text-white shadow-lg scale-105'
-                          : 'bg-card border-border text-slate-700 dark:text-slate-300 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-                      }`}
-                    >
-                      {h}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  Currently set to <strong>{oeConfigHoursInput}h</strong> per week.
+            <div className="py-4 space-y-5">
+              {/* 1. Group Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Open Elective Group Name
+                </label>
+                <Input
+                  value={oeGroupName}
+                  onChange={(e) => setOeGroupName(e.target.value)}
+                  placeholder="Open elective"
+                  className="font-medium"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Specify a name for this open elective group / basket across all sections.
                 </p>
               </div>
+
+              {/* 2. Number of Hours */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Total Hours per Week for Group
+                </label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={40}
+                    value={oeConfigHoursInput || ''}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setOeConfigHoursInput(isNaN(val) ? 0 : val);
+                    }}
+                    placeholder="e.g. 5"
+                    className="font-medium pr-24"
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground pointer-events-none">
+                    hours / week
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Currently selected: <strong className="text-emerald-600 dark:text-emerald-400">{oeConfigHoursInput || 0}h / week</strong>
+                </p>
+              </div>
+
+              {/* 3. Shared Slot Toggle */}
+              <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-start gap-3">
+                <Checkbox
+                  id="sharedSlotCheck"
+                  checked={oeIsSharedSlot}
+                  onCheckedChange={(c) => setOeIsSharedSlot(Boolean(c))}
+                  className="mt-1 border-emerald-400 data-[state=checked]:bg-emerald-600"
+                />
+                <label htmlFor="sharedSlotCheck" className="cursor-pointer space-y-0.5">
+                  <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                    Shared Slot across all sections
+                  </div>
+                  <div className="text-[11px] text-muted-foreground leading-normal">
+                    When enabled, all Open Elective subjects in this group run concurrently in a single shared timetable slot across sections.
+                  </div>
+                </label>
+              </div>
+
+              {/* 4. Open Elective Subjects Summary */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Open Elective Subjects ({subjects.filter(s => s.type === 'open elective').length})</span>
+                </label>
+                <div className="border rounded-xl divide-y max-h-40 overflow-y-auto bg-muted/20">
+                  {subjects.filter(s => s.type === 'open elective').length === 0 ? (
+                    <div className="p-3.5 text-xs text-muted-foreground text-center">
+                      No open elective subjects added yet. All open electives added will automatically be included in this group with {oeConfigHoursInput}h shared slot.
+                    </div>
+                  ) : (
+                    subjects.filter(s => s.type === 'open elective').map(s => (
+                      <div key={s.id} className="p-2.5 flex items-center justify-between text-xs bg-emerald-50/40 dark:bg-emerald-950/20">
+                        <div className="flex items-center gap-2">
+                          <Checkbox checked readOnly className="border-emerald-500 bg-emerald-500 text-white cursor-default" />
+                          <span className="font-semibold text-foreground truncate">{s.name}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 font-bold">
+                          {oeGroupName || "Open elective"}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <Button variant="outline" onClick={() => setOeConfigOpen(false)}>Cancel</Button>
               <Button
-                className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                onClick={() => {
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                onClick={async () => {
+                  const targetDeptId = id || sessionUser?.department_id;
+                  const finalGroupName = oeGroupName.trim() || "Open elective";
                   setOpenElectiveTotalHours(oeConfigHoursInput);
+                  setOeGroupName(finalGroupName);
                   setIsCumulative(true);
+
+                  if (targetDeptId && year) {
+                    await setOpenElectiveConfig(targetDeptId, year, {
+                      hours: oeConfigHoursInput,
+                      group_name: finalGroupName,
+                      is_shared_slot: oeIsSharedSlot,
+                    });
+                  }
+
+                  if (subjects.some(s => s.type === 'open elective')) {
+                    const oeSubs = subjects.filter(s => s.type === 'open elective');
+                    for (const sub of oeSubs) {
+                      await (supabase as any)
+                        .from('subjects')
+                        .update({ elective_group_name: finalGroupName, hours_per_week: oeConfigHoursInput })
+                        .eq('id', sub.id);
+                    }
+                    setSubjects(prev => prev.map(s => s.type === 'open elective' ? { ...s, elective_group_name: finalGroupName, hours_per_week: oeConfigHoursInput } : s));
+                  }
+
                   setOeConfigOpen(false);
-                  toast.success(`Open Elective total hours set to ${oeConfigHoursInput}h`);
+                  toast.success(`Open Elective Group "${finalGroupName}" configured (${oeConfigHoursInput}h, ${oeIsSharedSlot ? 'Shared Slot' : 'Individual Slots'})`);
                 }}
               >
-                Save
+                Save Configuration
               </Button>
             </div>
           </DialogContent>
@@ -1678,19 +1798,47 @@ const YearSubjects = () => {
             <div>
               <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">Custom Group Name</label>
               <Input
-                placeholder="e.g. Professional Elective IV"
+                placeholder="e.g. Professional Elective I"
                 value={groupName}
                 onChange={e => setGroupName(e.target.value)}
                 className="font-medium"
               />
-              <p className="text-xs text-muted-foreground mt-1">This name will appear in the table and combined hour count will be shown.</p>
+              <p className="text-xs text-muted-foreground mt-1">This group name will be assigned to all selected electives.</p>
             </div>
+
+            {/* Hours selection for Elective Group */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 block">
+                Hours per Week for Group
+              </label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={1}
+                  max={40}
+                  value={groupHoursInput || ''}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    setGroupHoursInput(isNaN(val) ? 0 : val);
+                  }}
+                  placeholder="e.g. 3"
+                  className="font-medium pr-24"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground pointer-events-none">
+                  hours / week
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Selected: <strong className="text-violet-600 dark:text-violet-400">{groupHoursInput || 0}h / week</strong> for all electives in this group.
+              </p>
+            </div>
+
             <div>
               <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1.5 block">
                 Select Electives to Group
                 {groupSelectedIds.length > 0 && (
                   <span className="ml-2 text-xs font-normal text-violet-600 dark:text-violet-400">
-                    {groupSelectedIds.length} selected • Combined: {subjects.filter(s => groupSelectedIds.includes(s.id)).reduce((a, s) => a + s.hours_per_week, 0)}h
+                    {groupSelectedIds.length} selected • {groupHoursInput}h/week each
                   </span>
                 )}
               </label>
@@ -1736,7 +1884,7 @@ const YearSubjects = () => {
               <div className="p-3 rounded-xl bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/50 text-sm">
                 <div className="font-semibold text-violet-700 dark:text-violet-300 mb-1">Preview</div>
                 <div className="text-violet-600 dark:text-violet-400 text-xs">
-                  <span className="font-bold">{groupName}</span> — {groupSelectedIds.length} electives, <span className="font-bold">{subjects.filter(s => groupSelectedIds.includes(s.id)).reduce((a, s) => a + s.hours_per_week, 0)}h</span> combined
+                  <span className="font-bold">{groupName}</span> — {groupSelectedIds.length} electives, <span className="font-bold">{groupHoursInput}h / week</span>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {subjects.filter(s => groupSelectedIds.includes(s.id)).map(s => (

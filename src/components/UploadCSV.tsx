@@ -539,11 +539,11 @@ export default function UploadCSV() {
   };
 
   return (
-    <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col gap-1.5 border-b border-border pb-4">
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
-          Bulk Import Center
+      <div className="flex flex-col gap-1 border-b border-border/60 pb-4">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+          Course Data Bulk Import
         </h1>
         <p className="text-muted-foreground text-sm">
           Import your faculty, subjects, and assignments in bulk using CSV files. Download templates to get started.

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, ChevronDown, Check } from "lucide-react";
+import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as XLSX from "xlsx";
 
@@ -57,6 +57,8 @@ export function CustomTable<T>({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  // Delete mode: checkboxes only visible when true
+  const [deleteMode, setDeleteMode] = useState(false);
 
   // Clear selections when data changes
   useMemo(() => {
@@ -130,7 +132,16 @@ export function CustomTable<T>({
   };
 
   const isAllSelected = sortedData.length > 0 && selectedIds.size === sortedData.length;
-  const isSomeSelected = selectedIds.size > 0 && selectedIds.size < sortedData.length;
+
+  const enterDeleteMode = () => {
+    setDeleteMode(true);
+    setSelectedIds(new Set());
+  };
+
+  const exitDeleteMode = () => {
+    setDeleteMode(false);
+    setSelectedIds(new Set());
+  };
 
   // 4. Excel Export (respecting active filters!)
   const handleExport = () => {
@@ -165,10 +176,11 @@ export function CustomTable<T>({
   // 5. Bulk Delete
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0 || !onDeleteSelected) return;
-    const confirmDelete = window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected items?`);
+    const confirmDelete = window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected item(s)?`);
     if (confirmDelete) {
       await onDeleteSelected(Array.from(selectedIds));
       setSelectedIds(new Set());
+      setDeleteMode(false);
     }
   };
 
@@ -221,16 +233,39 @@ export function CustomTable<T>({
 
         {/* Right: Actions & View Switcher */}
         <div className="flex items-center gap-2">
-          {onDeleteSelected && (
+          {/* Delete toggle button — enter delete mode */}
+          {onDeleteSelected && !deleteMode && (
             <Button
-              onClick={handleDeleteSelected}
-              disabled={selectedIds.size === 0}
-              variant="destructive"
-              className="h-10 rounded-xl px-4 flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all"
+              onClick={enterDeleteMode}
+              variant="outline"
+              className="h-10 rounded-xl px-4 flex items-center gap-2 border-red-300 dark:border-red-800/60 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 hover:border-red-400 transition-all shadow-sm"
             >
               <Trash2 className="h-4 w-4" />
-              <span>Delete {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}</span>
+              <span>Delete</span>
             </Button>
+          )}
+
+          {/* When in delete mode: confirm delete + cancel */}
+          {onDeleteSelected && deleteMode && (
+            <>
+              <Button
+                onClick={handleDeleteSelected}
+                disabled={selectedIds.size === 0}
+                className="h-10 rounded-xl px-4 flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Delete{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}</span>
+              </Button>
+              <Button
+                onClick={exitDeleteMode}
+                variant="outline"
+                className="h-10 rounded-xl px-3 flex items-center gap-1.5 transition-all"
+                title="Cancel delete mode"
+              >
+                <X className="h-4 w-4" />
+                <span className="hidden sm:inline">Cancel</span>
+              </Button>
+            </>
           )}
 
           <Button
@@ -251,7 +286,7 @@ export function CustomTable<T>({
               }`}
               title="Table view"
             >
-              <LayoutGrid className="h-4.5 w-4.5" />
+              <LayoutGrid className="h-4 w-4" />
             </button>
             <button
               onClick={() => setViewMode("list")}
@@ -260,7 +295,7 @@ export function CustomTable<T>({
               }`}
               title="List view"
             >
-              <List className="h-4.5 w-4.5" />
+              <List className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -274,13 +309,16 @@ export function CustomTable<T>({
             <Table className="min-w-full divide-y divide-border">
               <TableHeader className="bg-muted/50">
                 <TableRow className="border-b border-border hover:bg-transparent">
-                  <TableHead className="w-12 px-4 py-3.5 text-center">
-                    <Checkbox
-                      checked={isAllSelected}
-                      onCheckedChange={(checked) => handleSelectAll(!!checked)}
-                      className="border-border bg-background data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                    />
-                  </TableHead>
+                  {/* Checkbox column header — only in delete mode */}
+                  {deleteMode && (
+                    <TableHead className="w-12 px-4 py-3.5 text-center">
+                      <Checkbox
+                        checked={isAllSelected}
+                        onCheckedChange={(checked) => handleSelectAll(!!checked)}
+                        className="border-border bg-background data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
+                      />
+                    </TableHead>
+                  )}
                   {columns.map((col) => (
                     <TableHead key={col.key} className="px-4 py-3.5 text-left font-semibold text-muted-foreground">
                       {col.sortable ? (
@@ -301,7 +339,7 @@ export function CustomTable<T>({
               <TableBody className="divide-y divide-border">
                 {sortedData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={columns.length + 1} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={columns.length + (deleteMode ? 1 : 0)} className="h-32 text-center text-muted-foreground">
                       No matching records found.
                     </TableCell>
                   </TableRow>
@@ -312,17 +350,26 @@ export function CustomTable<T>({
                     return (
                       <TableRow
                         key={rowId}
-                        className={`border-b border-border transition-colors duration-250 ${
-                          isSelected ? "bg-muted/80" : "hover:bg-muted/30"
+                        onClick={deleteMode ? () => handleSelectRow(rowId, !isSelected) : undefined}
+                        className={`border-b border-border transition-colors duration-150 ${
+                          deleteMode ? "cursor-pointer" : ""
+                        } ${
+                          isSelected
+                            ? "bg-red-50/60 dark:bg-red-950/20"
+                            : "hover:bg-muted/30"
                         }`}
                       >
-                        <TableCell className="px-4 py-3 text-center">
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={(checked) => handleSelectRow(rowId, !!checked)}
-                            className="border-border bg-background data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                          />
-                        </TableCell>
+                        {/* Checkbox cell — only in delete mode */}
+                        {deleteMode && (
+                          <TableCell className="px-4 py-3 text-center">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(checked) => handleSelectRow(rowId, !!checked)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="border-border bg-background data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
+                            />
+                          </TableCell>
+                        )}
                         {columns.map((col) => (
                           <TableCell key={col.key} className="px-4 py-3 text-foreground text-sm">
                             {col.render ? col.render(item, index) : String((item as any)[col.key] ?? "")}
@@ -357,10 +404,12 @@ export function CustomTable<T>({
               return (
                 <div
                   key={rowId}
-                  onClick={onToggleSelect}
-                  className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
+                  onClick={deleteMode ? onToggleSelect : undefined}
+                  className={`p-5 rounded-2xl border transition-all duration-300 flex flex-col justify-between h-full bg-card ${
+                    deleteMode ? "cursor-pointer" : ""
+                  } ${
                     isSelected
-                      ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30"
+                      ? "border-red-500 shadow-md shadow-red-500/5 bg-red-50/30 dark:bg-red-950/20"
                       : "border-border hover:border-muted-foreground/35 hover:bg-muted/10"
                   }`}
                 >
@@ -383,12 +432,15 @@ export function CustomTable<T>({
                         );
                       })}
                     </div>
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(checked) => handleSelectRow(rowId, !!checked)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="border-border bg-background data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500 mt-1"
-                    />
+                    {/* Checkbox — only in delete mode */}
+                    {deleteMode && (
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => handleSelectRow(rowId, !!checked)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="border-border bg-background data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500 mt-1"
+                      />
+                    )}
                   </div>
                 </div>
               );
