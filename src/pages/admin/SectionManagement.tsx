@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CustomTable } from "@/components/ui/CustomTable";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as XLSX from "xlsx";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -147,9 +148,7 @@ const SectionManagement = () => {
   return (
     <main className="min-h-screen bg-background text-foreground">
       {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className={`${
-        userType === 'faculty' ? '' : 'md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80'
-      } animate-fade-in-up pt-16 ${
+      <div className={`md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 ${
         userType === 'super' ? 'md:pt-14' : 'md:pt-0'
       } transition-all duration-300`}>
         <SelectionHeader />

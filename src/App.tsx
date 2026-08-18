@@ -13,6 +13,8 @@ import SectionManagement from "./pages/admin/SectionManagement";
 import CSVUpload from "./pages/admin/CSVUpload";
 import AdminDepartmentYears from "./pages/admin/AdminDepartmentYears";
 import FacultyCSVUpload from "./pages/faculty/FacultyCSVUpload";
+import GenerateReviewPage from "./pages/admin/GenerateReviewPage";
+
 
 // Faculty Pages
 import Faculty from "./pages/faculty/Faculty";
@@ -46,6 +48,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/admin" element={<Index />} />
+            <Route path="/admin/generate-review" element={<GenerateReviewPage />} />
             <Route path="/super-admin" element={<SuperAdminDashboard />} />
             <Route path="/super-admin/admin-management" element={<AdminManagement />} />
             <Route path="/super-admin/departments" element={<Departments />} />
@@ -58,6 +61,7 @@ const App = () => (
             <Route path="/admin/faculty" element={<Faculty />} />
             <Route path="/admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/lab" element={<Lab />} />
+            <Route path="/admin/lab-allocation" element={<Lab />} />
             <Route path="/csv-upload" element={<CSVUpload />} />
             <Route path="/faculty/csv-upload" element={<FacultyCSVUpload />} />
             <Route path="/pull-requests" element={<PullRequests />} />

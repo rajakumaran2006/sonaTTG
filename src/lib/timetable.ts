@@ -1,6 +1,6 @@
 import { Subject, SubjectType, SpecialFlags, SpecialHoursConfig } from "@/store/timetableStore";
 import type { LabPrefsMap } from "@/store/timetableStore";
-import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getLabSchedulesForSection } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName, getOpenElectiveHours, getOpenElectiveConfig, OpenElectiveConfig, getLabSchedulesForSection, getSpecialHoursConfigsForYear, getLabPreferences, getSubjectsForYear, getSectionSubjects } from "./supabaseService";
 import {
   buildFacultyAllocationMap,
   findAvailableFacultyForSlot,
@@ -55,9 +55,9 @@ const isSSA = (s: Subject) =>
 interface LoadedContext {
   facultyMap: Map<string, FacultyAllocation>;
   departmentId: string | undefined;
-  classCounselorName: string | null;
+  classCounselorInfo: { name: string | null; id: string | null } | null;
   manualLabs: Array<{ day: number; period: number; labName: string }>;
-  openElectiveHours: number;
+  openElectiveConfig: OpenElectiveConfig;
 }
 
 async function loadAllContext(
@@ -66,13 +66,20 @@ async function loadAllContext(
   section: string | undefined,
   specialHoursConfigs: SpecialHoursConfig[]
 ): Promise<LoadedContext> {
+  const defaultOeConfig: OpenElectiveConfig = {
+    hours: 5,
+    group_name: "Open elective",
+    is_shared_slot: true,
+    selected_slots: ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+  };
+
   if (!departmentName || !year || !section) {
     return {
       facultyMap: new Map(),
       departmentId: undefined,
-      classCounselorName: null,
+      classCounselorInfo: null,
       manualLabs: [],
-      openElectiveHours: 0,
+      openElectiveConfig: defaultOeConfig,
     };
   }
 
@@ -82,16 +89,16 @@ async function loadAllContext(
     return {
       facultyMap: new Map(),
       departmentId: undefined,
-      classCounselorName: null,
+      classCounselorInfo: null,
       manualLabs: [],
-      openElectiveHours: 0,
+      openElectiveConfig: defaultOeConfig,
     };
   }
 
   const deptId = department.id;
 
   // Fire all independent queries in parallel
-  const [facultyMap, counselorResult, manualLabs, openElectiveHours] =
+  const [facultyMap, counselorResult, manualLabs, openElectiveConfig] =
     await Promise.all([
       // Faculty allocation map (cross-section conflict awareness)
       buildFacultyAllocationMap(deptId, year, section).catch((err) => {
@@ -99,13 +106,16 @@ async function loadAllContext(
         return new Map<string, FacultyAllocation>();
       }),
 
-      // Class counselor name (for special hours label)
+      // Class counselor info (for special hours allocation & label)
       (async () => {
         try {
           const counselor = await getClassCounselor(deptId, year, section);
           if (counselor) {
             const details = await getFacultyById(counselor.faculty_id);
-            return details?.name ?? null;
+            return {
+              name: details?.name ?? null,
+              id: counselor.faculty_id
+            };
           }
         } catch (e) {
           console.warn("[Phase 0] Could not load class counselor:", e);
@@ -119,16 +129,16 @@ async function loadAllContext(
         return [] as Array<{ day: number; period: number; labName: string }>;
       }),
 
-      // Configured open elective hours for this year
-      getOpenElectiveHours(deptId, year).catch(() => 0),
+      // Configured open elective config for this year
+      getOpenElectiveConfig(deptId, year).catch(() => defaultOeConfig),
     ]);
 
   return {
     facultyMap,
     departmentId: deptId,
-    classCounselorName: counselorResult,
+    classCounselorInfo: counselorResult,
     manualLabs,
-    openElectiveHours,
+    openElectiveConfig,
   };
 }
 
@@ -137,12 +147,53 @@ async function loadAllContext(
 // Special hours + DB lab schedules are placed first and never touched again.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export function parsePeriodValue(p: any, isSatField: boolean = false): { day: number; period: number; isGeneric?: boolean } | null {
+  if (typeof p === 'string') {
+    const parts = p.split('-');
+    if (parts.length === 2) {
+      const dayMap: Record<string, number> = {
+        'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5,
+        'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5
+      };
+      const d = dayMap[parts[0]];
+      const pr = parseInt(parts[1]);
+      if (d !== undefined && !isNaN(pr)) {
+        return { day: d, period: pr };
+      }
+    }
+  } else if (typeof p === 'number') {
+    if (p > 10) {
+      const d = Math.floor(p / 10);
+      const pr = p % 10;
+      return { day: d, period: pr };
+    } else {
+      return { day: isSatField ? 5 : -1, period: p, isGeneric: true };
+    }
+  }
+  return null;
+}
+
+function getPeriodsForSection(periodsField: any, section?: string): any[] {
+  if (!periodsField) return [];
+  if (Array.isArray(periodsField)) {
+    return periodsField;
+  }
+  if (typeof periodsField === 'object' && section) {
+    return periodsField[section] || periodsField['all'] || [];
+  }
+  return [];
+}
+
 function lockSpecialHours(
   grid: Grid,
   specialHoursConfigs: SpecialHoursConfig[],
-  classCounselorName: string | null
+  classCounselorInfo: { name: string | null; id: string | null } | null,
+  section?: string,
+  facultyMap?: Map<string, FacultyAllocation>
 ): void {
   const sat = 5; // Saturday index
+  const classCounselorName = classCounselorInfo?.name || null;
+  const classCounselorFacultyId = classCounselorInfo?.id || null;
 
   for (const config of specialHoursConfigs) {
     if (!config.is_active) continue;
@@ -151,26 +202,71 @@ function lockSpecialHours(
       ? `${config.special_type} (${classCounselorName})`
       : config.special_type;
 
-    // Place Saturday slots exactly as configured
+    const genericSat: number[] = [];
+    const genericWd: number[] = [];
+    const daySpecificSlots: { day: number; period: number }[] = [];
+
+    const processPeriods = (periodsList: any[], isSatField: boolean) => {
+      for (const p of periodsList) {
+        const parsed = parsePeriodValue(p, isSatField);
+        if (!parsed) continue;
+
+        if (parsed.isGeneric) {
+          if (isSatField) {
+            genericSat.push(parsed.period);
+          } else {
+            genericWd.push(parsed.period);
+          }
+        } else {
+          daySpecificSlots.push({ day: parsed.day, period: parsed.period });
+        }
+      }
+    };
+
+    const satPeriods = getPeriodsForSection(config.saturday_periods, section);
+    const wdPeriods = getPeriodsForSection(config.weekdays_periods, section);
+
+    processPeriods(satPeriods, true);
+    processPeriods(wdPeriods, false);
+
+    const allocateCounselor = (d: number, p: number) => {
+      if (classCounselorFacultyId && facultyMap) {
+        allocateFacultyToSlot(classCounselorFacultyId, d, p, facultyMap);
+      }
+    };
+
+    // 1. Lock day-specific slots first
+    for (const slot of daySpecificSlots) {
+      const d = slot.day;
+      const p = slot.period - 1;
+      if (d >= 0 && d < 6 && p >= 0 && p < PERIODS && grid[d][p] === null) {
+        grid[d][p] = label;
+        allocateCounselor(d, p);
+      }
+    }
+
+    // 2. Lock generic Saturday slots (backward compatibility)
     let satPlaced = 0;
-    for (const period of config.saturday_periods) {
+    for (const period of genericSat) {
       if (satPlaced >= config.saturday_hours) break;
       const p = period - 1;
       if (p >= 0 && p < PERIODS && grid[sat][p] === null) {
         grid[sat][p] = label;
+        allocateCounselor(sat, p);
         satPlaced++;
       }
     }
 
-    // Place weekday slots exactly as configured
+    // 3. Lock generic weekday slots (backward compatibility)
     let wdPlaced = 0;
     let dayIndex = 0;
     while (wdPlaced < config.weekdays_hours && dayIndex < 5) {
-      for (const period of config.weekdays_periods) {
+      for (const period of genericWd) {
         if (wdPlaced >= config.weekdays_hours) break;
         const p = period - 1;
         if (p >= 0 && p < PERIODS && grid[dayIndex][p] === null) {
           grid[dayIndex][p] = label;
+          allocateCounselor(dayIndex, p);
           wdPlaced++;
         }
       }
@@ -179,13 +275,25 @@ function lockSpecialHours(
   }
 }
 
+function isSameSubject(name1: string, name2: string): boolean {
+  if (!name1 || !name2) return false;
+  const clean = (s: string) => s.toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(laboratory|lab|practicals|practical)$/, '');
+  const c1 = clean(name1);
+  const c2 = clean(name2);
+  return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+}
+
 function lockStaticLabs(
   grid: Grid,
-  manualLabs: Array<{ day: number; period: number; labName: string }>
+  manualLabs: Array<{ day: number; period: number; labName: string }>,
+  labs: Subject[]
 ): void {
   for (const slot of manualLabs) {
     if (slot.day >= 0 && slot.day < 6 && slot.period >= 0 && slot.period < PERIODS) {
-      grid[slot.day][slot.period] = slot.labName;
+      const matchedLab = labs.find(l => isSameSubject(l.name, slot.labName));
+      grid[slot.day][slot.period] = matchedLab ? matchedLab.name : slot.labName;
     }
   }
 }
@@ -235,33 +343,82 @@ function staffPreCheck(
 
 function placeOpenElectives(
   grid: Grid,
-  openElectiveHours: number
+  openElectiveConfig: OpenElectiveConfig,
+  oeSubjects: Subject[] = [],
+  remaining?: Map<string, number>,
+  facultyMap?: Map<string, FacultyAllocation>
 ): void {
-  if (openElectiveHours <= 0) return;
+  const dayNameMap: Record<string, number> = {
+    'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5,
+    'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5
+  };
 
-  const pool = shuffle(
-    [...Array(6).keys()].flatMap((d) =>
-      [...Array(PERIODS).keys()]
-        .filter((p) => grid[d][p] === null)
-        .map((p) => ({ d, p }))
-    )
-  );
+  let OE_SLOTS: { d: number; p: number }[] = [];
+  if (openElectiveConfig.selected_slots && openElectiveConfig.selected_slots.length > 0) {
+    for (const slotStr of openElectiveConfig.selected_slots) {
+      const parts = slotStr.split('-');
+      if (parts.length === 2) {
+        const d = dayNameMap[parts[0]];
+        const pr = parseInt(parts[1], 10) - 1;
+        if (d !== undefined && d >= 0 && d < 6 && pr >= 0 && pr < PERIODS) {
+          OE_SLOTS.push({ d, p: pr });
+        }
+      }
+    }
+  }
 
-  const oePerDay = Array(6).fill(0);
-  for (const { d, p } of pool) {
-    if (openElectiveHours <= 0) break;
-    if (oePerDay[d] >= 2) continue;
-    grid[d][p] = "Open Elective";
-    oePerDay[d]++;
-    openElectiveHours--;
+  // Fallback to default slots if none specified
+  if (OE_SLOTS.length === 0) {
+    OE_SLOTS = [
+      { d: 0, p: 0 }, // Mon Period 1
+      { d: 2, p: 0 }, // Wed Period 1
+      { d: 3, p: 0 }, // Thu Period 1
+      { d: 5, p: 0 }, // Sat Period 1
+      { d: 5, p: 1 }, // Sat Period 2
+    ];
+  }
+
+  const openElectiveHours = openElectiveConfig.hours || OE_SLOTS.length;
+
+  if (oeSubjects.length > 0) {
+    for (const subj of oeSubjects) {
+      let hoursLeft = remaining?.get(subj.id) ?? subj.hoursPerWeek;
+      for (const { d, p } of OE_SLOTS) {
+        if (hoursLeft <= 0) break;
+        if (grid[d][p] === null) {
+          grid[d][p] = subj.name;
+          if (facultyMap) {
+            const facultyResult = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
+            if (facultyResult.success && facultyResult.facultyId) {
+              allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap);
+            }
+          }
+          hoursLeft--;
+          remaining?.set(subj.id, hoursLeft);
+        }
+      }
+    }
+  } else {
+    if (openElectiveHours <= 0) return;
+    let hoursLeft = openElectiveHours;
+    for (const { d, p } of OE_SLOTS) {
+      if (hoursLeft <= 0) break;
+      if (grid[d][p] === null) {
+        grid[d][p] = openElectiveConfig.group_name || "Open Elective";
+        hoursLeft--;
+      }
+    }
   }
 }
+
+
 
 function placeTheorySubjects(
   grid: Grid,
   theory: Subject[],
   remaining: Map<string, number>,
-  facultyMap: Map<string, FacultyAllocation>
+  facultyMap: Map<string, FacultyAllocation>,
+  facultyBeforeAfternoon?: boolean
 ): void {
   // Build flat assignment list: one entry per needed hour
   const ssaAssignments = theory
@@ -299,9 +456,38 @@ function placeTheorySubjects(
    * indices are exhausted but null cells still exist).
    */
   const tryPlace = (subj: Subject, mode: PlacementMode): boolean => {
-    // ── Pool-based placement (fast path) ──────────────────────────────
+    // Determine if we should prioritize morning slots for this subject
+    const subjectIds = subj.id.includes('_') ? subj.id.split('_') : [subj.id];
+    const hasFaculty = subjectIds.some(subId => 
+      Array.from(facultyMap.values()).some(fac => fac.subjectIds.has(subId))
+    );
+    const prioritizeMorning = facultyBeforeAfternoon && hasFaculty;
+
+    // Filter slot pool based on morning preference if prioritizeMorning is true
+    const indicesToTry: number[] = [];
+    
+    // First, try morning slots (period index p < 4, meaning Periods 1-4)
     for (let i = 0; i < slotPool.length; i++) {
       if (usedSlotIndices.has(i)) continue;
+      const { p } = slotPool[i];
+      if (!prioritizeMorning || p < 4) {
+        indicesToTry.push(i);
+      }
+    }
+    
+    // If prioritizing morning, try afternoon slots (p >= 4) as fallback
+    if (prioritizeMorning) {
+      for (let i = 0; i < slotPool.length; i++) {
+        if (usedSlotIndices.has(i)) continue;
+        const { p } = slotPool[i];
+        if (p >= 4) {
+          indicesToTry.push(i);
+        }
+      }
+    }
+
+    // ── Pool-based placement (fast path) ──────────────────────────────
+    for (const i of indicesToTry) {
       const { d, p } = slotPool[i];
 
       // The pool was built from null cells; verify still null (safety check)
@@ -334,10 +520,28 @@ function placeTheorySubjects(
     // (can happen when demand > pool size due to OE/lab interactions),
     // scan the live grid directly and claim any null cell.
     if (mode === "force") {
+      // Pass 1: Morning scan
       for (let d = 0; d < 6; d++) {
         for (let p = 0; p < PERIODS; p++) {
           if (grid[d][p] !== null) continue;
           if (isSSA(subj) && d > 4) continue;
+          if (prioritizeMorning && p >= 4) continue;
+          
+          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
+          grid[d][p] = subj.name;
+          if (fac.success && fac.facultyId) {
+            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+          }
+          remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
+          return true;
+        }
+      }
+      // Pass 2: Afternoon scan (fallback)
+      for (let d = 0; d < 6; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (grid[d][p] !== null) continue;
+          if (isSSA(subj) && d > 4) continue;
+          
           const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false);
           grid[d][p] = subj.name;
           if (fac.success && fac.facultyId) {
@@ -587,6 +791,7 @@ export async function generateTimetable({
   section,
   openElectiveMode = 'parallel',
   electiveMode = 'parallel',
+  facultyBeforeAfternoon = false,
 }: GenerateOptions): Promise<Grid> {
   const grid = emptyGrid();
 
@@ -624,12 +829,6 @@ export async function generateTimetable({
       }
     }
 
-    const hoursGroups = new Map<number, Subject[]>();
-    for (const s of ungroupedElectives) {
-      if (!hoursGroups.has(s.hoursPerWeek)) hoursGroups.set(s.hoursPerWeek, []);
-      hoursGroups.get(s.hoursPerWeek)!.push(s);
-    }
-    
     const addGroup = (group: Subject[]) => {
       if (group.length === 1) {
         subjects.push(group[0]);
@@ -653,9 +852,8 @@ export async function generateTimetable({
     for (const group of peTagGroups.values()) {
       addGroup(group);
     }
-    for (const group of hoursGroups.values()) {
-      addGroup(group);
-    }
+    // Ungrouped electives run separately (not parallel)
+    subjects.push(...ungroupedElectives);
   } else {
     // Separate mode: add all professional electives directly
     subjects.push(...electiveSubjects);
@@ -689,11 +887,13 @@ export async function generateTimetable({
   );
 
   // ── PHASE 1: Lock Static Slots ─────────────────────────────────────────────
-  // Special hours first (immutable)
-  lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorName);
+  // Special hours first (immutable & assigned to Class Counselor)
+  lockSpecialHours(grid, specialHoursConfigs, ctx.classCounselorInfo, section, ctx.facultyMap);
+
+  const labs = subjects.filter((s) => s.type === "lab");
 
   // DB lab schedules second (immutable — labs are ALWAYS static from DB)
-  lockStaticLabs(grid, ctx.manualLabs);
+  lockStaticLabs(grid, ctx.manualLabs, labs);
 
   // ── Initialize remaining-hours tracker ───────────────────────────────────
   const remaining = new Map<string, number>();
@@ -708,7 +908,6 @@ export async function generateTimetable({
   }
 
   // Deduct hours already placed by static lab locks
-  const labs = subjects.filter((s) => s.type === "lab");
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
       const cell = grid[d][p];
@@ -747,17 +946,15 @@ export async function generateTimetable({
   );
   staffPreCheck(theory, ctx.facultyMap);
 
-  // ── Open Elective placeholder slots ──────────────────────────────────────
-  // Only place generic placeholders if we have no open elective subjects in the list
-  if (!hasOeSubjects) {
-    placeOpenElectives(grid, ctx.openElectiveHours);
-  }
+  // ── Open Elective slots ──────────────────────────────────────────────────
+  const oeSubjects = subjects.filter((s) => s.type === "open elective");
+  placeOpenElectives(grid, ctx.openElectiveConfig, oeSubjects, remaining, ctx.facultyMap);
 
   // ── Auto-allocate remaining lab hours (edge case: no DB entry) ───────────
   autoAllocateRemainingLabs(grid, labs, remaining, ctx.facultyMap);
 
   // ── PHASE 3: Theory Placement ─────────────────────────────────────────────
-  placeTheorySubjects(grid, theory, remaining, ctx.facultyMap);
+  placeTheorySubjects(grid, theory, remaining, ctx.facultyMap, facultyBeforeAfternoon);
 
   // ── PHASE 4: Free Hour Fill ───────────────────────────────────────────────
   fillFreeHours(grid, subjects, remaining, ctx.facultyMap);
@@ -900,4 +1097,125 @@ export function validateLabPlacement(
     errors,
     labDays,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH GENERATION — generateAllYears
+// Generates timetables for Year II, III, IV in parallel.
+// Years II, III, IV run concurrently; within each year sections run sequentially
+// to preserve cross-section faculty conflict awareness.
+// Results are returned in-memory — NOT saved to DB.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type YearSectionResult = {
+  year: string;
+  section: string;
+  grid: string[][];
+  status: 'ok' | 'error';
+  error?: string;
+};
+
+export type BatchGenerationResult = {
+  results: YearSectionResult[];
+  totalOk: number;
+  totalError: number;
+};
+
+// Sections per year: II → A,B,C  |  III → A,B,C  |  IV → A,B,C
+const YEAR_SECTIONS: Record<string, string[]> = {
+  'II':  ['A', 'B', 'C'],
+  'III': ['A', 'B', 'C'],
+  'IV':  ['A', 'B', 'C'],
+};
+
+export async function generateAllYears(
+  departmentName: string,
+  onProgress?: (year: string, section: string, status: 'running' | 'ok' | 'error', error?: string) => void,
+  facultyBeforeAfternoon: boolean = false
+): Promise<BatchGenerationResult> {
+  const department = await getDepartmentByName(departmentName);
+  if (!department) {
+    return {
+      results: [],
+      totalOk: 0,
+      totalError: Object.values(YEAR_SECTIONS).flat().length,
+    };
+  }
+  const deptId = department.id;
+
+  const allResults: YearSectionResult[] = [];
+
+  // Generate all years concurrently (outer Promise.all)
+  await Promise.all(
+    Object.entries(YEAR_SECTIONS).map(async ([year, sections]) => {
+      // Load subjects + special hours once per year (shared across sections)
+      const [subjects, specialHoursConfigs] = await Promise.all([
+        getSubjectsForYear(deptId, year).catch(() => [] as Subject[]),
+        getSpecialHoursConfigsForYear(deptId, year).catch(() => [] as SpecialHoursConfig[]),
+      ]);
+
+      if (subjects.length === 0) {
+        // No subjects configured for this year — mark all sections as error
+        for (const section of sections) {
+          allResults.push({
+            year,
+            section,
+            grid: [],
+            status: 'error',
+            error: `No subjects configured for Year ${year}`,
+          });
+          onProgress?.(year, section, 'error', `No subjects configured for Year ${year}`);
+        }
+        return;
+      }
+
+      // Load elective mode from localStorage per year
+      const storedOe = localStorage.getItem(`oe_mode:${deptId}:${year}`) as 'parallel' | 'separate' | null;
+      const openElectiveMode: 'parallel' | 'separate' = storedOe ?? 'parallel';
+      const storedPe = localStorage.getItem(`pe_mode:${deptId}:${year}`) as 'parallel' | 'separate' | null;
+      const electiveMode: 'parallel' | 'separate' = storedPe ?? 'parallel';
+
+      // Sections run SEQUENTIALLY within a year (faculty conflict safety)
+      for (const section of sections) {
+        onProgress?.(year, section, 'running');
+        try {
+          // Load section subjects to filter curriculum specifically for this section
+          const sectionSubjectIds = await getSectionSubjects(deptId, year, section).catch(() => [] as string[]);
+          const sectionSubjects = sectionSubjectIds.length > 0
+            ? subjects.filter(s => sectionSubjectIds.includes(s.id))
+            : subjects;
+
+          // Load lab prefs per section
+          const labPreferences = await getLabPreferences(deptId, year, section).catch(() => ({} as LabPrefsMap));
+
+          const grid = await generateTimetable({
+            subjects: sectionSubjects,
+            special: { seminar: false, library: false, counselling: false },
+            specialHoursConfigs,
+            labPreferences,
+            departmentName,
+            year,
+            section,
+            openElectiveMode,
+            electiveMode,
+            facultyBeforeAfternoon,
+          });
+
+          const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
+
+          allResults.push({ year, section, grid: gridAsStrings, status: 'ok' });
+          onProgress?.(year, section, 'ok');
+        } catch (err: any) {
+          const msg = err?.message ?? 'Unknown error';
+          allResults.push({ year, section, grid: [], status: 'error', error: msg });
+          onProgress?.(year, section, 'error', msg);
+        }
+      }
+    })
+  );
+
+  const totalOk = allResults.filter((r) => r.status === 'ok').length;
+  const totalError = allResults.filter((r) => r.status === 'error').length;
+
+  return { results: allResults, totalOk, totalError };
 }

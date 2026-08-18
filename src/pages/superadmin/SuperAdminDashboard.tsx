@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
-import { Calendar, GitPullRequest, Clock, Users, BookOpen, BarChart3, Building2, Plus, Settings, Upload, Activity as ActivityIcon } from "lucide-react";
+import { Calendar, GitPullRequest, Users, BarChart3, Plus, Settings, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Department = { id: string; name: string };
@@ -19,11 +19,11 @@ type Activity = { id: string; type: 'department' | 'subject' | 'faculty' | 'time
 async function countTimetablePeriods(departmentId: string): Promise<number> {
   const { data, error } = await (supabase as any)
     .from('timetables')
-    .select('grid_data');
+    .select('grid_data')
+    .eq('department_id', departmentId);
   if (error) throw error;
-  const rows = (data || []).filter((r: any) => r.department_id === departmentId || r.departmentId === departmentId);
   let total = 0;
-  for (const r of rows) {
+  for (const r of data || []) {
     const grid: any[][] = r.grid_data || [];
     for (const row of grid || []) {
       for (const cell of row || []) {
@@ -62,8 +62,8 @@ const SuperAdminDashboard = () => {
       return;
     }
     (async () => {
-      const [deptRes, facultyCountRes, ttCountRes, subjCountRes, recentSubjects, recentFaculty, recentTimetables, recentDepartments] = await Promise.all([
-        (supabase as any).from('departments').select('*').order('name'),
+      const deptPromise = (supabase as any).from('departments').select('*').order('name');
+      const overviewPromise = Promise.all([
         (supabase as any).from('faculty_members').select('*', { count: 'exact', head: true }),
         (supabase as any).from('timetables').select('*', { count: 'exact', head: true }),
         (supabase as any).from('subjects').select('*', { count: 'exact', head: true }),
@@ -73,9 +73,12 @@ const SuperAdminDashboard = () => {
         (supabase as any).from('departments').select('id,name,created_at').order('created_at', { ascending: false }).limit(10),
       ]);
 
+      const deptRes = await deptPromise;
       const deptData = deptRes.data || [];
       setDepartments(deptData);
       if (!deptId && deptData?.[0]?.id) setDeptId(deptData[0].id);
+
+      const [facultyCountRes, ttCountRes, subjCountRes, recentSubjects, recentFaculty, recentTimetables, recentDepartments] = await overviewPromise;
 
       setOverview({
         departments: deptData.length,
@@ -160,42 +163,34 @@ const SuperAdminDashboard = () => {
       <Navbar />
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
         <section className="px-6 md:px-10 lg:px-12 py-10 md:pt-24 max-w-[1600px] mx-auto w-full space-y-8">
-          <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border/60 pb-6 mb-2">
-            <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-foreground" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                SUPER ADMIN CONSOLE
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Configure system settings, monitor department health, and authorize admins.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={() => setOpenAdd(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 h-10">
-                <Plus className="h-4.5 w-4.5" />
-                <span>Add Department</span>
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                <Users className="h-4.5 w-4.5" />
-                <span>Manage Admins</span>
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                <Upload className="h-4.5 w-4.5" />
-                <span>Bulk Import</span>
-              </Button>
-              <Button variant="outline" onClick={() => navigate('/super-admin/settings')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                <Settings className="h-4.5 w-4.5" />
-                <span>System Settings</span>
-              </Button>
-            </div>
-          </header>
-
           <Tabs defaultValue="overview" className="space-y-6">
-            <TabsList className="inline-flex h-11 items-center justify-start rounded-xl bg-muted p-1 text-muted-foreground w-auto min-w-[150px]">
-              <TabsTrigger value="overview" className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Overview
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border/60 pb-6 mb-2">
+              <TabsList className="inline-flex h-11 items-center justify-start rounded-xl bg-muted p-1 text-muted-foreground w-auto min-w-[150px]">
+                <TabsTrigger value="overview" className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Overview
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={() => setOpenAdd(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 h-10">
+                  <Plus className="h-4.5 w-4.5" />
+                  <span>Add Department</span>
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                  <Users className="h-4.5 w-4.5" />
+                  <span>Manage Admins</span>
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                  <Upload className="h-4.5 w-4.5" />
+                  <span>Bulk Import</span>
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/super-admin/settings')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                  <Settings className="h-4.5 w-4.5" />
+                  <span>System Settings</span>
+                </Button>
+              </div>
+            </div>
 
             <TabsContent value="overview" className="space-y-6">
               <section className="mb-8">
@@ -207,9 +202,6 @@ const SuperAdminDashboard = () => {
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Total Departments</span>
-                      <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-455">
-                        <Building2 className="h-4 w-4" />
-                      </div>
                     </CardHeader>
                     <CardContent className="pt-2">
                       <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.departments}</div>
@@ -224,9 +216,6 @@ const SuperAdminDashboard = () => {
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Total Faculty</span>
-                      <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-450">
-                        <Users className="h-4 w-4" />
-                      </div>
                     </CardHeader>
                     <CardContent className="pt-2">
                       <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.faculty}</div>
@@ -241,9 +230,6 @@ const SuperAdminDashboard = () => {
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Active Timetables</span>
-                      <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-455">
-                        <Calendar className="h-4 w-4" />
-                      </div>
                     </CardHeader>
                     <CardContent className="pt-2">
                       <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.timetables}</div>
@@ -257,9 +243,6 @@ const SuperAdminDashboard = () => {
                   >
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Total Subjects</span>
-                      <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-450">
-                        <BookOpen className="h-4 w-4" />
-                      </div>
                     </CardHeader>
                     <CardContent className="pt-2">
                       <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.subjects}</div>
@@ -273,8 +256,7 @@ const SuperAdminDashboard = () => {
               <section className="mb-8 p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm space-y-6">
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold flex items-center gap-2 text-foreground">
-                      <BarChart3 className="h-5 w-5 text-emerald-500" />
+                    <h2 className="text-xl font-bold text-foreground">
                       Timetable Summary
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5">Overview of all active timetables across departments</p>
@@ -285,40 +267,36 @@ const SuperAdminDashboard = () => {
                   <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Total Classes</span>
-                      <Calendar className="h-4 w-4 text-blue-500" />
                     </CardHeader>
                     <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-blue-600 dark:text-blue-450">{timetableSummary.totalClasses}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.totalClasses}</div>
                     </CardContent>
                   </Card>
 
                   <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Total Periods</span>
-                      <Clock className="h-4 w-4 text-emerald-500" />
                     </CardHeader>
                     <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-emerald-600 dark:text-emerald-455">{timetableSummary.totalPeriods}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.totalPeriods}</div>
                     </CardContent>
                   </Card>
 
                   <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Avg Periods/Class</span>
-                      <BookOpen className="h-4 w-4 text-purple-500" />
                     </CardHeader>
                     <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-purple-600 dark:text-purple-455">{timetableSummary.avgPeriodsPerClass}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.avgPeriodsPerClass}</div>
                     </CardContent>
                   </Card>
 
                   <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
                     <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
                       <span className="text-sm font-semibold text-muted-foreground">Active Departments</span>
-                      <Users className="h-4 w-4 text-orange-500" />
                     </CardHeader>
                     <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-orange-600 dark:text-orange-455">{timetableSummary.departmentBreakdown.length}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.departmentBreakdown.length}</div>
                     </CardContent>
                   </Card>
                 </div>
@@ -403,11 +381,10 @@ const SuperAdminDashboard = () => {
 
                 <aside className="p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm flex flex-col justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-foreground flex items-center gap-2 mb-4">
-                      <ActivityIcon className="h-5 w-5 text-emerald-500" />
+                    <h2 className="text-xl font-bold text-foreground mb-4">
                       Recent Activity
                     </h2>
-                    <ul className="space-y-4">
+                    <ul className="space-y-4 max-h-[380px] overflow-y-auto pr-2">
                       {recent.length === 0 && (
                         <li className="text-xs text-muted-foreground py-4 text-center">No recent changes</li>
                       )}

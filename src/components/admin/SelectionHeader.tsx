@@ -9,6 +9,8 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/admin/timetable": { title: "Timetable", subtitle: "View & Edit Timetables" },
   "/admin/sections": { title: "Sections", subtitle: "Manage Class Sections" },
   "/admin/years": { title: "Years", subtitle: "Manage Academic Years" },
+  "/csv-upload": { title: "Bulk Import", subtitle: "Import Data in Bulk" },
+  "/faculty/csv-upload": { title: "Bulk Import", subtitle: "Import Data in Bulk" },
   // Super Admin Mappings
   "/super-admin": { title: "Dashboard", subtitle: "Super Admin Control Center" },
   "/super-admin/faculty": { title: "Faculty", subtitle: "Manage All Faculty Members" },
@@ -25,6 +27,8 @@ const SelectionHeader = () => {
   const isSuperAdminRoute = pathname.startsWith("/super-admin") || 
                             pathname.startsWith("/pull-requests") || 
                             pathname.startsWith("/current-timetables");
+
+  if (isSuperAdminRoute) return null;
 
   let meta = PAGE_META[pathname];
   if (!meta) {

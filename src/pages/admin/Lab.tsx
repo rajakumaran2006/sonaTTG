@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Plus, Trash2, Edit, Calendar, Settings, Eye, LayoutGrid, List, Download } from "lucide-react";
+import { Plus, Trash2, Edit, Calendar, Settings, Eye, LayoutGrid, List, Download, FlaskConical, ChevronLeft } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -28,7 +28,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react"; // Search used in lab table header
+import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/context/DarkModeContext";
 
@@ -68,6 +68,8 @@ interface LabScheduleDetail {
   semester?: string;
   academic_year?: string;
   labs?: { name: string };
+  year?: string | null;
+  section?: string | null;
 }
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -84,30 +86,57 @@ const periods = [
 const parseScheduleInfo = (info: string) => {
   if (!info) return { raw: "Allocated" };
   
-  // Pattern 1: Year {Y} Sec {S} - {Subject}
-  // Matches: Year III Sec C - FSD Lab
-  const yearSecMatch = info.match(/Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)/);
+  // Pattern 1: {Dept} • Year {Y} Sec {S} - {Subject} OR [{Dept}] Year {Y} Sec {S} - {Subject}
+  const deptMatch = info.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)$/i);
+  if (deptMatch && (deptMatch[1] || deptMatch[2])) {
+    const dept = (deptMatch[1] || deptMatch[2]).trim();
+    if (dept) {
+      return {
+        dept,
+        year: `Year ${deptMatch[3]}`,
+        section: `Sec ${deptMatch[4]}`,
+        subject: deptMatch[5].trim()
+      };
+    }
+  }
+
+  // Pattern 2: Year {Y} Sec {S} - {Subject}
+  const yearSecMatch = info.match(/^Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)$/i);
   if (yearSecMatch) {
     return {
       year: `Year ${yearSecMatch[1]}`,
       section: `Sec ${yearSecMatch[2]}`,
-      subject: yearSecMatch[3]
+      subject: yearSecMatch[3].trim()
     };
   }
 
-  // Pattern 2: Year {Y}, {Subject}
-  // Matches: Year III, FSD Lab
-  const yearMatch = info.match(/Year\s+([a-zA-Z0-9]+),\s+(.+)/);
+  // Pattern 3: Year {Y}, {Subject}
+  const yearMatch = info.match(/^Year\s+([a-zA-Z0-9]+),\s+(.+)$/i);
   if (yearMatch) {
     return {
       year: `Year ${yearMatch[1]}`,
-      subject: yearMatch[2]
+      subject: yearMatch[2].trim()
     };
   }
 
   // Fallback
   return { raw: info };
 };
+
+const generateLabCode = (name: string) => {
+  const words = name.trim().split(/\s+/);
+  let code = words
+    .map(word => word.replace(/[^a-zA-Z0-9]/g, ""))
+    .filter(Boolean)
+    .map(word => (/^\d+$/.test(word) ? word : word[0].toUpperCase()))
+    .join("");
+  
+  if (!code) {
+    code = "LAB-" + Math.floor(100 + Math.random() * 900);
+  }
+  return code;
+};
+
 
 const Lab = () => {
   const navigate = useNavigate();
@@ -142,10 +171,33 @@ const Lab = () => {
   const [labs, setLabs] = useState<Lab[]>([]);
   const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+  const [allAdminDeptIds, setAllAdminDeptIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(null);
+  const [adminDepartmentId, setAdminDepartmentId] = useState<string | null>(() => {
+    try {
+      const adminData = localStorage.getItem("adminUser");
+      if (adminData) {
+        const parsed = JSON.parse(adminData);
+        return parsed?.department_id || null;
+      }
+    } catch (e) {
+      console.error("Error parsing adminUser from localStorage on init:", e);
+    }
+    return null;
+  });
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("all-departments");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>(() => {
+    try {
+      const adminData = localStorage.getItem("adminUser");
+      if (adminData) {
+        const parsed = JSON.parse(adminData);
+        return parsed?.department_id || "all-departments";
+      }
+    } catch (e) {
+      console.error("Error parsing adminUser from localStorage on init:", e);
+    }
+    return "all-departments";
+  });
 
   // Table UI state
   const [labSearch, setLabSearch] = useState("");
@@ -154,9 +206,8 @@ const Lab = () => {
   const [labDeleteMode, setLabDeleteMode] = useState(false);
   const [selectedLabIds, setSelectedLabIds] = useState<Set<string>>(new Set());
   
-  // Year and Section for Lab creation
-  const [availableYears, setAvailableYears] = useState<any[]>([]);
-  const [availableSections, setAvailableSections] = useState<any[]>([]);
+  // Active tab state: 'schedules' for allocation page, 'labs' for lab list
+  const [activeTab, setActiveTab] = useState<string>("schedules");
 
   // Form states for dialogs
   const [labDialog, setLabDialog] = useState(false);
@@ -180,6 +231,8 @@ const Lab = () => {
     operating_hours: {} as any,
   });
   const [itAdsLabs, setItAdsLabs] = useState<any[]>([]);
+  // Editable hours per week map: subjectId -> hours
+  const [editableHours, setEditableHours] = useState<Record<string, number>>({});
   const [newSession, setNewSession] = useState({
     semester: "",
     academic_year: new Date().getFullYear().toString() + "-" + (new Date().getFullYear() + 1).toString().slice(-2),
@@ -195,6 +248,12 @@ const Lab = () => {
     subject: "", // Can be subject ID or custom text
     notes: ""
   });
+
+  // Delete mode for schedule slots: 'single' | 'group'
+  const [deletePopoverId, setDeletePopoverId] = useState<string | null>(null);
+
+  // Max 3 sections: A, B, C
+  const ALL_SECTIONS = ['A', 'B', 'C'];
 
   const resetLabForm = () => {
     setLabForm({
@@ -228,14 +287,15 @@ const Lab = () => {
     }
 
     try {
+      const generatedCode = generateLabCode(labForm.name);
       const labData = {
         ...labForm,
+        lab_code: generatedCode,
         department_id: adminDepartmentId, // Fixed: use department_id as expected by DB
         departments: [adminDepartmentId], 
-        // Fallback for legacy: use the first allowed class if any, or null
-        year: labForm.year === "null_value" || !labForm.year ? (labForm.allowed_classes[0]?.year || null) : labForm.year,
-        section: labForm.section === "null_value" || !labForm.section ? (labForm.allowed_classes[0]?.section || null) : labForm.section,
-        allowed_classes: labForm.allowed_classes,
+        year: null,
+        section: null,
+        allowed_classes: [],
         is_active: true
       };
 
@@ -277,15 +337,38 @@ const Lab = () => {
       return;
     }
 
-    // Load departments for this admin's department only and set selection
+    // Load ALL departments for this admin (multi-dept support)
     (async () => {
       try {
         const parsedAdmin = JSON.parse(adminData);
-        if (!parsedAdmin || !parsedAdmin.department_id) throw new Error("Invalid admin data");
+        if (!parsedAdmin || !parsedAdmin.id) throw new Error("Invalid admin data");
+
+        // Try admin_departments table first (multi-dept)
+        const { data: adminDepts, error: adminDeptsError } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', parsedAdmin.id);
+
+        let deptIds: string[] = [];
+
+        if (!adminDeptsError && adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        } else if (parsedAdmin.department_id) {
+          // Fallback: use legacy single department_id
+          deptIds = [parsedAdmin.department_id];
+        }
+
+        if (deptIds.length === 0) {
+          toast.error('No departments found. Please contact your Super Admin.');
+          setLoading(false);
+          return;
+        }
+
         const { data, error } = await (supabase as any)
           .from('departments')
           .select('*')
-          .eq('id', parsedAdmin.department_id);
+          .in('id', deptIds)
+          .order('name');
 
         if (error) {
           console.error('Error loading departments:', error);
@@ -300,10 +383,12 @@ const Lab = () => {
           return;
         }
 
-        // Set admin's department for selection
         setDepartments(data);
-        setAdminDepartmentId(parsedAdmin.department_id);
-        setSelectedDepartment(parsedAdmin.department_id); // Lock to admin's department
+        setAllAdminDeptIds(deptIds);
+        // Set primary department for legacy operations
+        const primaryDeptId = parsedAdmin.department_id || deptIds[0];
+        setAdminDepartmentId(primaryDeptId);
+        setSelectedDepartment(primaryDeptId);
 
         setLoading(false);
       } catch (error) {
@@ -342,38 +427,19 @@ const Lab = () => {
 
   const openScheduleViewDialog = async (lab: Lab) => {
     setSelectedLabForSchedule(lab);
-    setScheduleViewDialog(true);
+    setActiveTab("schedules");
 
-    // Fetch subjects for the departments associated with this lab,
-    // filtered to only the years/sections allocated to this lab
+    // Fetch ALL lab-type subjects from ALL departments so subjects can be mapped to department names.
     try {
-      if (lab.departments && lab.departments.length > 0) {
-        const { data: subjs, error: subjsError } = await (supabase as any)
-          .from('subjects')
-          .select('*')
-          .eq('type', 'lab')
-          .in('department_id', lab.departments);
+      const { data: subjs, error: subjsError } = await (supabase as any)
+        .from('subjects')
+        .select('*, departments(name)')
+        .eq('type', 'lab')
+        .order('year')
+        .order('name');
 
-        if (subjsError) throw subjsError;
-
-        let allSubjs = subjs || [];
-
-        // Determine which years are allowed for this lab
-        const allowedClasses = lab.allowed_classes || [];
-        if (allowedClasses.length > 0) {
-          // Get unique allowed years
-          const allowedYears = [...new Set(allowedClasses.map(c => c.year))];
-          // Filter subjects to only those whose year is in the allowed years
-          allSubjs = allSubjs.filter((s: any) => allowedYears.includes(s.year));
-        } else if (lab.year) {
-          // Legacy fallback: filter by single year field
-          allSubjs = allSubjs.filter((s: any) => s.year === lab.year);
-        }
-
-        setItAdsLabs(allSubjs);
-      } else {
-        setItAdsLabs([]);
-      }
+      if (subjsError) throw subjsError;
+      setItAdsLabs(subjs || []);
     } catch (error) {
       console.error('Error loading subjects for lab:', error);
     }
@@ -382,47 +448,44 @@ const Lab = () => {
   const loadLabs = async () => {
     try {
       setLoading(true);
+
+      // Determine which dept IDs to filter by
+      const adminData = localStorage.getItem("adminUser");
+      let deptIdsForFilter: string[] = [];
+
+      if (adminData) {
+        const parsedAdmin = JSON.parse(adminData);
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', parsedAdmin.id);
+
+        if (adminDepts && adminDepts.length > 0) {
+          deptIdsForFilter = adminDepts.map((d: any) => d.department_id);
+        } else if (parsedAdmin.department_id) {
+          deptIdsForFilter = [parsedAdmin.department_id];
+        }
+      }
+
       let query = (supabase as any)
         .from('labs')
         .select('*')
         .eq('is_active', true)
-        .select('*')
-        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (selectedDepartment && selectedDepartment !== "all-departments") {
-        query = query.contains('departments', [selectedDepartment]);
-      } else if (adminDepartmentId) {
-        query = query.contains('departments', [adminDepartmentId]);
+      // Filter labs: show any lab that contains at least one of the admin's depts
+      // We use OR across all dept IDs using overlaps operator
+      if (deptIdsForFilter.length > 0) {
+        query = query.overlaps('departments', deptIdsForFilter);
       }
 
       const { data, error } = await query;
       if (error) throw error;
-      
-      // Filter logic: Only show labs that contain the current selection in their allowed_classes
-      let filteredLabs = data || [];
 
-      // If a specific selection is active (not All Departments / All Years), apply filtering
-      // However, if we are in admin view (no specific year/section selected in header top), we might want to see all our department's labs.
-      // The user requirement says "only that class can access the lab".
-      // Assuming "selection" from store reflects the current VIEW context.
-      
-      if (selection.department && selection.year && selection.section) {
-          filteredLabs = filteredLabs.filter((lab: Lab) => {
-              // Backward compatibility: Check legacy columns first if allowed_classes is empty/null which might happen before migration fully propagates
-              const allowed = lab.allowed_classes || [];
-              if (allowed.length > 0) {
-                  return allowed.some(c => 
-                      c.year === selection.year && 
-                      (c.section === selection.section || c.section === "All Sections")
-                  );
-              }
-              // Fallback to legacy
-              return (!lab.year || lab.year === selection.year) && (!lab.section || lab.section === selection.section);
-          });
+      setLabs(data || []);
+      if (data && data.length > 0 && !selectedLabForSchedule) {
+        setSelectedLabForSchedule(data[0]);
       }
-
-      setLabs(filteredLabs);
     } catch (error) {
       console.error('Error loading labs:', error);
       toast.error('Failed to load labs');
@@ -452,7 +515,7 @@ const Lab = () => {
   useEffect(() => {
     loadLabs();
     loadLabSchedules();
-  }, [selectedDepartment]);
+  }, []);  // runs once on mount; loadLabs reads admin depts from localStorage
 
   const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
     return labSchedules.find(schedule =>
@@ -546,25 +609,25 @@ const Lab = () => {
 
       const slotsToBook = [];
 
-      // Parse year and section from allocationInfo (format: "Year III Sec C - Subject")
+      // Parse dept, year, section from allocationInfo
+      let parsedDept = "";
       let parsedYear = "";
       let parsedSection = "";
       if (allocationInfo) {
-        const match = allocationInfo.match(/Year\s+(.+?)\s+Sec\s+(.+?)\s+-/);
-        if (match) {
-          parsedYear = match[1];
-          parsedSection = match[2];
-        }
+        const parsed = parseScheduleInfo(allocationInfo);
+        parsedDept = parsed.dept || "";
+        parsedYear = parsed.year ? parsed.year.replace(/Year\s*/i, '').trim() : "";
+        parsedSection = parsed.section ? parsed.section.replace(/Sec\s*/i, '').trim() : "";
       } else if (selectedLabSubjectData) {
-        parsedYear = selectedLabSubjectData.year || "";
-        // No section info available without allocationInfo — leave parsedSection empty
+        parsedYear = String(selectedLabSubjectData.year || "").trim();
+        parsedDept = selectedLabSubjectData.departments?.name || "";
       }
 
       // 2. Prepare slots and check for collisions
       for (let i = 0; i < duration; i++) {
         const currentSlotNum = slot.slotNumber + i;
         
-        // Check collision locally against current state
+        // A. Check if the lab itself is already occupied (this is a lab collision)
         const isOccupied = labSchedules.find(s => 
           s.lab_id === slot.labId && 
           s.day_of_week === slot.day && 
@@ -572,8 +635,42 @@ const Lab = () => {
         );
 
         if (isOccupied) {
-          toast.error(`Period ${currentSlotNum} is already occupied. Cannot book ${duration} consecutive hours.`);
+          toast.error(`Conflict: Period ${currentSlotNum} is already occupied by ${isOccupied.semester || 'another session'}.`);
           return;
+        }
+
+        // B. Check if this SAME class/section for THIS department is already assigned to ANY lab in this period!
+        if (parsedYear && parsedSection) {
+          const classConflict = labSchedules.find(s => {
+            if (s.day_of_week !== slot.day || s.slot_number !== currentSlotNum) return false;
+            const p = parseScheduleInfo(s.semester || '');
+            const sYear = (p.year ? p.year.replace(/Year\s*/i, '') : (s.year || '')).trim();
+            const sSection = (p.section ? p.section.replace(/Sec\s*/i, '') : (s.section || '')).trim().toUpperCase();
+
+            if (sYear !== parsedYear || sSection !== parsedSection.toUpperCase()) return false;
+
+            // Same year and section! Check department:
+            const sDept = getScheduleDepartment(s, p);
+            const targetDept = (parsedDept || '').toLowerCase().trim();
+
+            if (sDept && targetDept) {
+              const isSameDept = sDept === targetDept || sDept.includes(targetDept) || targetDept.includes(sDept);
+              return isSameDept;
+            }
+
+            // Fallback: If department is unknown for both, check if subject names match
+            if (p.subject && selectedLabSubjectData?.name) {
+              return p.subject.toLowerCase().trim() === selectedLabSubjectData.name.toLowerCase().trim();
+            }
+
+            return false; // Different departments DO NOT CONFLICT!
+          });
+
+          if (classConflict) {
+            const conflictingLabName = classConflict.labs?.name || labs.find(l => l.id === classConflict.lab_id)?.name || 'another lab';
+            toast.error(`Conflict: ${parsedDept ? parsedDept + ' ' : ''}Year ${parsedYear} Sec ${parsedSection} is already allocated to ${conflictingLabName} during Period ${currentSlotNum}.`);
+            return;
+          }
         }
 
         const periodData = periods.find(p => parseInt(p.id.replace('P', '')) === currentSlotNum);
@@ -643,6 +740,138 @@ const Lab = () => {
       console.error('Error removing lab schedule:', error);
       toast.error(`Failed to remove lab session: ${error.message}`);
     }
+  };
+
+  // Find all continuous slots for the same semester/subject on same day+lab
+  const getContinuousGroupIds = (scheduleId: string): string[] => {
+    const target = labSchedules.find(s => s.id === scheduleId);
+    if (!target) return [scheduleId];
+    const group = labSchedules
+      .filter(s =>
+        s.lab_id === target.lab_id &&
+        s.day_of_week === target.day_of_week &&
+        s.semester === target.semester &&
+        (s.year ?? '') === (target.year ?? '') &&
+        (s.section ?? '') === (target.section ?? '')
+      )
+      .sort((a, b) => a.slot_number - b.slot_number);
+
+    // Only include slots that are contiguous with the target slot
+    const targetIdx = group.findIndex(s => s.id === scheduleId);
+    const contiguous: string[] = [scheduleId];
+    // Walk backward
+    for (let i = targetIdx - 1; i >= 0; i--) {
+      if (group[i].slot_number === group[i + 1].slot_number - 1) {
+        contiguous.push(group[i].id);
+      } else break;
+    }
+    // Walk forward
+    for (let i = targetIdx + 1; i < group.length; i++) {
+      if (group[i].slot_number === group[i - 1].slot_number + 1) {
+        contiguous.push(group[i].id);
+      } else break;
+    }
+    return contiguous;
+  };
+
+  const handleRemoveScheduleGroup = async (scheduleId: string, deleteAll: boolean) => {
+    try {
+      const idsToDelete = deleteAll ? getContinuousGroupIds(scheduleId) : [scheduleId];
+      await Promise.all(
+        idsToDelete.map(id =>
+          (supabase as any).from('lab_schedules').delete().eq('id', id)
+        )
+      );
+      toast.success(deleteAll
+        ? `Removed all ${idsToDelete.length} continuous slot(s)`
+        : 'Lab session removed successfully'
+      );
+      const { data: schedulesData } = await (supabase as any)
+        .from('lab_schedules')
+        .select('*')
+        .in('lab_id', labs.map(lab => lab.id));
+      setLabSchedules(schedulesData || []);
+    } catch (error: any) {
+      console.error('Error removing lab schedule:', error);
+      toast.error(`Failed to remove lab session: ${error.message}`);
+    }
+  };
+
+  // Save edited hours_per_week for a subject
+  const handleSaveHours = async (subjId: string) => {
+    const hours = editableHours[subjId];
+    if (hours === undefined) return;
+    try {
+      const { error } = await (supabase as any)
+        .from('subjects')
+        .update({ hours_per_week: hours })
+        .eq('id', subjId);
+      if (error) throw error;
+      setItAdsLabs(prev => prev.map(s => s.id === subjId ? { ...s, hours_per_week: hours } : s));
+      setEditableHours(prev => { const n = { ...prev }; delete n[subjId]; return n; });
+      toast.success('Hours updated successfully');
+    } catch (e: any) {
+      toast.error(`Failed to update hours: ${e.message}`);
+    }
+  };
+
+  // Helper to resolve department name for any schedule (including legacy ones)
+  const getScheduleDepartment = (s: any, parsed: any) => {
+    if (parsed?.dept) return parsed.dept.toLowerCase().trim();
+
+    // Look up subject in itAdsLabs to resolve department name
+    const subjName = (parsed?.subject || parsed?.raw || '').toLowerCase().trim();
+    if (subjName) {
+      const matched = itAdsLabs.find(sub => 
+        sub.name?.toLowerCase().trim() === subjName ||
+        (sub.abbreviation && sub.abbreviation.toLowerCase().trim() === subjName)
+      );
+      if (matched?.departments?.name) {
+        return matched.departments.name.toLowerCase().trim();
+      }
+    }
+
+    return "";
+  };
+
+  // Helper to check if a specific section of a subject is already booked in lab_schedules
+  const isSectionBookedForSubject = (subj: any, section: string): boolean => {
+    const targetSubjName = subj.name.toLowerCase().trim();
+    const targetDeptName = subj.departments?.name?.toLowerCase().trim() || '';
+    const targetYear = String(subj.year).trim().toLowerCase();
+
+    return labSchedules.some(s => {
+      const parsed = parseScheduleInfo(s.semester || '');
+      const sSubjName = (parsed.subject || parsed.raw || '').toLowerCase().trim();
+
+      if (!sSubjName) return false;
+      // Match subject name
+      if (sSubjName !== targetSubjName && !sSubjName.includes(targetSubjName) && !targetSubjName.includes(sSubjName)) {
+        return false;
+      }
+
+      // Match section
+      const sSection = (parsed.section ? parsed.section.replace(/Sec\s*/i, '') : (s.section || '')).trim().toUpperCase();
+      if (sSection !== section.toUpperCase()) {
+        return false;
+      }
+
+      // Match year
+      const sYear = (parsed.year ? parsed.year.replace(/Year\s*/i, '') : (s.year || '')).trim().toLowerCase();
+      if (sYear && targetYear && sYear !== targetYear) {
+        return false;
+      }
+
+      // Match department: if department is present or resolvable, verify department match
+      const sDept = getScheduleDepartment(s, parsed);
+      if (sDept && targetDeptName) {
+        if (sDept !== targetDeptName && !sDept.includes(targetDeptName) && !targetDeptName.includes(sDept)) {
+          return false; // Different department, not a conflict!
+        }
+      }
+
+      return true;
+    });
   };
 
   const getLabNameForSchedule = (schedule: LabScheduleDetail) => {
@@ -723,6 +952,135 @@ const Lab = () => {
     }
   };
 
+  const exportLabSchedulePDF = async (lab: Lab) => {
+    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
+    const vfsFonts = await import('pdfmake/build/vfs_fonts');
+    // @ts-ignore
+    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+
+    const daysList = [
+      { name: 'MON', value: 1 },
+      { name: 'TUE', value: 2 },
+      { name: 'WED', value: 3 },
+      { name: 'THU', value: 4 },
+      { name: 'FRI', value: 5 },
+      { name: 'SAT', value: 6 }
+    ];
+
+    const headerRow = [
+      { text: 'DAY', style: 'tableHeader', alignment: 'center' },
+      { text: '1\n9:00 to 9:55', style: 'tableHeader', alignment: 'center' },
+      { text: '2\n9:55 to 10:50', style: 'tableHeader', alignment: 'center' },
+      { text: '3\n11:05 to 12:00', style: 'tableHeader', alignment: 'center' },
+      { text: '4\n12:00 to 12:55', style: 'tableHeader', alignment: 'center' },
+      { text: '12.55\nto 1.55', style: 'tableHeader', alignment: 'center' },
+      { text: '5\n1.55 to 2:50', style: 'tableHeader', alignment: 'center' },
+      { text: '6\n2.50 to 03:45', style: 'tableHeader', alignment: 'center' },
+      { text: '7\n3.55 to 4:50', style: 'tableHeader', alignment: 'center' }
+    ];
+
+    const gridRows = daysList.map((day) => {
+      const rowCells: any[] = [{ text: day.name, style: 'dayHeader', alignment: 'center', bold: true }];
+      
+      for (let p = 1; p <= 4; p++) {
+        const sched = labSchedules.find(s => s.lab_id === lab.id && s.day_of_week === day.value && s.slot_number === p);
+        rowCells.push({
+          text: sched ? (sched.semester || 'Allocated') : '',
+          alignment: 'center',
+          fontSize: 8
+        });
+      }
+
+      if (day.value === 1) {
+        rowCells.push({ text: 'L\nU\nN\nC\nH', rowSpan: 6, alignment: 'center', bold: true, fontSize: 9 });
+      } else {
+        rowCells.push('');
+      }
+
+      for (let p = 5; p <= 7; p++) {
+        const sched = labSchedules.find(s => s.lab_id === lab.id && s.day_of_week === day.value && s.slot_number === p);
+        rowCells.push({
+          text: sched ? (sched.semester || 'Allocated') : '',
+          alignment: 'center',
+          fontSize: 8
+        });
+      }
+
+      return rowCells;
+    });
+
+    const scheduledLabsForThisLab = labSchedules.filter(s => s.lab_id === lab.id);
+    const uniqueSubjectNames = Array.from(new Set(scheduledLabsForThisLab.map(s => {
+      const parsed = parseScheduleInfo(s.semester || '');
+      return parsed.subject || parsed.raw || '';
+    }).filter(Boolean)));
+
+    const legendRows: any[] = [];
+    uniqueSubjectNames.forEach(subjName => {
+      const matched = itAdsLabs.find(s => s.name.toLowerCase().trim() === subjName.toLowerCase().trim() || s.abbreviation?.toLowerCase().trim() === subjName.toLowerCase().trim());
+      
+      const countHrs = scheduledLabsForThisLab.filter(s => {
+        const parsed = parseScheduleInfo(s.semester || '');
+        const name = parsed.subject || parsed.raw || '';
+        return name.toLowerCase().trim() === subjName.toLowerCase().trim();
+      }).length;
+
+      const staffIncharge = matched ? (matched.staff || '-') : '-';
+
+      legendRows.push([
+        { text: matched ? (matched.code || '-') : '-', alignment: 'center' },
+        { text: matched ? (matched.abbreviation || subjName) : subjName, alignment: 'center' },
+        { text: matched ? matched.name : subjName, alignment: 'left' },
+        { text: countHrs.toString(), alignment: 'center' },
+        { text: staffIncharge, alignment: 'left' }
+      ]);
+    });
+
+    const doc: any = {
+      content: [
+        { text: 'Computing Lab Slot 1', style: 'mainHeader', alignment: 'center' },
+        { text: `LAB SCHEDULE: ${lab.name.toUpperCase()} (${lab.lab_code})`, style: 'subHeader', alignment: 'center', margin: [0, 0, 0, 15] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [40, '*', '*', '*', '*', 20, '*', '*', '*'],
+            body: [headerRow, ...gridRows]
+          },
+          margin: [0, 0, 0, 20]
+        },
+        { text: 'PRACTICAL COURSE DETAILS', style: 'sectionHeader', margin: [0, 10, 0, 5] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [80, 80, '*', 60, '*'],
+            body: [
+              [
+                { text: 'SUBJECT CODE', style: 'tableHeader', alignment: 'center' },
+                { text: 'Abbreviation', style: 'tableHeader', alignment: 'center' },
+                { text: 'COURSE TITLE', style: 'tableHeader', alignment: 'center' },
+                { text: 'NO. OF HOURS', style: 'tableHeader', alignment: 'center' },
+                { text: 'STAFF INCHARGE', style: 'tableHeader', alignment: 'center' }
+              ],
+              ...legendRows.length > 0 ? legendRows : [[{ text: 'No scheduled labs', colSpan: 5, alignment: 'center' }, '', '', '', '']]
+            ]
+          }
+        }
+      ],
+      styles: {
+        mainHeader: { fontSize: 16, bold: true, margin: [0, 0, 0, 2] },
+        subHeader: { fontSize: 11, bold: true, color: '#555555' },
+        sectionHeader: { fontSize: 11, bold: true, decoration: 'underline' },
+        tableHeader: { fontSize: 9, bold: true, fillColor: '#eeeeee' },
+        dayHeader: { fontSize: 9, bold: true, fillColor: '#f9f9f9' }
+      },
+      defaultStyle: {
+        fontSize: 9
+      }
+    };
+
+    pdfMake.createPdf(doc).download(`${lab.name.replace(/\s+/g, '_')}_schedule.pdf`);
+  };
+
   const ready = selection.department;
 
   const LabTable = CustomTable<Lab>;
@@ -748,15 +1106,15 @@ const Lab = () => {
         <section className="container py-4">
           <div className="space-y-6">
 
-            <Tabs defaultValue="labs" className="space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="labs" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Labs
-                </TabsTrigger>
-                <TabsTrigger value="schedules" className="flex items-center gap-2">
+                <TabsTrigger value="schedules" className="flex items-center gap-2 font-bold">
                   <Calendar className="h-4 w-4" />
-                  Schedules
+                  Lab Schedule Allocation
+                </TabsTrigger>
+                <TabsTrigger value="labs" className="flex items-center gap-2 font-bold">
+                  <Settings className="h-4 w-4" />
+                  Manage Labs
                 </TabsTrigger>
               </TabsList>
 
@@ -766,14 +1124,10 @@ const Lab = () => {
                     <DialogTitle>Add New Lab</DialogTitle>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <div className="grid gap-2">
                         <Label htmlFor="name">Lab Name *</Label>
                         <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="lab_code">Lab Code *</Label>
-                        <Input id="lab_code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CS101" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
@@ -800,96 +1154,6 @@ const Lab = () => {
                         <Label htmlFor="capacity">Capacity</Label>
                         <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
                       </div>
-                    </div>
-                    
-                    
-                    <div className="grid gap-2">
-                       <Label>Allowed Classes (Who can access this lab)</Label>
-                       <div className="flex gap-2 items-end">
-                          <div className="grid gap-2 flex-1">
-                            <Label htmlFor="year-select" className="text-xs">Year</Label>
-                             <Select 
-                              value={labForm.year} 
-                              onValueChange={(v) => {
-                                setLabForm({ ...labForm, year: v, section: "" }); // Reset section on year change
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Year" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableYears.map((y) => (
-                                  <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                           <div className="grid gap-2 flex-1">
-                             <Label htmlFor="section-select" className="text-xs">Section</Label>
-                            <Select 
-                              value={labForm.section} 
-                              onValueChange={(v) => setLabForm({ ...labForm, section: v })}
-                              disabled={!labForm.year}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Section" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                 <SelectItem value="All Sections">All Sections</SelectItem>
-                                {availableSections.map((s) => (
-                                  <SelectItem key={s.name} value={s.name}>{s.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <Button 
-                            type="button"
-                            onClick={() => {
-                                if (labForm.year && labForm.section) {
-                                  // Avoid duplicates
-                                  const exists = labForm.allowed_classes.some(
-                                      c => c.year === labForm.year && c.section === labForm.section
-                                  );
-                                  if (!exists) {
-                                      setLabForm({
-                                          ...labForm,
-                                          allowed_classes: [...labForm.allowed_classes, { year: labForm.year, section: labForm.section }],
-                                          year: "", // Reset selectors
-                                          section: ""
-                                      });
-                                  } else {
-                                      toast.error("Class already added");
-                                  }
-                                } else {
-                                    toast.error("Please select both Year and Section");
-                                }
-                            }}
-                          >
-                            Add
-                          </Button>
-                       </div>
-                    
-                       {/* List of added classes */}
-                       <div className="flex flex-wrap gap-2 mt-2">
-                          {labForm.allowed_classes.length === 0 && (
-                              <span className="text-xs text-muted-foreground italic">No classes permitted yet. Lab will be hidden.</span>
-                          )}
-                          {labForm.allowed_classes.map((cls, idx) => (
-                              <Badge key={`${cls.year}-${cls.section}-${idx}`} variant="secondary" className="flex items-center gap-1">
-                                  Year {cls.year} - {cls.section}
-                                  <button 
-                                      onClick={() => {
-                                          const newClasses = [...labForm.allowed_classes];
-                                          newClasses.splice(idx, 1);
-                                          setLabForm({ ...labForm, allowed_classes: newClasses });
-                                      }}
-                                      className="ml-1 hover:text-destructive"
-                                  >
-                                      <Trash2 className="h-3 w-3" />
-                                  </button>
-                              </Badge>
-                          ))}
-                       </div>
                     </div>
                   </div>
                   <DialogFooter>
@@ -980,7 +1244,7 @@ const Lab = () => {
                               ))
                             : (lab.year || lab.section)
                               ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">{lab.year} {lab.section}</span>
-                              : <span className="text-slate-500 text-xs">—</span>
+                              : <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">All Classes</span>
                           }
                         </div>
                       )
@@ -1037,13 +1301,25 @@ const Lab = () => {
                             <span>{lab.capacity} students</span>
                             {lab.room_number && <><span>•</span><span>Room {lab.room_number}</span></>}
                           </div>
-                          {(lab.allowed_classes && lab.allowed_classes.length > 0) && (
+                          {(lab.allowed_classes && lab.allowed_classes.length > 0) ? (
                             <div className="flex gap-1 flex-wrap mt-2.5">
                               {lab.allowed_classes.map((cls, idx) => (
                                 <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
                                   Yr {cls.year} • {cls.section}
                                 </span>
                               ))}
+                            </div>
+                          ) : (lab.year || lab.section) ? (
+                            <div className="flex gap-1 flex-wrap mt-2.5">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                {lab.year} {lab.section}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1 flex-wrap mt-2.5">
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                All Classes
+                              </span>
                             </div>
                           )}
                         </div>
@@ -1067,312 +1343,400 @@ const Lab = () => {
                 />
               </TabsContent>
 
-              <TabsContent value="schedules" className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-semibold">Lab Schedules</h2>
+              <TabsContent value="schedules" className="space-y-6 animate-fade-in-up duration-300">
+                {/* Lab Switcher Top Bar */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-card border border-border shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shrink-0">
+                      <FlaskConical className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-foreground">Lab Timetable Allocation</h2>
+                      <p className="text-xs text-muted-foreground">Select a lab room to view or edit its weekly schedule.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    {/* LAB DROPDOWN SELECTOR */}
+                    <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                      <Label className="text-xs font-bold shrink-0 hidden md:block text-muted-foreground">Select Lab:</Label>
+                      <Select
+                        value={selectedLabForSchedule?.id || ""}
+                        onValueChange={(labId) => {
+                          const found = labs.find(l => l.id === labId);
+                          if (found) {
+                            openScheduleViewDialog(found);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-10 min-w-[260px] md:min-w-[320px] rounded-xl font-bold text-xs bg-background border-2 border-emerald-500/50 text-foreground shadow-sm">
+                          <SelectValue placeholder="Choose a Laboratory..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[320px]">
+                          {labs.map((l) => (
+                            <SelectItem key={l.id} value={l.id} className="font-semibold text-xs cursor-pointer">
+                              {l.name} ({l.lab_code}) {l.room_number ? `- Room ${l.room_number}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedLabForSchedule && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => exportLabSchedulePDF(selectedLabForSchedule)}
+                        className="h-10 px-4 rounded-xl border border-border hover:bg-accent transition-all font-semibold flex items-center gap-2 shrink-0"
+                      >
+                        <Download className="h-4 w-4 text-emerald-500" />
+                        <span>Export PDF</span>
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                  {labs.map((lab) => {
-                    const labScheds = labSchedules.filter(schedule => schedule.lab_id === lab.id);
-                    if (labScheds.length === 0) return null;
-
-                    return (
-                      <Card key={lab.id}>
-                        <CardHeader>
-                          <CardTitle>{lab.name} - Schedule</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            {labScheds.map((schedule) => (
-                              <div key={schedule.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                                <div className="flex-1">
-                                  <div className="font-medium">
-                                    {DAYS[schedule.day_of_week - 1]} - Slot {schedule.slot_number}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {schedule.start_time} - {schedule.end_time}
-                                  </div>
-                                </div>
-                                <div className="text-right flex items-center gap-4">
-                                  <div>
-                                    <div className="font-medium">{schedule.max_capacity} students</div>
-                                    <Badge variant={schedule.is_available ? "default" : "secondary"}>
-                                      {schedule.is_available ? "Available" : "Unavailable"}
-                                    </Badge>
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 text-destructive"
-                                    onClick={() => handleRemoveSchedule(schedule.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
+                {/* Main Schedule Content for Selected Lab */}
+                {selectedLabForSchedule ? (
+                  <div className="space-y-4">
+                    {/* Lab Info Banner */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-card border rounded-xl shadow-sm">
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground">Allowed Allocation</p>
+                        {selectedLabForSchedule.allowed_classes && selectedLabForSchedule.allowed_classes.length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {selectedLabForSchedule.allowed_classes.map((cls: any, idx: number) => (
+                              <Badge key={idx} variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                                Yr {cls.year} • {cls.section}
+                              </Badge>
                             ))}
                           </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
+                        ) : (selectedLabForSchedule.year || selectedLabForSchedule.section) ? (
+                          <div className="mt-1">
+                            <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                              {selectedLabForSchedule.year ? `Year ${selectedLabForSchedule.year}` : ''} {selectedLabForSchedule.section ? `• Sec ${selectedLabForSchedule.section}` : ''}
+                            </Badge>
+                          </div>
+                        ) : (
+                          <p className="font-bold text-xs text-orange-600 dark:text-orange-400 mt-1">Shared Campus Facility (All Classes)</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground">Room Number</p>
+                        <p className="font-bold text-sm text-foreground mt-0.5">{selectedLabForSchedule.room_number || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground">Max Student Capacity</p>
+                        <p className="font-bold text-sm text-foreground mt-0.5">{selectedLabForSchedule.capacity} students</p>
+                      </div>
+                    </div>
+
+                    {/* Schedule Table Grid */}
+                    <div className="border rounded-xl overflow-hidden bg-card shadow-sm">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/60">
+                            <TableHead className="w-24 font-bold text-center border-r">Day / Period</TableHead>
+                            {periods.map((period) => (
+                              <TableHead key={period.id} className="text-center border-r min-w-[110px]">
+                                <div className="space-y-1">
+                                  <div className="font-bold text-sm">{period.id}</div>
+                                  <div className="text-[11px] text-muted-foreground">{period.time}</div>
+                                </div>
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[
+                            { name: 'Monday', value: 1 },
+                            { name: 'Tuesday', value: 2 },
+                            { name: 'Wednesday', value: 3 },
+                            { name: 'Thursday', value: 4 },
+                            { name: 'Friday', value: 5 },
+                            { name: 'Saturday', value: 6 }
+                          ].map((day) => (
+                            <TableRow key={day.name} className="hover:bg-muted/20">
+                              <TableCell className="font-bold text-center border-r bg-muted/30">
+                                {day.name}
+                              </TableCell>
+                              {periods.map((period) => {
+                                const slotNumber = parseInt(period.id.replace('P', ''));
+                                const scheduleForPeriod = getScheduleForPeriod(day.value, slotNumber);
+                                const parsedInfo = scheduleForPeriod ? parseScheduleInfo(scheduleForPeriod.semester || "Allocated") : null;
+
+                                return (
+                                  <TableCell key={period.id} className="text-center p-2 border-r text-xs align-middle">
+                                    {scheduleForPeriod && parsedInfo ? (
+                                      <div className="relative group w-full h-full min-h-[55px] flex flex-col items-center justify-center p-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                        {(() => {
+                                          const matchedSubj = (parsedInfo.subject || parsedInfo.raw)
+                                            ? itAdsLabs.find(s =>
+                                                s.name.toLowerCase().trim() === (parsedInfo.subject || parsedInfo.raw).toLowerCase().trim() ||
+                                                (s.abbreviation && s.abbreviation.toLowerCase().trim() === (parsedInfo.subject || parsedInfo.raw).toLowerCase().trim())
+                                              )
+                                            : null;
+                                          const displayDept = parsedInfo.dept || matchedSubj?.departments?.name || null;
+
+                                          return parsedInfo.year ? (
+                                            <>
+                                              {displayDept && (
+                                                <div className="text-[9px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wide truncate max-w-full px-0.5 leading-tight">
+                                                  {displayDept}
+                                                </div>
+                                              )}
+                                              <div className="text-[10px] font-semibold text-muted-foreground leading-tight mb-0.5">
+                                                {parsedInfo.year} {parsedInfo.section ? `• ${parsedInfo.section}` : ''}
+                                              </div>
+                                              <div className="font-bold text-foreground text-center leading-tight px-1 text-[11px]">
+                                                {parsedInfo.subject}
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <div className="font-bold text-foreground text-center leading-tight px-1 text-[11px]">
+                                              {displayDept && (
+                                                <div className="text-[9px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wide truncate max-w-full px-0.5 leading-tight mb-0.5">
+                                                  {displayDept}
+                                                </div>
+                                              )}
+                                              {parsedInfo.raw}
+                                            </div>
+                                          );
+                                        })()}
+                                        {/* Smart delete: 1hr or all continuous */}
+                                        <Popover
+                                          open={deletePopoverId === scheduleForPeriod.id}
+                                          onOpenChange={(open) => setDeletePopoverId(open ? scheduleForPeriod.id : null)}
+                                        >
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="absolute -top-1 -right-1 h-5 w-5 bg-background/80 hover:bg-destructive hover:text-white text-destructive shadow-sm rounded-full opacity-0 group-hover:opacity-100 transition-all z-10"
+                                              onClick={(e) => e.stopPropagation()}
+                                            >
+                                              <Trash2 className="h-3 w-3" />
+                                            </Button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-48 p-2" align="end">
+                                            <div className="flex flex-col gap-1">
+                                              <p className="text-xs font-semibold text-muted-foreground mb-1 px-1">Delete option</p>
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="text-xs justify-start hover:bg-red-50 hover:text-red-600 hover:border-red-300"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setDeletePopoverId(null);
+                                                  if (!confirm('Delete only this 1-hour slot?')) return;
+                                                  handleRemoveScheduleGroup(scheduleForPeriod.id, false);
+                                                }}
+                                              >
+                                                <Trash2 className="h-3 w-3 mr-1.5" />
+                                                Delete 1 hour
+                                              </Button>
+                                              {getContinuousGroupIds(scheduleForPeriod.id).length > 1 && (
+                                                <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="text-xs justify-start hover:bg-red-50 hover:text-red-600 hover:border-red-300"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const cnt = getContinuousGroupIds(scheduleForPeriod.id).length;
+                                                    setDeletePopoverId(null);
+                                                    if (!confirm(`Delete all ${cnt} continuous hours for this lab session?`)) return;
+                                                    handleRemoveScheduleGroup(scheduleForPeriod.id, true);
+                                                  }}
+                                                >
+                                                  <Trash2 className="h-3 w-3 mr-1.5" />
+                                                  Delete all {getContinuousGroupIds(scheduleForPeriod.id).length} hrs
+                                                </Button>
+                                              )}
+                                            </div>
+                                          </PopoverContent>
+                                        </Popover>
+                                      </div>
+                                    ) : (
+                                      <Popover
+                                        open={openPopoverId === `${day.value}-${period.id}`}
+                                        onOpenChange={(open) => setOpenPopoverId(open ? `${day.value}-${period.id}` : null)}
+                                      >
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant="ghost"
+                                            role="combobox"
+                                            className="h-10 w-full justify-between border-none bg-transparent hover:bg-muted/50 focus:ring-0 shadow-none px-2"
+                                          >
+                                            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold truncate">Accessible</span>
+                                            <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent side="bottom" align="start" sideOffset={6} collisionPadding={16} className="w-[310px] max-w-[92vw] p-0 overflow-hidden shadow-2xl border-2 z-50 bg-popover text-popover-foreground rounded-xl">
+                                          <Command>
+                                            <CommandInput placeholder="Search subject..." className="h-9 border-b" />
+                                            <CommandList className="max-h-[260px] md:max-h-[300px] overflow-y-auto scrollbar-thin">
+                                              <CommandEmpty>No subject found for this department.</CommandEmpty>
+                                              <CommandGroup>
+                                                {(() => {
+                                                  const allSections = ALL_SECTIONS;
+
+                                                  // Determine department IDs allocated for the current lab
+                                                  const labDeptIds: string[] = (selectedLabForSchedule?.departments && selectedLabForSchedule.departments.length > 0)
+                                                    ? selectedLabForSchedule.departments
+                                                    : (selectedLabForSchedule?.department_id ? [selectedLabForSchedule.department_id] : (allAdminDeptIds.length > 0 ? allAdminDeptIds : []));
+
+                                                  // Filter subjects so it ONLY shows subjects for the allocated department(s) of this lab
+                                                  const displaySubjects = itAdsLabs.filter(subj => {
+                                                    if (labDeptIds.length === 0) return true;
+                                                    return labDeptIds.includes(subj.department_id);
+                                                  });
+
+                                                  if (displaySubjects.length === 0) {
+                                                    return <div className="px-4 py-3 text-sm text-muted-foreground text-center">No lab subjects available for this department.</div>;
+                                                  }
+
+                                                  return displaySubjects.map((subj) => {
+                                                    const allowedClasses = selectedLabForSchedule.allowed_classes || [];
+                                                    const hasRestriction = allowedClasses.length > 0;
+                                                    const allowedSectionsForYear = allowedClasses
+                                                      .filter(c => c.year === subj.year)
+                                                      .map(c => c.section);
+                                                    const currentHours = editableHours[subj.id] !== undefined ? editableHours[subj.id] : (subj.hours_per_week || 1);
+                                                    const isEditingHours = editableHours[subj.id] !== undefined;
+
+                                                    return (
+                                                    <CommandItem
+                                                      key={subj.id}
+                                                      value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
+                                                      onSelect={() => {}}
+                                                      className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
+                                                    >
+                                                      <div className="flex flex-col text-left w-full group/item">
+                                                        <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
+                                                          <div className="flex items-center gap-1.5">
+                                                            {/* Editable hours */}
+                                                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                                              <input
+                                                                type="number"
+                                                                min={1}
+                                                                max={7}
+                                                                value={currentHours}
+                                                                onChange={e => setEditableHours(prev => ({ ...prev, [subj.id]: parseInt(e.target.value) || 1 }))}
+                                                                className="w-10 text-center text-[11px] border rounded px-1 py-0.5 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 font-bold focus:outline-none"
+                                                                title="Edit hours per week for this subject"
+                                                              />
+                                                              <span className="text-[9px] text-muted-foreground">hr</span>
+                                                              {isEditingHours && (
+                                                                <button
+                                                                  onClick={e => { e.stopPropagation(); handleSaveHours(subj.id); }}
+                                                                  className="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded font-bold hover:bg-emerald-600"
+                                                                >Save</button>
+                                                              )}
+                                                            </div>
+                                                            <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
+                                                          </div>
+                                                        </div>
+                                                        {/* Show department name */}
+                                                        {subj.departments?.name && (
+                                                          <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 mb-1 truncate bg-violet-50 dark:bg-violet-900/30 px-1.5 py-0.5 rounded w-fit">
+                                                            Dept: {subj.departments.name}
+                                                          </span>
+                                                        )}
+                                                        <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
+                                                          {allSections.map((section) => {
+                                                            const isLabAllowed = !hasRestriction ||
+                                                              allowedSectionsForYear.includes(section) ||
+                                                              allowedSectionsForYear.includes('All Sections');
+                                                            
+                                                            const alreadyBooked = isSectionBookedForSubject(subj, section);
+                                                            const isAvailable = isLabAllowed && !alreadyBooked;
+
+                                                            const title = !isLabAllowed
+                                                              ? `Sec ${section} not allowed in this lab`
+                                                              : alreadyBooked
+                                                                ? `Sec ${section} already allocated for this subject`
+                                                                : `Assign to Sec ${section}`;
+
+                                                            return (
+                                                              <Button
+                                                                key={section}
+                                                                size="sm"
+                                                                variant="outline"
+                                                                disabled={!isAvailable}
+                                                                title={title}
+                                                                className={`h-7 w-7 p-0 text-[10px] font-bold transition-colors ${
+                                                                  alreadyBooked
+                                                                    ? 'opacity-40 cursor-not-allowed bg-red-50 border-red-200 text-red-400'
+                                                                    : isAvailable
+                                                                      ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
+                                                                      : 'opacity-30 cursor-not-allowed'
+                                                                }`}
+                                                                onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  if (!isAvailable) return;
+                                                                  const slot = {
+                                                                    day: day.value,
+                                                                    startTime: period.startTime,
+                                                                    endTime: period.endTime,
+                                                                    slotNumber: parseInt(period.id.replace('P', '')),
+                                                                    labId: selectedLabForSchedule.id
+                                                                  };
+                                                                  const deptName = subj.departments?.name || '';
+                                                                  const allocationInfo = deptName
+                                                                    ? `${deptName} • Year ${subj.year} Sec ${section} - ${subj.name}`
+                                                                    : `Year ${subj.year} Sec ${section} - ${subj.name}`;
+                                                                  handleAddSchedule(slot, subj.id, allocationInfo);
+                                                                  setOpenPopoverId(null);
+                                                                }}
+                                                              >
+                                                                {section}
+                                                              </Button>
+                                                            );
+                                                          })}
+                                                        </div>
+                                                      </div>
+                                                    </CommandItem>
+                                                    );
+                                                  });
+                                                })()}
+                                              </CommandGroup>
+                                            </CommandList>
+                                          </Command>
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex gap-6 text-sm justify-center pt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 bg-emerald-500/20 border border-emerald-500 rounded"></div>
+                        <span className="text-xs font-semibold">Allocated Lab Session</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-600 font-bold text-xs">Accessible</span>
+                        <span className="text-xs font-semibold">Add Session</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-12 text-center text-muted-foreground bg-card rounded-xl border">
+                    Select a laboratory room from the dropdown above to view or edit its allocation schedule.
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
           </div>
         </section>
       </main>
-
-      {/* Schedule View Modal */}
-      <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
-            <DialogTitle>
-              Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedLabForSchedule && (
-            <div className="space-y-4">
-              {/* Lab Info */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-muted/20 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Allocation</p>
-                  {selectedLabForSchedule.allowed_classes && selectedLabForSchedule.allowed_classes.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {selectedLabForSchedule.allowed_classes.map((cls: any, idx: number) => (
-                        <Badge key={idx} variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
-                          Yr {cls.year} • {cls.section}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (selectedLabForSchedule.year || selectedLabForSchedule.section) ? (
-                    <div className="mt-1">
-                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">
-                        {selectedLabForSchedule.year ? `Year ${selectedLabForSchedule.year}` : ''} {selectedLabForSchedule.section ? `• Sec ${selectedLabForSchedule.section}` : ''}
-                      </Badge>
-                    </div>
-                  ) : (
-                    <p className="font-semibold text-orange-600">Shared Campus Facility</p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room</p>
-                  <p className="font-semibold">{selectedLabForSchedule.room_number || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Capacity</p>
-                  <p className="font-semibold">{selectedLabForSchedule.capacity} students</p>
-                </div>
-              </div>
-
-
-              {/* Schedule Table */}
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="w-24 font-bold text-center border-r">Day / Period</TableHead>
-                      {periods.map((period) => (
-                        <TableHead key={period.id} className="text-center border-r min-w-[100px]">
-                          <div className="space-y-1">
-                            <div className="font-bold text-sm">{period.id}</div>
-                            <div className="text-xs text-muted-foreground">{period.time}</div>
-                          </div>
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[
-                      { name: 'Monday', value: 1 },
-                      { name: 'Tuesday', value: 2 },
-                      { name: 'Wednesday', value: 3 },
-                      { name: 'Thursday', value: 4 },
-                      { name: 'Friday', value: 5 },
-                      { name: 'Saturday', value: 6 }
-                    ].map((day) => (
-                      <TableRow key={day.name} className="hover:bg-muted/20">
-                        <TableCell className="font-medium text-center border-r bg-muted/30">
-                          {day.name}
-                        </TableCell>
-                        {periods.map((period) => {
-                          const slotNumber = parseInt(period.id.replace('P', ''));
-                          const scheduleForPeriod = getScheduleForPeriod(day.value, slotNumber);
-
-                          const parsedInfo = scheduleForPeriod ? parseScheduleInfo(scheduleForPeriod.semester || "Allocated") : null;
-
-                          return (
-                            <TableCell key={period.id} className="text-center p-2 border-r text-xs align-middle">
-                              {scheduleForPeriod && parsedInfo ? (
-                                <div className="relative group w-full h-full min-h-[50px] flex flex-col items-center justify-center">
-                                  {parsedInfo.year ? (
-                                    <>
-                                      <div className="text-[10px] font-medium text-muted-foreground leading-tight mb-1">
-                                        {parsedInfo.year} {parsedInfo.section ? `• ${parsedInfo.section}` : ''}
-                                      </div>
-                                      <div className="font-bold text-foreground text-center leading-tight px-1">
-                                        {parsedInfo.subject}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="font-bold text-foreground text-center leading-tight px-1 text-[11px]">
-                                      {parsedInfo.raw}
-                                    </div>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="absolute -top-1 -right-1 h-5 w-5 bg-background/80 hover:bg-destructive hover:text-white text-destructive shadow-sm rounded-full opacity-0 group-hover:opacity-100 transition-all z-10"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoveSchedule(scheduleForPeriod.id);
-                                    }}
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Popover
-                                  open={openPopoverId === `${day.value}-${period.id}`}
-                                  onOpenChange={(open) => setOpenPopoverId(open ? `${day.value}-${period.id}` : null)}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      role="combobox"
-                                      className="h-10 w-full justify-between border-none bg-transparent hover:bg-muted/50 focus:ring-0 shadow-none px-2"
-                                    >
-                                      <span className="text-primary text-xs font-medium truncate">Accessible</span>
-                                      <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-[280px] p-0 overflow-hidden shadow-xl border-2" align="start">
-                                    <Command>
-                                      <CommandInput placeholder="Search subject..." className="h-9 border-b" />
-                                      <CommandList
-                                        className="max-h-[350px] overflow-y-auto scrollbar-thin"
-                                      >
-                                        <CommandEmpty>No subject found.</CommandEmpty>
-                                        <CommandGroup>
-                                          {itAdsLabs.map((subj) => (
-                                            <CommandItem
-                                              key={subj.id}
-                                              value={subj.name}
-                                              onSelect={() => {
-                                                const slot = {
-                                                  day: day.value,
-                                                  startTime: period.startTime,
-                                                  endTime: period.endTime,
-                                                  slotNumber: parseInt(period.id.replace('P', '')),
-                                                  labId: selectedLabForSchedule.id
-                                                };
-                                                handleAddSchedule(slot, subj.id);
-                                                setOpenPopoverId(null);
-                                              }}
-                                              className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
-                                            >
-                                              <div className="flex flex-col text-left w-full group/item">
-                                                <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
-                                                  <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
-                                                      {subj.hours_per_week || 1}h
-                                                    </span>
-                                                    <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
-                                                  </div>
-                                                </div>
-                                                <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
-                                                  {(() => {
-                                                    // Get allowed sections for this subject's year from the lab's allowed_classes
-                                                    const allowedClasses = selectedLabForSchedule.allowed_classes || [];
-                                                    const allowedSectionsForYear = allowedClasses
-                                                      .filter(c => c.year === subj.year)
-                                                      .map(c => c.section);
-                                                    // All possible sections to display
-                                                    const allSections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-                                                    // If no allowed_classes defined, show all sections (no restriction)
-                                                    const hasRestriction = allowedClasses.length > 0;
-                                                    return allSections.map((section) => {
-                                                      const isAllowed = !hasRestriction || 
-                                                        allowedSectionsForYear.includes(section) || 
-                                                        allowedSectionsForYear.includes('All Sections');
-                                                      return (
-                                                        <Button
-                                                          key={section}
-                                                          size="sm"
-                                                          variant="outline"
-                                                          disabled={!isAllowed}
-                                                          title={!isAllowed ? `Sec ${section} is not allowed in this lab` : `Assign to Sec ${section}`}
-                                                          className={`h-7 w-7 p-0 text-[10px] font-bold transition-colors ${
-                                                            isAllowed
-                                                              ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
-                                                              : 'opacity-30 cursor-not-allowed'
-                                                          }`}
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            if (!isAllowed) return;
-                                                            const slot = {
-                                                              day: day.value,
-                                                              startTime: period.startTime,
-                                                              endTime: period.endTime,
-                                                              slotNumber: parseInt(period.id.replace('P', '')),
-                                                              labId: selectedLabForSchedule.id
-                                                            };
-                                                            const allocationInfo = `Year ${subj.year} Sec ${section} - ${subj.name}`;
-                                                            handleAddSchedule(slot, subj.id, allocationInfo);
-                                                            setOpenPopoverId(null);
-                                                          }}
-                                                        >
-                                                          {section}
-                                                        </Button>
-                                                      );
-                                                    });
-                                                  })()}
-                                                </div>
-                                              </div>
-                                            </CommandItem>
-                                          ))}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                  </PopoverContent>
-                                </Popover>
-                              )}
-                            </TableCell>
-                          );
-                        })}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Legend */}
-              <div className="flex gap-6 text-sm justify-center">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                  <span>Regular Classes</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-yellow-500 rounded"></div>
-                  <span>Special Activities</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-primary font-medium">Accessible</span>
-                  <span>Add Lab Session</span>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button onClick={() => setScheduleViewDialog(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Add Extra Class Dialog */}
       <Dialog open={extraClassDialog} onOpenChange={setExtraClassDialog}>

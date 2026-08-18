@@ -5,13 +5,17 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SelectionHeader from '@/components/admin/SelectionHeader';
+import { Upload } from 'lucide-react';
 import Navbar from '@/components/navbar/facultyadmin';
+import { useTimetableStore } from '@/store/timetableStore';
+import { calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
 
 interface YearStats {
   year: string;
   subjects: number;
   totalHours: number;
 }
+
 
 const AdminDepartmentYears = () => {
   const navigate = useNavigate();
@@ -25,34 +29,99 @@ const AdminDepartmentYears = () => {
     return null;
   }, [adminUser, facultyUser]);
 
-  const departmentId = sessionUser?.department_id;
   const [deptName, setDeptName] = useState<string>("");
   const [yearStats, setYearStats] = useState<YearStats[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+  const [activeDeptId, setActiveDeptId] = useState<string>("");
+
   useEffect(() => {
-    if (!userType || !departmentId) {
-      navigate('/', { replace: true });
+    if (!sessionUser) return;
+
+    // First try admin_departments table for multi-dept support
+    (async () => {
+      let deptIds: string[] = [];
+
+      if (sessionUser.id) {
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', sessionUser.id);
+
+        if (adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        }
+      }
+
+      // Fallback: legacy fields
+      if (deptIds.length === 0) {
+        if (sessionUser.department_ids && sessionUser.department_ids.length > 0) {
+          deptIds = sessionUser.department_ids;
+        } else if (sessionUser.department_id) {
+          deptIds = [sessionUser.department_id];
+        }
+      }
+
+      if (deptIds.length > 0) {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .in('id', deptIds)
+          .order('name');
+
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          const currentActive = data[0]?.id || sessionUser.department_id;
+          setActiveDeptId(currentActive || '');
+        }
+      }
+    })();
+  }, [adminUser, facultyUser, sessionUser]);
+
+  useEffect(() => {
+    if (!userType || !activeDeptId) {
       return;
     }
 
     (async () => {
+      setLoading(true);
       try {
-        const [deptRes, subsRes] = await Promise.all([
-          (supabase as any).from('departments').select('name').eq('id', departmentId).single(),
-          (supabase as any).from('subjects').select('year,hours_per_week').eq('department_id', departmentId),
+        const [deptRes, subsRes, specialRes, oeRes] = await Promise.all([
+          (supabase as any).from('departments').select('name').eq('id', activeDeptId).single(),
+          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', activeDeptId),
+          (supabase as any).from('special_hours_config').select('year,special_type,total_hours,is_active').eq('department_id', activeDeptId).eq('is_active', true),
+          (supabase as any).from('open_elective_settings').select('year,hours').eq('department_id', activeDeptId),
         ]);
 
         setDeptName(deptRes?.data?.name || "");
 
         const subs = subsRes.data || [];
+        const specialConfigs = specialRes.data || [];
+        const oeSettingsList = oeRes?.data || [];
         const map = new Map<string, { subjects: number; totalHours: number }>();
-        subs.forEach((s: any) => {
-          const cur = map.get(s.year) || { subjects: 0, totalHours: 0 };
-          cur.subjects += 1; 
-          cur.totalHours += s.hours_per_week || 0;
-          map.set(s.year, cur);
-        });
+
+        for (const yr of ['I', 'II', 'III', 'IV']) {
+          const yrSubs = subs.filter((s: any) => s.year === yr);
+          const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
+          const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
+
+          let oeHoursSetting = 5;
+          const foundOe = oeSettingsList.find((o: any) => o.year === yr);
+          if (foundOe && typeof foundOe.hours === 'number') {
+            oeHoursSetting = foundOe.hours;
+          } else {
+            oeHoursSetting = await getOpenElectiveHours(activeDeptId, yr).catch(() => 5);
+          }
+
+          const calc = calculateYearGrandTotalHours({
+            subjects: yrSubs,
+            specialConfigHours: configSpecialHours,
+            openElectiveHoursSetting: oeHoursSetting
+          });
+
+          map.set(yr, { subjects: calc.subjectsCount, totalHours: calc.grandTotalHours });
+        }
 
         const arr = ['I', 'II', 'III', 'IV'].map(yr => ({
           year: yr,
@@ -66,7 +135,7 @@ const AdminDepartmentYears = () => {
         setLoading(false);
       }
     })();
-  }, [userType, departmentId, navigate]);
+  }, [userType, activeDeptId, navigate]);
 
   const handleManageYear = (year: string) => {
     if (userType === 'admin') {
@@ -82,7 +151,48 @@ const AdminDepartmentYears = () => {
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
         <SelectionHeader />
         <section className="container py-4">
+          {allocatedDepts.length > 0 && (
+            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === activeDeptId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => {
+                      setActiveDeptId(dept.id);
+                      if (adminUser) {
+                        const parsed = JSON.parse(adminUser);
+                        parsed.department_id = dept.id;
+                        localStorage.setItem("adminUser", JSON.stringify(parsed));
+                      }
+                      useTimetableStore.setState(state => ({
+                        ...state,
+                        selection: { ...state.selection, department: dept.name }
+                      }));
+                    }}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Course Subjects</h1>
+              <p className="text-sm text-muted-foreground">Select a year to manage subjects or upload curriculum in bulk.</p>
+            </div>
+            {userType === 'admin' && (
+              <Button onClick={() => navigate('/csv-upload')} className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                <span>Bulk Import CSV</span>
+              </Button>
+            )}
           </header>
 
           <div className="grid gap-4 md:grid-cols-2">

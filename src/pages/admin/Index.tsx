@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useTimetableStore } from "@/store/timetableStore";
 import { getDepartmentByName, getTimetable } from "@/lib/supabaseService";
@@ -7,7 +7,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { GeneratedTimetablesGallery } from "@/components/admin/GeneratedTimetablesGallery";
+import { GenerateWizardModal, WizardSelection } from "@/components/admin/GenerateWizardModal";
+import type { YearSectionResult } from "@/lib/timetable";
 import {
   Users,
   BookOpen,
@@ -17,7 +21,13 @@ import {
   Database,
   Sparkles,
   ChevronRight,
+  Zap,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+  X,
 } from "lucide-react";
+
 
 const years = ["I", "II", "III", "IV"];
 const sections = ["A", "B", "C"];
@@ -26,7 +36,7 @@ interface AdminUser {
   id: string;
   name: string;
   email: string;
-  department_id: string;
+  department_id: string | null;
   is_active: boolean;
 }
 
@@ -48,8 +58,44 @@ const Index = () => {
   const [stats, setStats] = useState<DashboardStats>({ subjects: 0, faculty: 0, timetables: 0 });
   const [loading, setLoading] = useState(true);
   const loadingRef = useRef(true);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  // ── Generate Wizard State ───────────────────────────────────────────────
+  const [showWizard, setShowWizard] = useState(false);
+  const [selectedDashboardDepts, setSelectedDashboardDepts] = useState<string[]>([]);
+
+  const handleWizardProceed = useCallback((selections: { departmentName: string; selectedYears: WizardSelection[] }[]) => {
+    navigate("/admin/generate-review", {
+      state: {
+        selections,
+      },
+    });
+  }, [navigate]);
 
   const ready = selection.department && selection.year && selection.section;
+
+
+  // Load combined stats across all allocated departments
+  const loadStatsForDepts = useCallback(async (deptIds: string[]) => {
+    if (!deptIds || deptIds.length === 0) return;
+    setStatsLoading(true);
+    try {
+      const [subjectsRes, facultyRes, timetablesRes] = await Promise.all([
+        (supabase as any).from('subjects').select('id', { count: 'exact', head: true }).in('department_id', deptIds),
+        (supabase as any).from('faculty_members').select('id', { count: 'exact', head: true }).in('department_id', deptIds),
+        (supabase as any).from('timetables').select('id', { count: 'exact', head: true }).in('department_id', deptIds)
+      ]);
+      setStats({
+        subjects: subjectsRes.count || 0,
+        faculty: facultyRes.count || 0,
+        timetables: timetablesRes.count || 0,
+      });
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const adminData = localStorage.getItem("adminUser");
@@ -62,7 +108,7 @@ const Index = () => {
 
     try {
       const parsedAdmin = JSON.parse(adminData);
-      if (!parsedAdmin || !parsedAdmin.department_id) {
+      if (!parsedAdmin || !parsedAdmin.id) {
         throw new Error("Invalid admin data");
       }
 
@@ -70,10 +116,34 @@ const Index = () => {
 
       (async () => {
         try {
+          // First, try to load all departments from admin_departments table
+          const { data: adminDepts, error: adminDeptsError } = await (supabase as any)
+            .from('admin_departments')
+            .select('department_id')
+            .eq('admin_id', parsedAdmin.id);
+
+          let deptIds: string[] = [];
+
+          if (!adminDeptsError && adminDepts && adminDepts.length > 0) {
+            deptIds = adminDepts.map((d: any) => d.department_id);
+          } else if (parsedAdmin.department_id) {
+            // Fallback: use the legacy single department_id
+            deptIds = [parsedAdmin.department_id];
+          }
+
+          if (deptIds.length === 0) {
+            toast.error('No departments found. Please contact your Super Admin.');
+            setLoading(false);
+            loadingRef.current = false;
+            return;
+          }
+
+          // Fetch full department details
           const { data: deptData, error: deptError } = await (supabase as any)
             .from('departments')
             .select('*')
-            .eq('id', parsedAdmin.department_id);
+            .in('id', deptIds)
+            .order('name');
 
           if (deptError) throw deptError;
           if (!deptData || deptData.length === 0) {
@@ -85,18 +155,10 @@ const Index = () => {
 
           setDepartments(deptData);
           setSelection({ department: deptData[0].name });
+          setSelectedDashboardDepts(deptData.map(d => d.name));
 
-          const [subjectsRes, facultyRes, timetablesRes] = await Promise.all([
-            (supabase as any).from('subjects').select('id', { count: 'exact', head: true }).eq('department_id', parsedAdmin.department_id),
-            (supabase as any).from('faculty_members').select('id', { count: 'exact', head: true }).eq('department_id', parsedAdmin.department_id),
-            (supabase as any).from('timetables').select('id', { count: 'exact', head: true }).eq('department_id', parsedAdmin.department_id)
-          ]);
-
-          setStats({
-            subjects: subjectsRes.count || 0,
-            faculty: facultyRes.count || 0,
-            timetables: timetablesRes.count || 0,
-          });
+          // Load stats combined for all allocated departments
+          await loadStatsForDepts(deptIds);
 
           setLoading(false);
           loadingRef.current = false;
@@ -123,7 +185,7 @@ const Index = () => {
     }
 
     return () => timeoutId && clearTimeout(timeoutId);
-  }, [navigate, setSelection]);
+  }, [navigate, setSelection, loadStatsForDepts]);
 
   useEffect(() => {
     (async () => {
@@ -259,8 +321,12 @@ const Index = () => {
               >
                 <div className="relative">
                   <p className={`text-sm font-semibold ${textSecondary} mb-3`}>Total {card.label}</p>
-                  <p className={`text-5xl font-bold tracking-tight ${textPrimary} mb-2`}>{card.value}</p>
-                  <p className={`text-sm ${textMuted} truncate`}>{selection.department || "—"}</p>
+                  <p className={`text-5xl font-bold tracking-tight ${textPrimary} mb-2 transition-opacity duration-200 ${statsLoading ? 'opacity-30' : 'opacity-100'}`}>
+                    {statsLoading ? '—' : card.value}
+                  </p>
+                  <p className={`text-sm font-medium ${textMuted} truncate`}>
+                    {departments.map(d => d.name).join(", ") || "All Allocated Depts"}
+                  </p>
                 </div>
               </div>
             ))}
@@ -272,74 +338,56 @@ const Index = () => {
             {/* Generate Timetable — wider */}
             <div className={`lg:col-span-3 rounded-2xl ${cardBg} border ${cardBorder} shadow-sm overflow-hidden`}>
               <div className={`px-6 pt-6 pb-4 border-b ${divider}`}>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <h2 className={`text-base font-bold ${textPrimary}`}>Generate Timetable</h2>
                 </div>
-                <p className={`text-sm ${textMuted}`}>Select parameters to start generating or editing a timetable.</p>
+                <p className={`text-sm ${textMuted}`}>Select departments to configure and generate timetables using the multi-step wizard.</p>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="p-6 space-y-6">
                 {/* Department */}
-                <div className="space-y-1.5">
-                  <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Department</label>
-                  <Select onValueChange={(v) => setSelection({ department: v })} value={selection.department}>
-                    <SelectTrigger className={`h-11 rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 ${inputBg}`}>
-                      <SelectValue placeholder="Select Department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((d) => (
-                        <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Year & Section */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Year</label>
-                    <Select onValueChange={(v) => setSelection({ year: v })} value={selection.year}>
-                      <SelectTrigger className={`h-11 rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 ${inputBg}`}>
-                        <SelectValue placeholder="Select Year" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {years.map((y) => (
-                          <SelectItem key={y} value={y}>Year {y}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Section</label>
-                    <Select onValueChange={(v) => setSelection({ section: v })} value={selection.section}>
-                      <SelectTrigger className={`h-11 rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 ${inputBg}`}>
-                        <SelectValue placeholder="Select Section" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sections.map((s) => (
-                          <SelectItem key={s} value={s}>Section {s}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-2">
+                  <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Departments</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {departments.map((d) => {
+                      const isChecked = selectedDashboardDepts.includes(d.name);
+                      return (
+                        <div
+                          key={d.id}
+                          onClick={() => {
+                            if (isChecked) {
+                              setSelectedDashboardDepts(prev => prev.filter(name => name !== d.name));
+                            } else {
+                              setSelectedDashboardDepts(prev => [...prev, d.name]);
+                            }
+                          }}
+                          className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-200 select-none ${
+                            isChecked
+                              ? "bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-450 font-semibold"
+                              : `${inputBg} border-white/10 hover:border-white/20`
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={() => {}} // parent onClick handles the change
+                            className="border-white/30 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                          />
+                          <span className="text-sm font-semibold truncate">{d.name}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 {/* Actions */}
                 <div className="flex items-center justify-end gap-3 pt-2">
-                  {ready && existingTimetable && (
-                    <button
-                      onClick={() => navigate('/timetable')}
-                      className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-200 ${editBtn}`}
-                    >
-                      Edit
-                    </button>
-                  )}
                   <button
-                    onClick={() => navigate('/subjects')}
-                    disabled={!ready || checking}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
+                    onClick={() => setShowWizard(true)}
+                    disabled={selectedDashboardDepts.length === 0}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
                   >
-                    {existingTimetable ? 'Edit Schedule' : (checking ? 'Checking…' : 'Generate New')}
+                    <Zap className="h-4 w-4" />
+                    Generate Timetable
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -385,6 +433,15 @@ const Index = () => {
           </div>
         </div>
       </main>
+
+      {/* ── Generate Wizard Modal ── */}
+      <GenerateWizardModal
+        open={showWizard}
+        onClose={() => setShowWizard(false)}
+        departments={departments}
+        defaultDepartmentNames={selectedDashboardDepts}
+        onProceed={handleWizardProceed}
+      />
     </div>
   );
 };

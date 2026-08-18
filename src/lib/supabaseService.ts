@@ -15,6 +15,7 @@ type DbSubject = {
   staff: string | null;
   max_faculty_count?: number;
   credits?: number;
+  elective_group_name?: string | null;
 };
 
 type DbDepartment = { id: string; name: string };
@@ -64,6 +65,75 @@ export async function ensureDepartment(name: string): Promise<DbDepartment> {
 }
 
 // Subject operations
+export interface CalculateHoursParams {
+  subjects: Array<{
+    type: string;
+    hours_per_week?: number;
+    hoursPerWeek?: number;
+    tags?: string[];
+  }>;
+  specialConfigHours?: number;
+  openElectiveHoursSetting?: number;
+}
+
+export function calculateYearGrandTotalHours({
+  subjects,
+  specialConfigHours = 0,
+  openElectiveHoursSetting = 5
+}: CalculateHoursParams) {
+  const subjectsCount = subjects.length;
+
+  const traditionalTheory = subjects
+    .filter(s => s.type === 'theory')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const labHours = subjects
+    .filter(s => s.type === 'lab')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const pes = subjects.filter(s => s.type === 'elective');
+  let electiveHours = 0;
+  if (pes.length > 0) {
+    const peGroups = new Map<string, number>();
+    let untaggedSum = 0;
+    pes.forEach(s => {
+      const groupTag = (s.tags || []).find(t => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
+      const h = s.hours_per_week ?? s.hoursPerWeek ?? 0;
+      if (groupTag) {
+        peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, h));
+      } else {
+        untaggedSum += h;
+      }
+    });
+    electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + untaggedSum;
+  }
+
+  const oes = subjects.filter(s => s.type === 'open elective');
+  const openElectiveHours = oes.length > 0 ? openElectiveHoursSetting : 0;
+
+  const theoryHours = traditionalTheory + electiveHours + openElectiveHours;
+
+  const subjectSpecialHours = subjects
+    .filter(s => s.type === 'special')
+    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+
+  const totalSpecialHours = specialConfigHours + subjectSpecialHours;
+  const totalSubjectHours = theoryHours + labHours;
+  const grandTotalHours = totalSubjectHours + totalSpecialHours;
+
+  return {
+    subjectsCount,
+    theoryHours,
+    labHours,
+    electiveHours,
+    openElectiveHours,
+    subjectSpecialHours,
+    totalSpecialHours,
+    totalSubjectHours,
+    grandTotalHours
+  };
+}
+
 export async function getSubjectsForYear(departmentId: string, year: string): Promise<Subject[]> {
   const { data, error } = await (supabase as any)
     .from('subjects')
@@ -147,6 +217,81 @@ export async function getOpenElectiveHours(departmentId: string, year: string): 
   } catch {
     return 0;
   }
+}
+
+export interface OpenElectiveConfig {
+  hours: number;
+  group_name: string;
+  is_shared_slot: boolean;
+  selected_slots?: string[];
+}
+
+export async function getOpenElectiveConfig(departmentId: string, year: string): Promise<OpenElectiveConfig> {
+  const defaultConfig: OpenElectiveConfig = {
+    hours: 5,
+    group_name: "Open elective",
+    is_shared_slot: true,
+    selected_slots: ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+  };
+  try {
+    const { data, error } = await (supabase as any)
+      .from('open_elective_settings')
+      .select('hours, group_name, is_shared_slot, selected_slots')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .maybeSingle();
+    if (!error && data) {
+      let slots = defaultConfig.selected_slots;
+      if (Array.isArray(data.selected_slots) && data.selected_slots.length > 0) {
+        slots = data.selected_slots;
+      }
+      return {
+        hours: typeof data.hours === 'number' ? data.hours : defaultConfig.hours,
+        group_name: data.group_name || defaultConfig.group_name,
+        is_shared_slot: data.is_shared_slot !== undefined ? Boolean(data.is_shared_slot) : true,
+        selected_slots: slots,
+      };
+    }
+  } catch (e: any) {}
+  try {
+    const key = `oe_config:${departmentId}:${year}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        hours: typeof parsed.hours === 'number' ? parsed.hours : defaultConfig.hours,
+        group_name: parsed.group_name || defaultConfig.group_name,
+        is_shared_slot: parsed.is_shared_slot !== undefined ? Boolean(parsed.is_shared_slot) : true,
+        selected_slots: Array.isArray(parsed.selected_slots) && parsed.selected_slots.length > 0 ? parsed.selected_slots : defaultConfig.selected_slots,
+      };
+    }
+  } catch {}
+  return defaultConfig;
+}
+
+export async function setOpenElectiveConfig(
+  departmentId: string,
+  year: string,
+  config: OpenElectiveConfig
+): Promise<void> {
+  try {
+    await (supabase as any)
+      .from('open_elective_settings')
+      .upsert({
+        department_id: departmentId,
+        year,
+        hours: config.hours,
+        group_name: config.group_name,
+        is_shared_slot: config.is_shared_slot,
+        selected_slots: config.selected_slots || ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+      })
+      .maybeSingle();
+  } catch (e: any) {}
+  try {
+    const key = `oe_config:${departmentId}:${year}`;
+    localStorage.setItem(key, JSON.stringify(config));
+    localStorage.setItem(`oe_hours:${departmentId}:${year}`, String(config.hours));
+  } catch {}
 }
 
 export async function setOpenElectiveHours(
@@ -337,6 +482,7 @@ function dbSubjectToSubject(dbSubject: DbSubject): Subject {
     staff: dbSubject.staff || undefined,
     maxFacultyCount: dbSubject.max_faculty_count,
     credits: dbSubject.credits || 3,
+    elective_group_name: dbSubject.elective_group_name || undefined,
   };
 }
 
@@ -570,6 +716,34 @@ export async function getCurrentTimetablesByDept(deptId: string): Promise<Array<
     .order('updated_at', { ascending: false });
   if (error) throw error;
   return (data || []) as any[];
+}
+
+// Load special hours configs for a department + year (for batch generation)
+export async function getSpecialHoursConfigsForYear(
+  departmentId: string,
+  year: string
+): Promise<import('@/store/timetableStore').SpecialHoursConfig[]> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('special_hours_config')
+      .select('*')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .eq('is_active', true);
+    if (error) return [];
+    return (data || []).map((c: any) => ({
+      id: c.id,
+      special_type: c.special_type,
+      total_hours: c.total_hours,
+      saturday_hours: c.saturday_hours,
+      weekdays_hours: c.weekdays_hours,
+      saturday_periods: Array.isArray(c.saturday_periods) ? c.saturday_periods : [],
+      weekdays_periods: Array.isArray(c.weekdays_periods) ? c.weekdays_periods : [],
+      is_active: c.is_active,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // For a given section, fetch subject ids taught by a faculty (precise class mapping preferred)
@@ -1307,6 +1481,59 @@ export async function getSubjectFacultyMapByDeptName(
   const dept = await getDepartmentByName(departmentName);
   if (!dept) return {};
   return getSubjectFacultyMap(dept.id, year, section);
+}
+
+/**
+ * Returns a map: { subjectId: { A: 'Dr. X', B: 'Prof. Y', C: '' } }
+ * Loads section-specific faculty for all provided sections at once.
+ */
+export async function getSubjectFacultyMapAllSections(
+  departmentId: string,
+  year: string,
+  sections: string[],
+): Promise<Record<string, Record<string, string>>> {
+  if (sections.length === 0) return {};
+
+  // Fetch ALL assignments for this dept+year (all sections) in one query
+  const { data, error } = await (supabase as any)
+    .from('faculty_subject_assignments')
+    .select('subject_id, faculty_id, section')
+    .eq('department_id', departmentId)
+    .eq('year', year);
+
+  if (error || !data || data.length === 0) return {};
+
+  // Collect unique faculty IDs
+  const facultyIds: string[] = Array.from(new Set((data as any[]).map((r: any) => r.faculty_id).filter(Boolean)));
+  if (facultyIds.length === 0) return {};
+
+  const { data: facRows } = await (supabase as any)
+    .from('faculty_members')
+    .select('id, name')
+    .in('id', facultyIds);
+
+  const idToName = new Map<string, string>();
+  (facRows || []).forEach((r: any) => idToName.set(r.id, r.name));
+
+  // Build map: { subjectId: { 'A': 'Prof. Name', 'B': '...', ... } }
+  const result: Record<string, Record<string, string>> = {};
+  for (const row of data as any[]) {
+    const sec = row.section as string | null;
+    const subId = row.subject_id as string;
+    const facName = idToName.get(row.faculty_id) ?? '';
+    if (!subId) continue;
+    if (!result[subId]) result[subId] = {};
+    if (sec && sections.includes(sec)) {
+      result[subId][sec] = facName;
+    } else if (!sec) {
+      // Year-wide assignment — fill all sections that don't have a specific entry
+      for (const s of sections) {
+        if (!result[subId][s]) result[subId][s] = facName;
+      }
+    }
+  }
+
+  return result;
 }
 
 // Year management
