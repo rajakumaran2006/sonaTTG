@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createPullRequest } from "@/lib/supabaseService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, CheckCircle, LayoutGrid, List } from "lucide-react";
+import { AlertCircle, CheckCircle, LayoutGrid, List, Pencil, ArrowLeftRight, X } from "lucide-react";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 
@@ -65,6 +65,110 @@ function Timetable() {
     labDays: Record<string, number[]>;
   } | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
+
+  // Manual edit mode state
+  const [editMode, setEditMode] = useState(false);
+  const [swapSource, setSwapSource] = useState<{ day: number; period: number } | null>(null);
+  const [editDropdown, setEditDropdown] = useState<{ day: number; period: number; x: number; y: number } | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Map display column index (0-9) to actual data column index (0-6), returns -1 for BREAK/LUNCH
+  const displayToDataCol = (displayIdx: number): number => {
+    // Display: [P1, P2, BREAK, P3, P4, LUNCH, P5, P6, BREAK, P7]
+    // Data:    [0,  1,  -1,    2,  3,  -1,    4,  5,  -1,    6 ]
+    const map = [0, 1, -1, 2, 3, -1, 4, 5, -1, 6];
+    return map[displayIdx] ?? -1;
+  };
+
+  const isEditableCell = (displayIdx: number): boolean => {
+    return displayToDataCol(displayIdx) !== -1;
+  };
+
+  // Handle cell click in edit mode (swap logic)
+  const handleCellClick = useCallback((dayIdx: number, displayColIdx: number) => {
+    if (!editMode) return;
+    const dataCol = displayToDataCol(displayColIdx);
+    if (dataCol === -1) return; // Can't edit BREAK/LUNCH
+
+    if (!swapSource) {
+      // First click: select source cell
+      setSwapSource({ day: dayIdx, period: dataCol });
+      toast({ title: 'Cell selected', description: 'Click another cell to swap, or click the same cell to deselect.' });
+    } else if (swapSource.day === dayIdx && swapSource.period === dataCol) {
+      // Same cell clicked: deselect
+      setSwapSource(null);
+    } else {
+      // Second click: perform swap
+      const newGrid = timetable.map(row => [...row]);
+      const temp = newGrid[swapSource.day][swapSource.period];
+      newGrid[swapSource.day][swapSource.period] = newGrid[dayIdx][dataCol];
+      newGrid[dayIdx][dataCol] = temp;
+      setTimetable(newGrid);
+      setSwapSource(null);
+      toast({ title: 'Cells swapped', description: `Swapped ${DAYS[swapSource.day]} P${swapSource.period + 1} ↔ ${DAYS[dayIdx]} P${dataCol + 1}` });
+    }
+  }, [editMode, swapSource, timetable, setTimetable, toast]);
+
+  // Handle right-click to open subject picker dropdown
+  const handleCellRightClick = useCallback((e: React.MouseEvent, dayIdx: number, displayColIdx: number) => {
+    if (!editMode) return;
+    const dataCol = displayToDataCol(displayColIdx);
+    if (dataCol === -1) return;
+    e.preventDefault();
+    setEditDropdown({ day: dayIdx, period: dataCol, x: e.clientX, y: e.clientY });
+    setSwapSource(null);
+  }, [editMode]);
+
+  // Assign a subject to a cell
+  const assignSubjectToCell = useCallback((dayIdx: number, dataCol: number, subjectName: string) => {
+    const newGrid = timetable.map(row => [...row]);
+    newGrid[dayIdx][dataCol] = subjectName;
+    setTimetable(newGrid);
+    setEditDropdown(null);
+    toast({ title: 'Period updated', description: `${DAYS[dayIdx]} Period ${dataCol + 1} → ${subjectName || '(Empty)'}` });
+  }, [timetable, setTimetable, toast]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!editDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setEditDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [editDropdown]);
+
+  // Exit edit mode resets state
+  const toggleEditMode = useCallback(() => {
+    setEditMode(prev => {
+      if (prev) {
+        setSwapSource(null);
+        setEditDropdown(null);
+      }
+      return !prev;
+    });
+  }, []);
+
+  // Check if a cell is the selected swap source
+  const isCellSelected = (dayIdx: number, displayColIdx: number): boolean => {
+    if (!swapSource) return false;
+    const dataCol = displayToDataCol(displayColIdx);
+    return swapSource.day === dayIdx && swapSource.period === dataCol;
+  };
+
+  // Build the list of assignable subjects for the dropdown
+  const getAssignableSubjects = (): string[] => {
+    const subjects = selected.map(s => s.name);
+    // Add active special hours types
+    specialHoursConfigs.filter(c => c.is_active).forEach(c => {
+      if (!subjects.includes(c.special_type)) {
+        subjects.push(c.special_type);
+      }
+    });
+    return subjects;
+  };
 
   // Auto-switch to list view on small screens or just let the user toggle
   useEffect(() => {
@@ -247,20 +351,19 @@ function Timetable() {
   }, [selection.department, selection.year, selection.section]);
 
   const exportPDF = async () => {
-    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake');
+    const pdfMake = pdfMakeModule.default || pdfMakeModule;
     const vfsFonts = await import('pdfmake/build/vfs_fonts');
-    // @ts-ignore
-    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+    // pdfmake 0.2.x: use addVirtualFileSystem or fallback to .vfs assignment
+    if (typeof pdfMake.addVirtualFileSystem === 'function') {
+      pdfMake.addVirtualFileSystem(vfsFonts);
+    } else if ((vfsFonts as any).pdfMake?.vfs) {
+      (pdfMake as any).vfs = (vfsFonts as any).pdfMake.vfs;
+    } else {
+      (pdfMake as any).vfs = vfsFonts;
+    }
 
-    const body = [
-      ['Day', ...Array.from(DISPLAY_COLUMNS)],
-      ...timetable.map((row, i) => {
-        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
-        return [DAYS[i], ...displayRow];
-      })
-    ];
-
-    // Build subject -> faculty mapping for legend
+    // Fetch subject -> faculty mapping and counselor details for current selection
     let subjectToFaculty: Record<string, string> = {};
     let pdfClassCounselorName: string | null = null;
 
@@ -268,7 +371,6 @@ function Timetable() {
       if (selection.department && selection.year && selection.section) {
         subjectToFaculty = await getSubjectFacultyMapByDeptName(selection.department, selection.year, selection.section);
 
-        // Fetch class counselor for PDF
         const department = await getDepartmentByName(selection.department);
         if (department) {
           const counselor = await getClassCounselor(department.id, selection.year, selection.section);
@@ -279,32 +381,285 @@ function Timetable() {
         }
       }
     } catch (e) {
-      // non-fatal
+      console.warn('Failed to load data for PDF export:', e);
     }
 
+    // Build the grid body
+    const body = [
+      // Table Header Row
+      [
+        { text: 'Day', style: 'tableHeader', alignment: 'center', bold: true },
+        ...DISPLAY_COLUMNS.map(col => {
+          const time = PERIOD_TIME_LABELS[col];
+          return {
+            text: time ? `${col}\n(${time})` : col,
+            style: 'tableHeader',
+            alignment: 'center',
+            bold: true
+          };
+        })
+      ],
+      // Table Data Rows
+      ...timetable.map((row, i) => {
+        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
+        
+        return [
+          { text: DAYS[i], style: 'dayHeader', alignment: 'center', bold: true },
+          ...displayRow.map((cell) => {
+            if (!cell || !cell.trim()) {
+              return { text: '', style: 'timetableCell' };
+            }
+            if (cell === 'BREAK' || cell === 'LUNCH') {
+              return { 
+                text: cell, 
+                style: 'breakCell', 
+                alignment: 'center', 
+                bold: true,
+                fillColor: '#F3F4F6',
+                color: '#6B7280'
+              };
+            }
+            
+            // Format cell content (handle open electives, etc.)
+            const formattedContent = formatCellContent(cell);
+            
+            // Find staff assigned to this slot
+            let staff = '';
+            const cellParts = cell.includes(' / ') ? cell.split(' / ').map(p => p.trim()) : [cell];
+            if (cellParts && cellParts.length > 0) {
+              const staffList = cellParts.map(part => {
+                const subj = selected.find((s) => s.name === part);
+                if (subj) {
+                  return subjectToFaculty[subj.id] || subj.staff || '';
+                }
+                return '';
+              }).filter(Boolean);
+              staff = staffList.join(' / ');
+            }
+            if (isSpecialHoursCell(cell)) {
+              staff = pdfClassCounselorName || staff;
+            }
+
+            // Determine background color based on subject type
+            const type = subjectTypeByName(cell);
+            let cellBg = '#FFFFFF';
+            
+            const isOpenElective = cellParts.some(part => {
+              const subj = selected.find((s) => s.name === part);
+              return subj?.type === 'open elective';
+            });
+
+            if (isOpenElective) {
+              cellBg = '#F3E8FF'; // purple-100
+            } else {
+              switch (type) {
+                case 'lab':
+                  cellBg = '#E0F2FE'; // sky-100
+                  break;
+                case 'special':
+                  cellBg = '#FEF3C7'; // amber-100
+                  break;
+                case 'extra-class':
+                  cellBg = '#FCE7F3'; // pink-100
+                  break;
+                default:
+                  cellBg = '#F9FAFB'; // gray-50
+                  break;
+              }
+            }
+
+            return {
+              stack: [
+                { text: formattedContent, bold: true, fontSize: 8, color: '#1F2937' },
+                staff ? { text: staff.toUpperCase(), fontSize: 6, color: '#4B5563', bold: true, margin: [0, 2, 0, 0] } : null
+              ].filter(Boolean),
+              style: 'timetableCell',
+              alignment: 'center',
+              fillColor: cellBg
+            };
+          })
+        ];
+      })
+    ];
+
+    // Build the legend body
     const legendBody = [
-      ['Course Title', 'Staff Incharge'],
-      ...selected.map((s) => [s.name, subjectToFaculty[s.id] || s.staff || '-'])
+      [
+        { text: 'Course Title', style: 'legendTableHeader', alignment: 'left' },
+        { text: 'Staff Incharge', style: 'legendTableHeader', alignment: 'left' }
+      ],
+      ...selected.map((s) => [
+        { text: s.name, style: 'legendCell' },
+        { text: subjectToFaculty[s.id] || s.staff || '-', style: 'legendCell' }
+      ])
     ];
 
     // Add special subjects to legend if they are enabled
     const specialSubjects = [];
-    if (special.seminar) specialSubjects.push(['Seminar', pdfClassCounselorName || '-']);
-    if (special.library) specialSubjects.push(['Library', pdfClassCounselorName || '-']);
-    if (special.counselling) specialSubjects.push(['Student Counselling', pdfClassCounselorName || '-']);
-
+    if (special.seminar) {
+      specialSubjects.push([
+        { text: 'Seminar', style: 'legendCell' },
+        { text: pdfClassCounselorName || '-', style: 'legendCell' }
+      ]);
+    }
+    if (special.library) {
+      specialSubjects.push([
+        { text: 'Library', style: 'legendCell' },
+        { text: pdfClassCounselorName || '-', style: 'legendCell' }
+      ]);
+    }
+    if (special.counselling) {
+      specialSubjects.push([
+        { text: 'Student Counselling', style: 'legendCell' },
+        { text: pdfClassCounselorName || '-', style: 'legendCell' }
+      ]);
+    }
     legendBody.push(...specialSubjects);
 
     const doc: any = {
+      pageSize: 'A4',
+      pageOrientation: 'landscape',
+      pageMargins: [30, 30, 30, 30],
       content: [
-        { text: 'Class Timetable', style: 'header' },
-        { table: { headerRows: 1, body } }
-        , { text: '\nSubjects & Staff', style: 'subheader' }
-        , { table: { headerRows: 1, body: legendBody } }
+        {
+          text: 'CLASS TIMETABLE',
+          style: 'mainHeader',
+          alignment: 'center'
+        },
+        {
+          style: 'metaTable',
+          table: {
+            widths: ['*', '*', '*', '*'],
+            body: [
+              [
+                { text: [{ text: 'Department: ', bold: true }, selection.department || '-'], style: 'metaText' },
+                { text: [{ text: 'Year: ', bold: true }, selection.year || '-'], style: 'metaText' },
+                { text: [{ text: 'Section: ', bold: true }, selection.section || '-'], style: 'metaText' },
+                { text: [{ text: 'Class Counselor: ', bold: true }, pdfClassCounselorName || '-'], style: 'metaText' }
+              ]
+            ]
+          },
+          layout: 'noBorders',
+          margin: [0, 0, 0, 15]
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: [35, '*', '*', 25, '*', '*', 35, '*', '*', 25, '*'],
+            body: body
+          },
+          layout: {
+            hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length) ? 1.5 : 0.5,
+            vLineWidth: (i: number, node: any) => (i === 0 || i === node.table.widths.length) ? 1.5 : 0.5,
+            hLineColor: () => '#D1D5DB',
+            vLineColor: () => '#D1D5DB',
+            paddingLeft: () => 4,
+            paddingRight: () => 4,
+            paddingTop: () => 6,
+            paddingBottom: () => 6
+          }
+        },
+        { 
+          text: 'Subjects & Faculty', 
+          style: 'legendHeader', 
+          margin: [0, 20, 0, 8] 
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['*', '*'],
+            body: legendBody
+          },
+          layout: {
+            hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length) ? 1.5 : 0.5,
+            vLineWidth: (i: number, node: any) => 0.5,
+            hLineColor: () => '#E5E7EB',
+            vLineColor: () => '#E5E7EB',
+            paddingLeft: () => 6,
+            paddingRight: () => 6,
+            paddingTop: () => 4,
+            paddingBottom: () => 4
+          }
+        }
       ],
-      styles: { header: { fontSize: 16, bold: true, margin: [0, 0, 0, 10] }, subheader: { fontSize: 12, bold: true, margin: [0, 10, 0, 6] } }
+      styles: {
+        mainHeader: {
+          fontSize: 18,
+          bold: true,
+          color: '#111827',
+          margin: [0, 0, 0, 5]
+        },
+        metaText: {
+          fontSize: 9,
+          color: '#374151'
+        },
+        tableHeader: {
+          fontSize: 8,
+          bold: true,
+          color: '#FFFFFF',
+          fillColor: '#2E3A23',
+          margin: [0, 2, 0, 2]
+        },
+        dayHeader: {
+          fontSize: 9,
+          bold: true,
+          color: '#374151',
+          fillColor: '#F3F4F6',
+          margin: [0, 6, 0, 6]
+        },
+        timetableCell: {
+          margin: [0, 2, 0, 2]
+        },
+        breakCell: {
+          fontSize: 8,
+          bold: true,
+          margin: [0, 6, 0, 6]
+        },
+        legendHeader: {
+          fontSize: 12,
+          bold: true,
+          color: '#111827'
+        },
+        legendTableHeader: {
+          fontSize: 9,
+          bold: true,
+          color: '#FFFFFF',
+          fillColor: '#4B5563',
+          margin: [0, 2, 0, 2]
+        },
+        legendCell: {
+          fontSize: 8,
+          color: '#374151',
+          margin: [0, 2, 0, 2]
+        }
+      }
     };
-    pdfMake.createPdf(doc).download('timetable.pdf');
+
+    // Generate filename with department/year/section info
+    const pdfFileName = [
+      'timetable',
+      selection.department?.replace(/\s+/g, '_'),
+      selection.year ? `Year${selection.year}` : null,
+      selection.section ? `Sec${selection.section}` : null
+    ].filter(Boolean).join('_') + '.pdf';
+
+    try {
+      if (typeof pdfMake.createPdf === 'function') {
+        pdfMake.createPdf(doc).download(pdfFileName);
+      } else {
+        // Fallback for different module export patterns
+        const createPdfFn = (pdfMakeModule as any).createPdf || (pdfMakeModule as any).default?.createPdf;
+        if (createPdfFn) {
+          createPdfFn(doc).download(pdfFileName);
+        } else {
+          throw new Error('pdfMake.createPdf is not available');
+        }
+      }
+      toast({ title: 'PDF exported', description: `Timetable exported as ${pdfFileName}` });
+    } catch (err: any) {
+      console.error('PDF export error:', err);
+      toast({ title: 'PDF export failed', description: err?.message || 'Please try again.', variant: 'destructive' });
+    }
   };
 
   const exportXLSX = async () => {
@@ -425,6 +780,15 @@ function Timetable() {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={editMode ? 'destructive' : 'outline'}
+                  size="sm"
+                  onClick={toggleEditMode}
+                  className={`h-10 gap-2 ${editMode ? 'ring-2 ring-amber-400 shadow-lg' : ''}`}
+                >
+                  {editMode ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                  {editMode ? 'Exit Edit' : 'Edit'}
+                </Button>
                 <Button variant="soft" size="sm" onClick={regenerate} className="h-10">Regenerate</Button>
                 <Button variant="outline" size="sm" onClick={exportPDF} className="h-10">PDF</Button>
                 <Button variant="outline" size="sm" onClick={exportXLSX} className="h-10">Excel</Button>
@@ -432,6 +796,35 @@ function Timetable() {
               </div>
             </div>
           </div>
+
+          {/* Edit Mode Info Banner */}
+          {editMode && (
+            <div className="mb-4 rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-yellow-50 p-4 shadow-sm animate-fade-in-up">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-full bg-amber-100 border border-amber-200">
+                  <ArrowLeftRight className="h-4.5 w-4.5 text-amber-700" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-amber-900">Edit Mode Active</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    <strong>Click</strong> a cell to select it, then <strong>click another cell</strong> to swap them.
+                    <span className="mx-1.5 text-amber-400">|</span>
+                    <strong>Right-click</strong> a cell to assign a specific subject.
+                  </p>
+                </div>
+                {swapSource && (
+                  <div className="flex items-center gap-2 bg-amber-100 border border-amber-300 rounded-lg px-3 py-1.5">
+                    <span className="text-xs font-bold text-amber-900">
+                      Selected: {DAYS[swapSource.day]} P{swapSource.period + 1}
+                    </span>
+                    <button onClick={() => setSwapSource(null)} className="text-amber-600 hover:text-amber-900 transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Lab Validation Results */}
           {validationResult && (
@@ -517,12 +910,31 @@ function Timetable() {
                             const subj = selected.find((s) => s.name === part);
                             return subj?.type === 'open elective';
                           });
+                          const cellSelected = isCellSelected(dayIdx, i);
+                          const editable = editMode && isEditableCell(i);
                           return (
                             <td key={i} className="p-2">
-                              <div className={`h-14 min-w-[100px] rounded-xl flex flex-col items-center justify-center text-center text-sm shadow-sm transition-all hover:scale-[1.02] ${cell ?
-                                  isOpenElective ? 'bg-purple-100 text-purple-900 border border-purple-200' : cellClass(type)
-                                  : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
-                                }`} title={`${cell || ''}${staff ? ' — ' + staff : ''}`}>
+                              <div
+                                className={`h-14 min-w-[100px] rounded-xl flex flex-col items-center justify-center text-center text-sm shadow-sm transition-all ${
+                                  editable ? 'cursor-pointer hover:scale-105 hover:shadow-md' : 'hover:scale-[1.02]'
+                                } ${cellSelected
+                                  ? 'ring-3 ring-amber-400 shadow-amber-200 shadow-lg scale-105 bg-amber-50'
+                                  : cell
+                                    ? isOpenElective ? 'bg-purple-100 text-purple-900 border border-purple-200' : cellClass(type)
+                                    : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
+                                } ${editable && swapSource && !cellSelected ? 'ring-1 ring-amber-200/60' : ''}`}
+                                title={editMode
+                                  ? `Click to ${swapSource ? 'swap with' : 'select'} this cell${cell ? ` (${cell})` : ''}`
+                                  : `${cell || ''}${staff ? ' — ' + staff : ''}`
+                                }
+                                onClick={() => handleCellClick(dayIdx, i)}
+                                onContextMenu={(e) => handleCellRightClick(e, dayIdx, i)}
+                              >
+                                {editMode && editable && (
+                                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Pencil className="h-2.5 w-2.5 text-white" />
+                                  </span>
+                                )}
                                 <span className="font-semibold px-1 truncate w-full">{formatCellContent(cell)}</span>
                                 {staff && <span className="text-[9px] font-bold text-black/40 uppercase tracking-tighter leading-none mt-1 truncate w-full px-1">{staff}</span>}
                               </div>
@@ -571,12 +983,27 @@ function Timetable() {
                           return subj?.type === 'open elective';
                         });
 
+                        const cellSelected = editMode && swapSource && swapSource.day === dayIdx && swapSource.period === displayToDataCol(i);
+                        const editable = editMode && isEditableCell(i);
+
                         return (
-                          <div key={i} className="flex items-center justify-between p-5 bg-white/70 hover:bg-olive-50/30 transition-colors">
+                          <div
+                            key={i}
+                            className={`flex items-center justify-between p-5 bg-white/70 hover:bg-olive-50/30 transition-all ${
+                              editable ? 'cursor-pointer hover:shadow-md' : ''
+                            } ${cellSelected ? 'ring-2 ring-amber-400 bg-amber-50 shadow-md' : ''}`}
+                            onClick={() => handleCellClick(dayIdx, i)}
+                            onContextMenu={(e) => handleCellRightClick(e, dayIdx, i)}
+                          >
                             <div className="flex flex-col gap-1.5 flex-1 pr-4">
                               <div className="flex items-center gap-3">
                                 <span className="text-[10px] font-extrabold text-olive-700 bg-olive-100 px-2 py-0.5 rounded-full uppercase tracking-wider">{label}</span>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{time}</span>
+                                {cellSelected && (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                                    Selected
+                                  </span>
+                                )}
                               </div>
                               <span className={`text-base font-bold tracking-tight ${isOpenElective ? 'text-purple-700' : 'text-slate-900'}`}>{formatCellContent(cell)}</span>
                             </div>
@@ -599,6 +1026,67 @@ function Timetable() {
                   </div>
                 </Card>
               ))}
+            </div>
+          )}
+
+          {/* Right-click Subject Picker Dropdown */}
+          {editDropdown && (
+            <div
+              ref={dropdownRef}
+              className="fixed z-50 min-w-[240px] max-h-[320px] overflow-y-auto rounded-xl border-2 border-slate-200 bg-white shadow-2xl animate-fade-in-up"
+              style={{
+                left: Math.min(editDropdown.x, window.innerWidth - 260),
+                top: Math.min(editDropdown.y, window.innerHeight - 340),
+              }}
+            >
+              <div className="sticky top-0 bg-slate-800 text-white px-4 py-2.5 rounded-t-xl">
+                <p className="text-xs font-bold uppercase tracking-wider">Assign Subject</p>
+                <p className="text-[10px] text-slate-300 mt-0.5">
+                  {DAYS[editDropdown.day]} • Period {editDropdown.period + 1}
+                </p>
+              </div>
+              <div className="p-1.5">
+                {/* Clear option */}
+                <button
+                  className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-red-50 text-red-600 font-medium transition-colors flex items-center gap-2 border-b border-slate-100 mb-1"
+                  onClick={() => assignSubjectToCell(editDropdown.day, editDropdown.period, '')}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear Cell
+                </button>
+                {/* Subject options */}
+                {getAssignableSubjects().map((subjectName) => {
+                  const subj = selected.find(s => s.name === subjectName);
+                  const isCurrentlyAssigned = timetable[editDropdown.day]?.[editDropdown.period] === subjectName;
+                  return (
+                    <button
+                      key={subjectName}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors flex items-center gap-2 ${
+                        isCurrentlyAssigned
+                          ? 'bg-olive-100 text-olive-900 font-bold'
+                          : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                      onClick={() => assignSubjectToCell(editDropdown.day, editDropdown.period, subjectName)}
+                    >
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        subj?.type === 'lab' ? 'bg-blue-400' :
+                        subj?.type === 'elective' || subj?.type === 'open elective' ? 'bg-purple-400' :
+                        !subj ? 'bg-amber-400' :
+                        'bg-emerald-400'
+                      }`} />
+                      <span className="truncate">{subjectName}</span>
+                      {subj?.type && (
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider ml-auto flex-shrink-0">
+                          {subj.type}
+                        </span>
+                      )}
+                      {isCurrentlyAssigned && (
+                        <CheckCircle className="h-3.5 w-3.5 text-olive-600 flex-shrink-0 ml-auto" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

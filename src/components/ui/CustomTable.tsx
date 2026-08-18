@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, ChevronDown, Check } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as XLSX from "xlsx";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export interface FilterOption {
   label: string;
@@ -162,6 +163,95 @@ export function CustomTable<T>({
     XLSX.writeFile(workbook, `${exportFileName}.xlsx`);
   };
 
+  // 4b. PDF Export (respecting active filters!)
+  const handleExportPDF = async () => {
+    const isFiltered = searchQuery.trim() !== "" || Object.values(filterValues).some(v => v && v !== "all");
+    const dataToExport = isFiltered ? filteredData : data;
+
+    if (dataToExport.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+
+    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
+    const vfsFonts = await import('pdfmake/build/vfs_fonts');
+    // @ts-ignore
+    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+
+    // Header row
+    const headers = columns.map((col) => ({
+      text: col.header,
+      style: 'tableHeader',
+      alignment: 'left',
+      bold: true
+    }));
+
+    // Data rows
+    const rows = dataToExport.map((item) => {
+      return columns.map((col) => {
+        let val = (item as any)[col.key];
+        if (typeof val === "object" && val !== null) {
+          val = JSON.stringify(val);
+        }
+        return { text: val !== undefined && val !== null ? String(val) : "", style: 'tableCell' };
+      });
+    });
+
+    const body = [headers, ...rows];
+    const widths = columns.map(() => '*');
+
+    const doc: any = {
+      pageSize: 'A4',
+      pageOrientation: columns.length > 5 ? 'landscape' : 'portrait',
+      pageMargins: [30, 30, 30, 30],
+      content: [
+        {
+          text: exportFileName.replace(/[-_]/g, ' ').toUpperCase(),
+          style: 'mainHeader',
+          margin: [0, 0, 0, 15]
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths,
+            body
+          },
+          layout: {
+            hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length) ? 1.5 : 0.5,
+            vLineWidth: (i: number, node: any) => 0.5,
+            hLineColor: () => '#D1D5DB',
+            vLineColor: () => '#E5E7EB',
+            paddingLeft: () => 6,
+            paddingRight: () => 6,
+            paddingTop: () => 6,
+            paddingBottom: () => 6
+          }
+        }
+      ],
+      styles: {
+        mainHeader: {
+          fontSize: 16,
+          bold: true,
+          color: '#111827'
+        },
+        tableHeader: {
+          fontSize: 9,
+          bold: true,
+          color: '#FFFFFF',
+          fillColor: '#374151',
+          margin: [0, 2, 0, 2]
+        },
+        tableCell: {
+          fontSize: 8,
+          color: '#374151',
+          margin: [0, 2, 0, 2]
+        }
+      }
+    };
+
+    pdfMake.createPdf(doc).download(`${exportFileName}.pdf`);
+  };
+
   // 5. Bulk Delete
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0 || !onDeleteSelected) return;
@@ -233,14 +323,26 @@ export function CustomTable<T>({
             </Button>
           )}
 
-          <Button
-            onClick={handleExport}
-            variant="outline"
-            className="h-10 rounded-xl px-4 flex items-center gap-2 border-input bg-background text-foreground hover:bg-muted transition-all"
-          >
-            <Download className="h-4 w-4" />
-            <span>Export</span>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-10 rounded-xl px-4 flex items-center gap-2 border-input bg-background text-foreground hover:bg-muted transition-all"
+              >
+                <Download className="h-4 w-4" />
+                <span>Export</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-popover border-border text-popover-foreground">
+              <DropdownMenuItem onClick={handleExport} className="cursor-pointer hover:bg-muted">
+                Export to Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportPDF} className="cursor-pointer hover:bg-muted">
+                Export to PDF (.pdf)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* View Toggler (Table vs List) */}
           <div className="flex items-center bg-muted border border-border p-1 rounded-xl h-10">
