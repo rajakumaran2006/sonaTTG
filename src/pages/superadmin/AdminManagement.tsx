@@ -414,7 +414,7 @@ const AdminManagement = () => {
         <section className="container py-10 md:pt-24">
         <header className="mb-6 flex items-center justify-between">
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/admin-login')}>
+            <Button variant="outline" onClick={() => navigate('/admin')}>
               Admin Console
             </Button>
             <Dialog open={openCreate} onOpenChange={setOpenCreate}>

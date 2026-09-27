@@ -98,6 +98,7 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
   grid: string[][]; search: string; filterType: string; compact?: boolean;
 }) {
   const { isDark } = useDarkMode();
+  const safeGrid = Array.isArray(grid) ? grid : [];
   return (
     <div className={`overflow-auto rounded-xl ${compact ? 'max-h-[230px]' : ''}`}>
       <table className="w-full border-collapse" style={{ minWidth: compact ? 500 : 680 }}>
@@ -115,8 +116,9 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
           </tr>
         </thead>
         <tbody>
-          {grid.map((row, dayIdx) => {
-            const displayRow: string[] = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
+          {safeGrid.map((row, dayIdx) => {
+            const r = Array.isArray(row) ? row : [];
+            const displayRow: string[] = [r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''];
             return (
               <tr key={dayIdx} className={`border-t transition-colors ${isDark ? "border-white/4 hover:bg-white/2" : "border-slate-200 hover:bg-slate-50/50"}`}>
                 <td className={`py-1 px-2 font-bold text-[10px] ${isDark ? "text-white/40" : "text-slate-500"}`}>{DAYS[dayIdx]}</td>
@@ -152,13 +154,15 @@ function ListView({ grid, search, filterType }: { grid: string[][]; search: stri
   const { isDark } = useDarkMode();
   const items = useMemo(() => {
     const out: { day: string; label: string; time: string; cell: string }[] = [];
-    grid.forEach((row, dayIdx) => {
-      const displayRow: string[] = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
+    const safeGrid = Array.isArray(grid) ? grid : [];
+    safeGrid.forEach((row, dayIdx) => {
+      const r = Array.isArray(row) ? row : [];
+      const displayRow: string[] = [r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''];
       displayRow.forEach((cell, colIdx) => {
         if (!cell || cell === 'BREAK' || cell === 'LUNCH') return;
         if ((search || filterType !== 'all') && !matchesFilter(cell, search, filterType)) return;
         const label = DISPLAY_COLUMNS[colIdx];
-        out.push({ day: DAYS[dayIdx], label: label.replace('PERIOD ', 'P'), time: TIME_LABELS[label] || '', cell });
+        out.push({ day: DAYS[dayIdx] || `Day ${dayIdx + 1}`, label: label ? label.replace('PERIOD ', 'P') : `P${colIdx + 1}`, time: (label && TIME_LABELS[label]) || '', cell });
       });
     });
     return out;
@@ -387,7 +391,7 @@ export default function GenerateReviewPage() {
 
             const sectionHours: Record<string, number> = {};
             sections.forEach((sec) => {
-              const mappedIds = sectionToSubjectIds[sec];
+              const mappedIds = sectionToSubjectIds[sec] || new Set();
               const sectionSpecificSubjects = mappedIds.size > 0
                 ? subjects.filter((s) => mappedIds.has(s.id))
                 : subjects;

@@ -123,7 +123,7 @@ const Navbar = () => {
   };
 
   const handleAdminConsole = () => {
-    navigate("/");
+    navigate("/admin");
   };
 
   const handleFacultyLogin = () => {

@@ -88,10 +88,14 @@ const FacultyDashboard = () => {
           designation: parsedFaculty.designation || ""
         });
         // Load their schedule
-        extractFacultyScheduleFromTimetables(parsedFaculty.name).then(({ schedule: facultySchedule, assignments }) => {
-          setSchedule(facultySchedule);
-          setSubjectAssignments(assignments);
-        });
+        extractFacultyScheduleFromTimetables(parsedFaculty.name)
+          .then(({ schedule: facultySchedule, assignments }) => {
+            setSchedule(facultySchedule);
+            setSubjectAssignments(assignments);
+          })
+          .catch((err) => {
+            console.error("Failed to load faculty schedule", err);
+          });
       } catch (e) {
         console.error("Failed to parse stored faculty user", e);
         localStorage.removeItem("facultyUser");

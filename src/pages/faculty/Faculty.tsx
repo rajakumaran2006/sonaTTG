@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import UploadCSV from "@/components/UploadCSV";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +33,8 @@ const FacultyPage = () => {
   const isLoggedIn = useMemo(() => {
     const superAdmin = localStorage.getItem("superAdmin") === "true";
     const adminUser = localStorage.getItem("adminUser");
-    return superAdmin || !!adminUser;
+    const facultyUser = localStorage.getItem("facultyUser");
+    return superAdmin || !!adminUser || !!facultyUser;
   }, []);
 
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -40,6 +42,7 @@ const FacultyPage = () => {
   const [faculty, setFaculty] = useState<FacultyItem[]>([]);
   const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isFaculty, setIsFaculty] = useState<boolean>(false);
   const [adminDeptId, setAdminDeptId] = useState<string>("");
 
   const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
@@ -166,20 +169,27 @@ const FacultyPage = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) { 
-      // Check if trying to access as super admin but not logged in, or admin not logged in
-      const superAdmin = localStorage.getItem("superAdmin") === "true";
-      const adminUser = localStorage.getItem("adminUser");
-      
-      if (!superAdmin && !adminUser) {
-        navigate('/super-admin-login', { replace: true }); 
-        return; 
-      }
+    const superAdmin = localStorage.getItem("superAdmin") === "true";
+    const adminData = localStorage.getItem("adminUser");
+    const facultyData = localStorage.getItem("facultyUser");
+    
+    if (!superAdmin && !adminData && !facultyData) {
+      navigate('/', { replace: true }); 
+      return; 
     }
 
-    // Check if current user is Admin
-    const adminData = localStorage.getItem("adminUser");
-    if (adminData) {
+    if (facultyData) {
+      try {
+        const parsed = JSON.parse(facultyData);
+        setIsFaculty(true);
+        if (parsed && parsed.department_id) {
+          setAdminDeptId(parsed.department_id);
+          setDeptFilterId(parsed.department_id);
+        }
+      } catch (e) {
+        console.error("Error parsing faculty data", e);
+      }
+    } else if (adminData) {
       try {
         const parsed = JSON.parse(adminData);
         if (parsed && parsed.department_id) {
@@ -962,7 +972,7 @@ const FacultyPage = () => {
 
   return (
     <main className="min-h-screen bg-background">
-      {isAdmin ? <AdminNavbar /> : <Navbar />}
+      {isFaculty ? <FacultyNavbar /> : isAdmin ? <AdminNavbar /> : <Navbar />}
       <div className={`md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300 pt-16 ${
         isAdmin ? "md:pt-0" : "md:pt-14"
       }`}>

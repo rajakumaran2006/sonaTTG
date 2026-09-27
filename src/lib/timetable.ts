@@ -39,6 +39,7 @@ interface GenerateOptions {
   section?: string;
   openElectiveMode?: 'parallel' | 'separate';
   electiveMode?: 'parallel' | 'separate';
+  facultyBeforeAfternoon?: boolean;
 }
 
 const emptyGrid = (): Grid =>

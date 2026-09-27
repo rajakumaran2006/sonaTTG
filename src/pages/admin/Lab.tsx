@@ -49,6 +49,7 @@ interface Lab {
   is_active: boolean;
   maintenance_status: string;
   departments: string[]; // Array of department IDs
+  department_id?: string; // Legacy support
   year: string;
   section: string;
   allowed_classes?: { year: string; section: string }[];
@@ -231,6 +232,8 @@ const Lab = () => {
     operating_hours: {} as any,
   });
   const [itAdsLabs, setItAdsLabs] = useState<any[]>([]);
+  const [availableYears, setAvailableYears] = useState<any[]>([]);
+  const [availableSections, setAvailableSections] = useState<any[]>([]);
   // Editable hours per week map: subjectId -> hours
   const [editableHours, setEditableHours] = useState<Record<string, number>>({});
   const [newSession, setNewSession] = useState({
@@ -953,10 +956,16 @@ const Lab = () => {
   };
 
   const exportLabSchedulePDF = async (lab: Lab) => {
-    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
-    const vfsFonts = await import('pdfmake/build/vfs_fonts');
-    // @ts-ignore
-    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake');
+    const pdfMake: any = pdfMakeModule.default || pdfMakeModule;
+    const vfsFonts: any = await import('pdfmake/build/vfs_fonts');
+    if (typeof pdfMake.addVirtualFileSystem === 'function') {
+      pdfMake.addVirtualFileSystem(vfsFonts);
+    } else if (vfsFonts?.pdfMake?.vfs) {
+      pdfMake.vfs = vfsFonts.pdfMake.vfs;
+    } else {
+      pdfMake.vfs = vfsFonts.default?.pdfMake?.vfs || vfsFonts.default || vfsFonts;
+    }
 
     const daysList = [
       { name: 'MON', value: 1 },

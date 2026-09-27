@@ -17,8 +17,8 @@ export interface SpecialHoursConfig {
   total_hours: number;
   saturday_hours: number;
   weekdays_hours: number;
-  saturday_periods: number[];
-  weekdays_periods: number[];
+  saturday_periods: any;
+  weekdays_periods: any;
   is_active: boolean;
 }
 
@@ -559,9 +559,9 @@ function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: Sp
       });
     }
     
-    if (typeof val === 'object') {
-      const list = val[sectionName] || [];
-      return list.some((p: any) => {
+    if (val && typeof val === 'object') {
+      const list = (val as any)[sectionName] || [];
+      return Array.isArray(list) && list.some((p: any) => {
         const parsed = parsePeriodValue(p, day === 'Sat');
         return parsed && parsed.day === getDayIndex(day) && parsed.period === period;
       });
@@ -579,8 +579,8 @@ function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: Sp
       sections.forEach(sec => {
         newObj[sec] = [...currentVal];
       });
-    } else if (typeof currentVal === 'object') {
-      newObj = { ...currentVal };
+    } else if (currentVal && typeof currentVal === 'object') {
+      newObj = { ...(currentVal as any) };
     }
     
     const sectionPeriods = newObj[sectionName] || [];
@@ -610,8 +610,8 @@ function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: Sp
       sections.forEach(sec => {
         otherObj[sec] = [...otherVal];
       });
-    } else if (typeof otherVal === 'object') {
-      otherObj = { ...otherVal };
+    } else if (otherVal && typeof otherVal === 'object') {
+      otherObj = { ...(otherVal as any) };
     }
     
     newObj[sectionName] = day === 'Sat' ? satPeriods : wdPeriods;

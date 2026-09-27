@@ -25,6 +25,8 @@ interface AdminUser {
   department_id: string;
   department_ids?: string[];
   is_active: boolean;
+  full_name?: string;
+  role?: string;
 }
 
 interface Department {
@@ -54,6 +56,30 @@ const AdminNavbar = () => {
   useEffect(() => {
     // Load admin user data from localStorage
     const adminData = localStorage.getItem("adminUser");
+    const isSuperAdmin = localStorage.getItem("superAdmin") === "true";
+
+    const setupSuperAdminSession = () => {
+      (supabase as any)
+        .from('departments')
+        .select('id, name')
+        .order('name')
+        .then(({ data }: { data: Department[] | null }) => {
+          const depts = data || [];
+          setAllocatedDepts(depts);
+          const defaultDept = depts[0];
+          setAdminUser({
+            id: 'super-admin',
+            name: 'Super Admin',
+            full_name: 'Super Admin',
+            email: 'superadmin@sonatech.ac.in',
+            is_active: true,
+            role: 'super_admin',
+            department_id: defaultDept ? defaultDept.id : '',
+            department_ids: depts.map(d => d.id)
+          });
+        });
+    };
+
     if (adminData) {
       try {
         const parsed = JSON.parse(adminData);
@@ -71,17 +97,27 @@ const AdminNavbar = () => {
                 .then(({ data }: { data: Department[] | null }) => {
                   if (data) setAllocatedDepts(data);
                 });
+            } else if (isSuperAdmin) {
+              setupSuperAdminSession();
             }
+        } else if (isSuperAdmin) {
+          setupSuperAdminSession();
         } else {
             console.error('Invalid admin data structure');
             localStorage.removeItem("adminUser");
             navigate("/", { replace: true });
         }
       } catch (error) {
-        console.error('Error parsing admin data:', error);
-        localStorage.removeItem("adminUser");
-        navigate("/", { replace: true });
+        if (isSuperAdmin) {
+          setupSuperAdminSession();
+        } else {
+          console.error('Error parsing admin data:', error);
+          localStorage.removeItem("adminUser");
+          navigate("/", { replace: true });
+        }
       }
+    } else if (isSuperAdmin) {
+      setupSuperAdminSession();
     } else {
       navigate("/", { replace: true });
     }
@@ -123,7 +159,7 @@ const AdminNavbar = () => {
   }, []);
 
   const handleSuperAdminLogin = () => {
-    navigate("/");
+    navigate("/super-admin");
   };
 
   const handleFacultyLogin = () => {

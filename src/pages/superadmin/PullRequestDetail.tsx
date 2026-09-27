@@ -72,34 +72,38 @@ const GridView = ({ grid, compareTo, departmentId, year }: { grid: any[][]; comp
           </tr>
         </thead>
         <tbody>
-          {grid.map((row, i) => (
-            <tr key={i} className="border-t hover:bg-muted/20">
-              <td className="p-3 font-medium bg-muted/30">{dayNames[i]}</td>
-              {[row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], 'BREAK', row[5], row[6]].map((cell, j) => {
-                const otherRow = compareTo?.[i] || [];
-                const otherDisplay = [otherRow[0], otherRow[1], 'BREAK', otherRow[2], otherRow[3], 'LUNCH', otherRow[4], 'BREAK', otherRow[5], otherRow[6]];
-                const changed = compareTo ? cellChanged(cell, otherDisplay[j]) : false;
-                const isBreak = cell === 'BREAK' || cell === 'LUNCH';
-                
-                return (
-                  <td key={j} className="p-2">
-                    <div className={`
-                      h-12 rounded-md px-3 flex items-center justify-center text-center font-medium
-                      ${isBreak 
-                        ? 'bg-orange-100 text-orange-800 border border-orange-200' 
-                        : cell && cell.trim() 
-                          ? 'bg-blue-50 text-blue-900 border border-blue-200' 
-                          : 'bg-gray-50 text-gray-500 border border-gray-200'
-                      }
-                      ${changed ? 'ring-2 ring-primary/50' : ''}
-                    `}>
-                      {formatCellContent(cell)}
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {(Array.isArray(grid) ? grid : []).map((row, i) => {
+            const r = Array.isArray(row) ? row : [];
+            const otherRow = (compareTo && Array.isArray(compareTo[i])) ? compareTo[i] : [];
+            const thisDisplay = [r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', 'BREAK', r[5] || '', r[6] || ''];
+            const otherDisplay = [otherRow[0] || '', otherRow[1] || '', 'BREAK', otherRow[2] || '', otherRow[3] || '', 'LUNCH', otherRow[4] || '', 'BREAK', otherRow[5] || '', otherRow[6] || ''];
+            return (
+              <tr key={i} className="border-t hover:bg-muted/20">
+                <td className="p-3 font-medium bg-muted/30">{dayNames[i] || `Day ${i + 1}`}</td>
+                {thisDisplay.map((cell, j) => {
+                  const changed = compareTo ? cellChanged(cell, otherDisplay[j]) : false;
+                  const isBreak = cell === 'BREAK' || cell === 'LUNCH';
+                  
+                  return (
+                    <td key={j} className="p-2">
+                      <div className={`
+                        h-12 rounded-md px-3 flex items-center justify-center text-center font-medium
+                        ${isBreak 
+                          ? 'bg-orange-100 text-orange-800 border border-orange-200' 
+                          : cell && cell.trim() 
+                            ? 'bg-blue-50 text-blue-900 border border-blue-200' 
+                            : 'bg-gray-50 text-gray-500 border border-gray-200'
+                        }
+                        ${changed ? 'ring-2 ring-primary/50' : ''}
+                      `}>
+                        {formatCellContent(cell)}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -19,15 +19,17 @@ interface YearStats {
 
 const AdminDepartmentYears = () => {
   const navigate = useNavigate();
+  const superAdmin = localStorage.getItem("superAdmin") === "true";
   const adminUser = localStorage.getItem("adminUser");
   const facultyUser = localStorage.getItem("facultyUser");
   
-  const userType = adminUser ? 'admin' : facultyUser ? 'faculty' : null;
+  const userType = superAdmin ? 'super' : adminUser ? 'admin' : facultyUser ? 'faculty' : null;
   const sessionUser = useMemo(() => {
     if (adminUser) return JSON.parse(adminUser);
     if (facultyUser) return JSON.parse(facultyUser);
+    if (superAdmin) return { role: 'super_admin', email: 'superadmin@sonatech.ac.in' };
     return null;
-  }, [adminUser, facultyUser]);
+  }, [adminUser, facultyUser, superAdmin]);
 
   const [deptName, setDeptName] = useState<string>("");
   const [yearStats, setYearStats] = useState<YearStats[]>([]);
@@ -37,6 +39,20 @@ const AdminDepartmentYears = () => {
   const [activeDeptId, setActiveDeptId] = useState<string>("");
 
   useEffect(() => {
+    if (superAdmin) {
+      (async () => {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .order('name');
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          setActiveDeptId((prev) => prev || data[0].id);
+        }
+      })();
+      return;
+    }
+
     if (!sessionUser) return;
 
     // First try admin_departments table for multi-dept support
@@ -77,7 +93,7 @@ const AdminDepartmentYears = () => {
         }
       }
     })();
-  }, [adminUser, facultyUser, sessionUser]);
+  }, [adminUser, facultyUser, sessionUser, superAdmin]);
 
   useEffect(() => {
     if (!userType || !activeDeptId) {
@@ -140,6 +156,8 @@ const AdminDepartmentYears = () => {
   const handleManageYear = (year: string) => {
     if (userType === 'admin') {
       navigate(`/admin/subjects/${encodeURIComponent(year)}`);
+    } else if (userType === 'super') {
+      navigate(`/super-admin/departments/${activeDeptId}/years/${encodeURIComponent(year)}`);
     } else {
       navigate(`/faculty/subjects/${encodeURIComponent(year)}`);
     }

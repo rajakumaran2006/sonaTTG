@@ -49,11 +49,11 @@ const DepartmentDetails = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) { navigate('/super-admin-login', { replace: true }); return; }
+    if (!isLoggedIn) { navigate('/', { replace: true }); return; }
     if (!id) return;
     (async () => {
       const [deptRes, subsRes, ttsRes, facRes, settingsRes, specialRes, oeRes] = await Promise.all([
-        (supabase as any).from('departments').select('name').eq('id', id).single(),
+        (supabase as any).from('departments').select('name').eq('id', id).maybeSingle(),
         (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', id),
         (supabase as any).from('timetables').select('section').eq('department_id', id),
         (supabase as any).from('faculty_members').select('id,name,email,designation').eq('department_id', id).order('name'),

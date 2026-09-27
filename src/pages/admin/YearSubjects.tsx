@@ -189,11 +189,15 @@ const YearSubjects = () => {
   }, [year]);
 
   useEffect(() => {
-    const targetDeptId = id || sessionUser?.department_id;
     if (!isLoggedIn) { navigate('/', { replace: true }); return; }
-    if (!targetDeptId || !year) return;
     (async () => {
-      const { data: d } = await (supabase as any).from('departments').select('*').eq('id', targetDeptId).single();
+      let targetDeptId = id || sessionUser?.department_id;
+      if (!targetDeptId && superAdmin) {
+        const { data: firstDept } = await (supabase as any).from('departments').select('id, name').order('name').limit(1).maybeSingle();
+        targetDeptId = firstDept?.id;
+      }
+      if (!targetDeptId || !year) return;
+      const { data: d } = await (supabase as any).from('departments').select('*').eq('id', targetDeptId).maybeSingle();
       if (d?.name) setDeptName(d.name);
       const list = await (async () => {
         try {
@@ -1138,8 +1142,12 @@ const YearSubjects = () => {
             </div>
           </div>
           <Button variant="outline" onClick={() => {
-            if (userType === 'super') navigate(`/super-admin/departments/${id}`);
-            else navigate(userType === 'admin' ? '/admin/subjects' : '/faculty/subjects');
+            if (userType === 'super') {
+              if (id) navigate(`/super-admin/departments/${id}`);
+              else navigate('/super-admin/departments');
+            } else {
+              navigate(userType === 'admin' ? '/admin/subjects' : '/faculty/subjects');
+            }
           }}>Back</Button>
         </header>
 
@@ -1521,7 +1529,7 @@ const YearSubjects = () => {
                     subjects.filter(s => s.type === 'open elective').map(s => (
                       <div key={s.id} className="p-2.5 flex items-center justify-between text-xs bg-emerald-50/40 dark:bg-emerald-950/20">
                         <div className="flex items-center gap-2">
-                          <Checkbox checked readOnly className="border-emerald-500 bg-emerald-500 text-white cursor-default" />
+                          <Checkbox checked disabled className="border-emerald-500 bg-emerald-500 text-white cursor-default" />
                           <span className="font-semibold text-foreground truncate">{s.name}</span>
                         </div>
                         <Badge variant="outline" className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 font-bold">

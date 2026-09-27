@@ -1,10 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, X } from "lucide-react";
+import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, X, ChevronDown } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as XLSX from "xlsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -62,7 +62,7 @@ export function CustomTable<T>({
   const [deleteMode, setDeleteMode] = useState(false);
 
   // Clear selections when data changes
-  useMemo(() => {
+  useEffect(() => {
     setSelectedIds(new Set());
   }, [data]);
 
@@ -184,10 +184,16 @@ export function CustomTable<T>({
       return;
     }
 
-    const pdfMake = (await import('pdfmake/build/pdfmake')).default;
-    const vfsFonts = await import('pdfmake/build/vfs_fonts');
-    // @ts-ignore
-    pdfMake.vfs = vfsFonts.pdfMake.vfs;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake');
+    const pdfMake: any = pdfMakeModule.default || pdfMakeModule;
+    const vfsFonts: any = await import('pdfmake/build/vfs_fonts');
+    if (typeof pdfMake.addVirtualFileSystem === 'function') {
+      pdfMake.addVirtualFileSystem(vfsFonts);
+    } else if (vfsFonts?.pdfMake?.vfs) {
+      pdfMake.vfs = vfsFonts.pdfMake.vfs;
+    } else {
+      pdfMake.vfs = vfsFonts.default?.pdfMake?.vfs || vfsFonts.default || vfsFonts;
+    }
 
     // Header row
     const headers = columns.map((col) => ({
