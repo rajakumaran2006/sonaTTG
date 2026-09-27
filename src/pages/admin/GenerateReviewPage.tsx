@@ -19,9 +19,24 @@ import {
   Search,
   LayoutGrid,
   List,
+  FileDown,
+  FileText,
+  Layers,
+  Printer,
+  ChevronDown,
 } from "lucide-react";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  exportTimetablesToPdf,
+  TimetableExportClassItem,
+} from "@/lib/timetablePdfExport";
 import {
   getDepartmentByName,
   getSubjectsForYear,
@@ -287,6 +302,7 @@ export default function GenerateReviewPage() {
   const [filterType, setFilterType] = useState('all');
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
   const [publishing, setPublishing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'theory-elective' | 'lab' | 'open-elective' | 'special'>('all');
 
   useEffect(() => {
@@ -531,6 +547,96 @@ export default function GenerateReviewPage() {
       toast.error(error?.message || "Failed to publish timetables.");
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handleExportPDF = async (scope: 'all' | 'year' | 'current' = 'all') => {
+    if (generatedResults.length === 0) {
+      toast.error("No generated timetables available to export.");
+      return;
+    }
+
+    setExporting(true);
+    try {
+      let targets: GeneratedTimetableResult[] = [];
+      let customFileName = '';
+
+      if (scope === 'current') {
+        const active = generatedResults.find(
+          (r) => r.departmentName === activeDept && r.year === activeTab && r.section === activeSection
+        );
+        if (!active || active.status !== 'ok') {
+          toast.error(`No valid generated timetable found for Year ${activeTab} Section ${activeSection}`);
+          return;
+        }
+        targets = [active];
+        customFileName = `Timetable_${activeDept.replace(/\s+/g, '_')}_Year${activeTab}_Sec${activeSection}.pdf`;
+      } else if (scope === 'year') {
+        targets = generatedResults.filter(
+          (r) => r.departmentName === activeDept && r.year === activeTab && r.status === 'ok'
+        );
+        if (targets.length === 0) {
+          toast.error(`No valid generated timetables found for Year ${activeTab}`);
+          return;
+        }
+        customFileName = `Timetables_${activeDept.replace(/\s+/g, '_')}_Year${activeTab}_All_Sections.pdf`;
+      } else {
+        targets = generatedResults.filter((r) => r.status === 'ok');
+        if (targets.length === 0) {
+          toast.error("No successfully generated timetables available to export.");
+          return;
+        }
+        customFileName = `Timetables_All_Classes_${activeDept.replace(/\s+/g, '_') || 'Department'}.pdf`;
+      }
+
+      const exportItems: TimetableExportClassItem[] = targets.map((r) => {
+        const key = `${r.departmentName}_${r.year}`;
+        const allYearSubjects = subjectsData[key] || [];
+        const sectionSpecificIds = sectionSubjectsData[key]?.[r.section];
+
+        const filteredSubjects = (sectionSpecificIds && sectionSpecificIds.size > 0)
+          ? allYearSubjects.filter((s) => sectionSpecificIds.has(s.id))
+          : allYearSubjects;
+
+        const exportSubjects = filteredSubjects.map((s) => ({
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          type: s.type,
+          hoursPerWeek: s.hoursPerWeek,
+          staff: s.facultyBySection[r.section] || ''
+        }));
+
+        const exportSpecialHours = (specialHoursData[key] || []).map((h) => ({
+          name: h.name,
+          title: h.name,
+          type: 'special',
+          hours: h.total_hours || 1,
+          staff: ''
+        }));
+
+        return {
+          departmentName: r.departmentName,
+          year: r.year,
+          section: r.section,
+          grid: r.grid,
+          departmentId: deptIds[r.departmentName],
+          subjects: exportSubjects,
+          specialHours: exportSpecialHours
+        };
+      });
+
+      await exportTimetablesToPdf(exportItems, customFileName);
+      toast.success(
+        scope === 'current'
+          ? `Exported Year ${activeTab} Section ${activeSection} PDF successfully!`
+          : `Exported ${exportItems.length} class timetable(s) to PDF successfully!`
+      );
+    } catch (err: any) {
+      console.error('PDF Export error:', err);
+      toast.error(err?.message || "Failed to export timetable PDF.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -811,11 +917,31 @@ export default function GenerateReviewPage() {
                         <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
                           Timetable Grid: Year {activeResult.year} — Section {activeResult.section}
                         </span>
-                        <span className={`text-[10px] uppercase tracking-wider font-mono ${
-                          isDark ? "text-white/30" : "text-slate-450"
-                        }`}>
-                          Subjects Only View
-                        </span>
+                        <div className="flex items-center gap-2.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleExportPDF('current')}
+                            disabled={exporting || activeResult.status !== 'ok'}
+                            className={`h-7 px-2.5 rounded-lg text-xs gap-1.5 font-semibold border transition-all ${
+                              isDark
+                                ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm'
+                            }`}
+                          >
+                            {exporting ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                            ) : (
+                              <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                            )}
+                            Export Class PDF
+                          </Button>
+                          <span className={`text-[10px] uppercase tracking-wider font-mono ${
+                            isDark ? "text-white/30" : "text-slate-450"
+                          }`}>
+                            Subjects Only View
+                          </span>
+                        </div>
                       </div>
                       {viewMode === 'table' ? (
                         <MiniGrid grid={activeResult.grid} search={search} filterType={filterType} compact={false} />
@@ -1200,13 +1326,87 @@ export default function GenerateReviewPage() {
                   ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white' 
                   : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
               }`}
-              disabled={publishing}
+              disabled={publishing || exporting}
             >
               Discard &amp; Reconfigure
             </Button>
+
+            {/* Export PDF Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  disabled={exporting || publishing || generatedResults.filter(r => r.status === 'ok').length === 0}
+                  className={`rounded-xl font-bold px-5 py-5 border gap-2 shadow-sm transition-all ${
+                    isDark 
+                      ? 'border-white/15 bg-white/10 hover:bg-white/15 text-white' 
+                      : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
+                  }`}
+                >
+                  {exporting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                      <span>Exporting PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="h-4 w-4 text-emerald-500" />
+                      <span>Export PDF</span>
+                      <ChevronDown className="h-3.5 w-3.5 opacity-60 ml-0.5" />
+                    </>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className={`w-64 rounded-xl p-1.5 shadow-xl border ${
+                isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+              }`}>
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('all')}
+                  disabled={exporting}
+                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                >
+                  <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <div>
+                    <div className="font-semibold text-xs">Export All Classes (PDF)</div>
+                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      All generated classes &amp; sections combined
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('year')}
+                  disabled={exporting}
+                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                >
+                  <Layers className="h-4 w-4 text-purple-400 shrink-0" />
+                  <div>
+                    <div className="font-semibold text-xs">Export Year {activeTab} (All Sections)</div>
+                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      Combined PDF of all Year {activeTab} sections
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => handleExportPDF('current')}
+                  disabled={exporting}
+                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                >
+                  <Printer className="h-4 w-4 text-sky-400 shrink-0" />
+                  <div>
+                    <div className="font-semibold text-xs">Export Current Class (PDF)</div>
+                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      Year {activeTab} — Section {activeSection}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               onClick={handlePublish}
-              disabled={publishing || generatedResults.filter(r => r.status === 'ok').length === 0}
+              disabled={publishing || exporting || generatedResults.filter(r => r.status === 'ok').length === 0}
               className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl gap-2 font-bold px-6 py-5 shadow-lg shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
             >
               {publishing ? (

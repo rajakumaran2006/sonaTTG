@@ -12,9 +12,18 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { createPullRequest } from "@/lib/supabaseService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, CheckCircle, LayoutGrid, List, Pencil, ArrowLeftRight, X } from "lucide-react";
+import { AlertCircle, CheckCircle, LayoutGrid, List, Pencil, ArrowLeftRight, X, FileDown, FileText, Printer, ChevronDown, Loader2 } from "lucide-react";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { supabase } from "@/integrations/supabase/client";
+import { getSubjectsForYear } from "@/lib/supabaseService";
+import { exportTimetablesToPdf, TimetableExportClassItem } from "@/lib/timetablePdfExport";
 
 const cellClass = (type: string) => {
   switch (type) {
@@ -55,6 +64,7 @@ function Timetable() {
   const labPreferences = useTimetableStore((s) => s.labPreferences);
   const [subjectToFaculty, setSubjectToFaculty] = useState<Record<string, string>>({});
   const [classCounselorName, setClassCounselorName] = useState<string | null>(null);
+  const [exportingAllPdf, setExportingAllPdf] = useState(false);
 
   // PR modal state
   const [open, setOpen] = useState(false);
@@ -676,6 +686,85 @@ function Timetable() {
     }
   };
 
+  const exportAllClassesPDF = async () => {
+    if (!selection.department) {
+      toast({ title: 'Please select a department first', variant: 'destructive' });
+      return;
+    }
+    setExportingAllPdf(true);
+    try {
+      const dept = await getDepartmentByName(selection.department);
+      if (!dept) throw new Error('Department not found');
+
+      const { data: dbTimetables, error } = await supabase
+        .from('timetables')
+        .select('*')
+        .eq('department_id', dept.id);
+
+      if (error) throw error;
+      if (!dbTimetables || dbTimetables.length === 0) {
+        toast({ title: 'No timetables found', description: `No saved timetables found for ${selection.department}` });
+        return;
+      }
+
+      const uniqueYears = Array.from(new Set(dbTimetables.map(t => t.year)));
+      const subjectsByYear: Record<string, any[]> = {};
+      await Promise.all(
+        uniqueYears.map(async (y) => {
+          subjectsByYear[y] = await getSubjectsForYear(dept.id, y).catch(() => []);
+        })
+      );
+
+      const exportItems: TimetableExportClassItem[] = await Promise.all(
+        dbTimetables.map(async (t) => {
+          let grid: string[][] = [];
+          if (Array.isArray(t.data)) {
+            grid = t.data;
+          } else if (t.data && Array.isArray((t.data as any).grid)) {
+            grid = (t.data as any).grid;
+          }
+
+          const yearSubjects = subjectsByYear[t.year] || [];
+          const facultyMap = await getSubjectFacultyMapByDeptName(selection.department!, t.year, t.section).catch(() => ({}));
+
+          const exportSubjects = yearSubjects.map((s: any) => ({
+            id: s.id,
+            code: s.code,
+            name: s.name,
+            type: s.type,
+            hoursPerWeek: s.hoursPerWeek,
+            staff: facultyMap[s.id] || s.staff || ''
+          }));
+
+          return {
+            departmentName: selection.department!,
+            year: t.year,
+            section: t.section,
+            grid,
+            departmentId: dept.id,
+            subjects: exportSubjects
+          };
+        })
+      );
+
+      const yearOrder: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4 };
+      exportItems.sort((a, b) => {
+        const ya = yearOrder[a.year] || 99;
+        const yb = yearOrder[b.year] || 99;
+        if (ya !== yb) return ya - yb;
+        return a.section.localeCompare(b.section);
+      });
+
+      await exportTimetablesToPdf(exportItems, `Timetables_All_Classes_${selection.department.replace(/\s+/g, '_')}.pdf`);
+      toast({ title: 'PDF Exported', description: `Exported ${exportItems.length} class timetable(s) successfully!` });
+    } catch (e: any) {
+      console.error('Export all error:', e);
+      toast({ title: 'Export failed', description: e?.message || 'Failed to export all timetables', variant: 'destructive' });
+    } finally {
+      setExportingAllPdf(false);
+    }
+  };
+
   const exportXLSX = async () => {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.aoa_to_sheet([
@@ -814,7 +903,35 @@ function Timetable() {
                   {editMode ? 'Exit Edit' : 'Edit'}
                 </Button>
                 <Button variant="soft" size="sm" onClick={regenerate} className="h-10">Regenerate</Button>
-                <Button variant="outline" size="sm" onClick={exportPDF} className="h-10">PDF</Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-10 gap-1.5" disabled={exportingAllPdf}>
+                      {exportingAllPdf ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                      ) : (
+                        <FileDown className="h-4 w-4 text-emerald-600" />
+                      )}
+                      PDF
+                      <ChevronDown className="h-3 w-3 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                    <DropdownMenuItem onClick={exportPDF} className="cursor-pointer gap-2 py-2">
+                      <Printer className="h-4 w-4 text-blue-500" />
+                      <div>
+                        <div className="font-semibold text-xs">Current Class ({selection.year ? `Yr ${selection.year}` : ''} {selection.section ? `Sec ${selection.section}` : ''})</div>
+                        <div className="text-[10px] text-muted-foreground">Export single timetable</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportAllClassesPDF} className="cursor-pointer gap-2 py-2">
+                      <FileText className="h-4 w-4 text-emerald-500" />
+                      <div>
+                        <div className="font-semibold text-xs">All Classes in Department</div>
+                        <div className="text-[10px] text-muted-foreground">Combined PDF of all saved sections</div>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button variant="outline" size="sm" onClick={exportXLSX} className="h-10">Excel</Button>
                 <Button variant="hero" size="sm" onClick={() => setOpen(true)} className="h-10">Submit Changes</Button>
               </div>
