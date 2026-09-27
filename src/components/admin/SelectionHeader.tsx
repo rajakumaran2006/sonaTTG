@@ -11,6 +11,8 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/admin/years": { title: "Years", subtitle: "Manage Academic Years" },
   "/faculty": { title: "Dashboard", subtitle: "Faculty Overview" },
   "/faculty/subjects": { title: "Subjects", subtitle: "View Course Subjects" },
+  "/csv-upload": { title: "Bulk Import", subtitle: "Import Data in Bulk" },
+  "/faculty/csv-upload": { title: "Bulk Import", subtitle: "Import Data in Bulk" },
   // Super Admin Mappings
   "/super-admin": { title: "Dashboard", subtitle: "Super Admin Control Center" },
   "/super-admin/faculty": { title: "Faculty", subtitle: "Manage All Faculty Members" },

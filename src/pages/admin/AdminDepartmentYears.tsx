@@ -7,6 +7,8 @@ import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SelectionHeader from '@/components/admin/SelectionHeader';
 import { Upload } from 'lucide-react';
 import Navbar from '@/components/navbar/facultyadmin';
+import { useTimetableStore } from '@/store/timetableStore';
+import { calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
 
 interface YearStats {
   year: string;
@@ -17,85 +19,125 @@ interface YearStats {
 
 const AdminDepartmentYears = () => {
   const navigate = useNavigate();
+  const superAdmin = localStorage.getItem("superAdmin") === "true";
   const adminUser = localStorage.getItem("adminUser");
   const facultyUser = localStorage.getItem("facultyUser");
   
-  const userType = adminUser ? 'admin' : facultyUser ? 'faculty' : null;
+  const userType = superAdmin ? 'super' : adminUser ? 'admin' : facultyUser ? 'faculty' : null;
   const sessionUser = useMemo(() => {
     if (adminUser) return JSON.parse(adminUser);
     if (facultyUser) return JSON.parse(facultyUser);
+    if (superAdmin) return { role: 'super_admin', email: 'superadmin@sonatech.ac.in' };
     return null;
-  }, [adminUser, facultyUser]);
+  }, [adminUser, facultyUser, superAdmin]);
 
-  const departmentId = sessionUser?.department_id;
   const [deptName, setDeptName] = useState<string>("");
   const [yearStats, setYearStats] = useState<YearStats[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+  const [activeDeptId, setActiveDeptId] = useState<string>("");
+
   useEffect(() => {
-    if (!userType || !departmentId) {
-      navigate('/', { replace: true });
+    if (superAdmin) {
+      (async () => {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .order('name');
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          setActiveDeptId((prev) => prev || data[0].id);
+        }
+      })();
+      return;
+    }
+
+    if (!sessionUser) return;
+
+    // First try admin_departments table for multi-dept support
+    (async () => {
+      let deptIds: string[] = [];
+
+      if (sessionUser.id) {
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', sessionUser.id);
+
+        if (adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        }
+      }
+
+      // Fallback: legacy fields
+      if (deptIds.length === 0) {
+        if (sessionUser.department_ids && sessionUser.department_ids.length > 0) {
+          deptIds = sessionUser.department_ids;
+        } else if (sessionUser.department_id) {
+          deptIds = [sessionUser.department_id];
+        }
+      }
+
+      if (deptIds.length > 0) {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .in('id', deptIds)
+          .order('name');
+
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          const currentActive = data[0]?.id || sessionUser.department_id;
+          setActiveDeptId(currentActive || '');
+        }
+      }
+    })();
+  }, [adminUser, facultyUser, sessionUser, superAdmin]);
+
+  useEffect(() => {
+    if (!userType || !activeDeptId) {
       return;
     }
 
     (async () => {
+      setLoading(true);
       try {
-        const [deptRes, subsRes, specialRes] = await Promise.all([
-          (supabase as any).from('departments').select('name').eq('id', departmentId).single(),
-          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', departmentId),
-          (supabase as any).from('special_hours_config').select('year,special_type,day_index,period').eq('department_id', departmentId).eq('is_active', true)
+        const [deptRes, subsRes, specialRes, oeRes] = await Promise.all([
+          (supabase as any).from('departments').select('name').eq('id', activeDeptId).single(),
+          (supabase as any).from('subjects').select('year,hours_per_week,type,tags').eq('department_id', activeDeptId),
+          (supabase as any).from('special_hours_config').select('year,special_type,total_hours,is_active').eq('department_id', activeDeptId).eq('is_active', true),
+          (supabase as any).from('open_elective_settings').select('year,hours').eq('department_id', activeDeptId),
         ]);
 
         setDeptName(deptRes?.data?.name || "");
 
         const subs = subsRes.data || [];
         const specialConfigs = specialRes.data || [];
+        const oeSettingsList = oeRes?.data || [];
         const map = new Map<string, { subjects: number; totalHours: number }>();
-        
-        ['I', 'II', 'III', 'IV'].forEach(yr => {
+
+        for (const yr of ['I', 'II', 'III', 'IV']) {
           const yrSubs = subs.filter((s: any) => s.year === yr);
           const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
-          
-          const subjectsCount = yrSubs.length;
+          const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
 
-          // Theory hours (traditional theory)
-          const theoryHoursVal = yrSubs.filter((s: any) => s.type === 'theory').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          
-          // Lab hours
-          const labHoursVal = yrSubs.filter((s: any) => s.type === 'lab').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          
-          // Professional elective hours (grouped by pe_group_ tag, untagged are summed)
-          const pes = yrSubs.filter((s: any) => s.type === 'elective');
-          const peGroups = new Map<string, number>();
-          let peUntaggedSum = 0;
-          pes.forEach((s: any) => {
-            const groupTag = (s.tags || []).find((t: string) => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
-            if (groupTag) {
-              peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, s.hours_per_week));
-            } else {
-              peUntaggedSum += s.hours_per_week;
-            }
+          let oeHoursSetting = 5;
+          const foundOe = oeSettingsList.find((o: any) => o.year === yr);
+          if (foundOe && typeof foundOe.hours === 'number') {
+            oeHoursSetting = foundOe.hours;
+          } else {
+            oeHoursSetting = await getOpenElectiveHours(activeDeptId, yr).catch(() => 5);
+          }
+
+          const calc = calculateYearGrandTotalHours({
+            subjects: yrSubs,
+            specialConfigHours: configSpecialHours,
+            openElectiveHoursSetting: oeHoursSetting
           });
-          const electiveHours = Array.from(peGroups.values()).reduce((a, b) => a + b, 0) + peUntaggedSum;
 
-          // Open elective hours (cumulative 5h if present, else 0)
-          const oes = yrSubs.filter((s: any) => s.type === 'open elective');
-          const openElectiveHours = oes.length > 0 ? 5 : 0;
-
-          // Special hours: config slots + special subjects in subjects table
-          const uniqueSlots = new Set<string>();
-          yrSpecs.forEach((c: any) => {
-            uniqueSlots.add(`${c.day_index}-${c.period}`);
-          });
-          const configSpecialHours = uniqueSlots.size;
-          const subjectSpecialHours = yrSubs.filter((s: any) => s.type === 'special').reduce((a: number, b: any) => a + (b.hours_per_week || 0), 0);
-          const totalSpecialHours = configSpecialHours + subjectSpecialHours;
-
-          // Grand total hours
-          const totalHours = theoryHoursVal + labHoursVal + electiveHours + openElectiveHours + totalSpecialHours;
-
-          map.set(yr, { subjects: subjectsCount, totalHours });
-        });
+          map.set(yr, { subjects: calc.subjectsCount, totalHours: calc.grandTotalHours });
+        }
 
         const arr = ['I', 'II', 'III', 'IV'].map(yr => ({
           year: yr,
@@ -109,11 +151,13 @@ const AdminDepartmentYears = () => {
         setLoading(false);
       }
     })();
-  }, [userType, departmentId, navigate]);
+  }, [userType, activeDeptId, navigate]);
 
   const handleManageYear = (year: string) => {
     if (userType === 'admin') {
       navigate(`/admin/subjects/${encodeURIComponent(year)}`);
+    } else if (userType === 'super') {
+      navigate(`/super-admin/departments/${activeDeptId}/years/${encodeURIComponent(year)}`);
     } else {
       navigate(`/faculty/subjects/${encodeURIComponent(year)}`);
     }
@@ -125,6 +169,37 @@ const AdminDepartmentYears = () => {
       <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
         <SelectionHeader />
         <section className="container py-4">
+          {allocatedDepts.length > 0 && (
+            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === activeDeptId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => {
+                      setActiveDeptId(dept.id);
+                      if (adminUser) {
+                        const parsed = JSON.parse(adminUser);
+                        parsed.department_id = dept.id;
+                        localStorage.setItem("adminUser", JSON.stringify(parsed));
+                      }
+                      useTimetableStore.setState(state => ({
+                        ...state,
+                        selection: { ...state.selection, department: dept.name }
+                      }));
+                    }}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Course Subjects</h1>

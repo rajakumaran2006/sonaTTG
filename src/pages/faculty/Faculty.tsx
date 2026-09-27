@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import UploadCSV from "@/components/UploadCSV";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useTimetableStore } from "@/store/timetableStore";
 import { supabase } from "@/integrations/supabase/client";
 import { getDepartments, createFaculty, deleteFaculty, deleteFacultyBulk, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 import Papa from "papaparse";
@@ -31,7 +33,8 @@ const FacultyPage = () => {
   const isLoggedIn = useMemo(() => {
     const superAdmin = localStorage.getItem("superAdmin") === "true";
     const adminUser = localStorage.getItem("adminUser");
-    return superAdmin || !!adminUser;
+    const facultyUser = localStorage.getItem("facultyUser");
+    return superAdmin || !!adminUser || !!facultyUser;
   }, []);
 
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -39,7 +42,64 @@ const FacultyPage = () => {
   const [faculty, setFaculty] = useState<FacultyItem[]>([]);
   const [facultyYears, setFacultyYears] = useState<Record<string, string[]>>({});
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isFaculty, setIsFaculty] = useState<boolean>(false);
   const [adminDeptId, setAdminDeptId] = useState<string>("");
+
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        const parsed = JSON.parse(adminData);
+        const deptIds: string[] = parsed.department_ids && parsed.department_ids.length > 0
+          ? parsed.department_ids
+          : (parsed.department_id ? [parsed.department_id] : []);
+        if (deptIds.length > 0) {
+          (supabase as any)
+            .from('departments')
+            .select('id, name')
+            .in('id', deptIds)
+            .order('name')
+            .then(({ data }: { data: any[] | null }) => {
+              if (data && data.length > 0) {
+                setAllocatedDepts(data);
+                const currentActive = data[0]?.id || parsed.department_id;
+                if (currentActive) {
+                  setAdminDeptId(currentActive);
+                  setDeptFilterId(currentActive);
+                }
+              }
+            });
+        }
+      } catch (e) {
+        console.error("Error fetching allocated depts for admin:", e);
+      }
+    }
+  }, []);
+
+  const handleDepartmentSwitch = (deptId: string, deptName: string) => {
+    setDeptFilterId(deptId);
+    setAdminDeptId(deptId);
+    
+    // Sync with local storage
+    const adminData = localStorage.getItem("adminUser");
+    if (adminData) {
+      try {
+        const parsed = JSON.parse(adminData);
+        parsed.department_id = deptId;
+        localStorage.setItem("adminUser", JSON.stringify(parsed));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    
+    // Sync with Zustand store
+    useTimetableStore.setState(state => ({
+      ...state,
+      selection: { ...state.selection, department: deptName }
+    }));
+  };
 
 
   // Add form state
@@ -109,20 +169,27 @@ const FacultyPage = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) { 
-      // Check if trying to access as super admin but not logged in, or admin not logged in
-      const superAdmin = localStorage.getItem("superAdmin") === "true";
-      const adminUser = localStorage.getItem("adminUser");
-      
-      if (!superAdmin && !adminUser) {
-        navigate('/super-admin-login', { replace: true }); 
-        return; 
-      }
+    const superAdmin = localStorage.getItem("superAdmin") === "true";
+    const adminData = localStorage.getItem("adminUser");
+    const facultyData = localStorage.getItem("facultyUser");
+    
+    if (!superAdmin && !adminData && !facultyData) {
+      navigate('/', { replace: true }); 
+      return; 
     }
 
-    // Check if current user is Admin
-    const adminData = localStorage.getItem("adminUser");
-    if (adminData) {
+    if (facultyData) {
+      try {
+        const parsed = JSON.parse(facultyData);
+        setIsFaculty(true);
+        if (parsed && parsed.department_id) {
+          setAdminDeptId(parsed.department_id);
+          setDeptFilterId(parsed.department_id);
+        }
+      } catch (e) {
+        console.error("Error parsing faculty data", e);
+      }
+    } else if (adminData) {
       try {
         const parsed = JSON.parse(adminData);
         if (parsed && parsed.department_id) {
@@ -905,12 +972,32 @@ const FacultyPage = () => {
 
   return (
     <main className="min-h-screen bg-background">
-      {isAdmin ? <AdminNavbar /> : <Navbar />}
+      {isFaculty ? <FacultyNavbar /> : isAdmin ? <AdminNavbar /> : <Navbar />}
       <div className={`md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300 pt-16 ${
         isAdmin ? "md:pt-0" : "md:pt-14"
       }`}>
         <SelectionHeader />
         <section className="container py-4">
+          {allocatedDepts.length > 0 && (
+            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === deptFilterId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => handleDepartmentSwitch(dept.id, dept.name)}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                      isActive
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
+                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
         {/* Summary cards */}
         <div className="grid gap-4 md:grid-cols-4 mb-6">

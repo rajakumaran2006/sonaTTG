@@ -218,7 +218,7 @@ const Navbar = () => {
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
-          {/* Mobile Hamburguer Drawer */}
+          {/* Mobile Hamburger Drawer */}
           <div className="md:hidden">
             <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
               <SheetTrigger asChild>

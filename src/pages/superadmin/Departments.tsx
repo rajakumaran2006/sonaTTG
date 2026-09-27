@@ -48,7 +48,7 @@ const Departments = () => {
   }, []);
 
   useEffect(() => {
-    if (!isLoggedIn) { navigate('/super-admin-login', { replace: true }); return; }
+    if (!isLoggedIn) { navigate('/', { replace: true }); return; }
     (async () => {
       const { data, error } = await (supabase as any).from('departments').select('*').order('name');
       if (!error) {

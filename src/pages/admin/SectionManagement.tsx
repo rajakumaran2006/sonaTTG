@@ -55,7 +55,7 @@ const SectionManagement = () => {
     if (!id || !year || !section) return;
     (async () => {
       const [deptRes, subjRes, secSubjRes, ttRes, facRes, fsaRes, labRes] = await Promise.all([
-        (supabase as any).from('departments').select('name').eq('id', id).single(),
+        (supabase as any).from('departments').select('name').eq('id', id).maybeSingle(),
         (supabase as any).from('subjects').select('id,name,type,hours_per_week').eq('department_id', id).eq('year', year).order('name'),
         (supabase as any).from('section_subjects').select('subject_id').eq('department_id', id).eq('year', year).eq('section', section),
         (supabase as any).from('timetables').select('grid_data,updated_at').eq('department_id', id).eq('year', year).eq('section', section).maybeSingle(),

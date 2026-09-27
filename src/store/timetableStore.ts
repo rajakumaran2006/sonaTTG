@@ -14,6 +14,7 @@ export interface Subject {
   staff?: string; // e.g., Mr. D. Jayaprakash
   maxFacultyCount?: number; // Maximum faculty members for lab subjects
   credits?: number; // Academic credits (1-6)
+  elective_group_name?: string; // Custom group label for grouped electives
 }
 
 export interface SpecialFlags {
@@ -28,8 +29,8 @@ export interface SpecialHoursConfig {
   total_hours: number;
   saturday_hours: number;
   weekdays_hours: number;
-  saturday_periods: number[];
-  weekdays_periods: number[];
+  saturday_periods: any;
+  weekdays_periods: any;
   is_active: boolean;
 }
 

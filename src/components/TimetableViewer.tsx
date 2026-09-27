@@ -99,6 +99,10 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
     const subjectHours: Record<string, Array<{ day: number, period: number }>> = {};
     const assignments: FacultyAssignment[] = [];
 
+    if (!Array.isArray(gridData)) {
+      return assignments;
+    }
+
     // Extract subjects and their periods from grid
     gridData.forEach((dayRow, dayIndex) => {
       if (Array.isArray(dayRow)) {
@@ -228,7 +232,11 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
     );
   }
 
-  const { grid_data, updated_at, department_name } = timetableData;
+  const { updated_at, department_name } = timetableData;
+  const rawGrid = timetableData.grid_data;
+  const grid_data: any[][] = Array.isArray(rawGrid)
+    ? rawGrid
+    : (typeof rawGrid === 'string' ? (() => { try { return JSON.parse(rawGrid); } catch { return []; } })() : []);
 
   // Function to format cell content based on subject type
   const formatCellContent = (cell: string | null): string => {
@@ -315,69 +323,74 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {grid_data.map((row, dayIndex) => (
-                    <tr key={dayIndex} className="border-t border-olive-100/30 hover:bg-olive-50/10 transition-colors">
-                      <td className="p-4 font-bold text-olive-800 bg-olive-50/20 border-r border-olive-100/30">
-                        <div className="flex flex-col">
-                          <span className="font-bold">{dayNames[dayIndex]}</span>
-                          <span className="text-[10px] text-olive-600 font-bold uppercase tracking-widest mt-0.5">
-                            {dayNames[dayIndex].slice(0, 3)}
-                          </span>
-                        </div>
-                      </td>
-                      {[
-                        row[0], row[1], 'BREAK',
-                        row[2], row[3], 'LUNCH',
-                        row[4], row[5], 'BREAK', row[6]
-                      ].map((cell, periodIndex) => {
-                        const isBreak = cell === 'BREAK' || cell === 'LUNCH';
-                        const hasSubject = cell && cell.trim() && !isBreak;
+                  {(Array.isArray(grid_data) ? grid_data : []).map((row, dayIndex) => {
+                    const r = Array.isArray(row) ? row : [];
+                    const displayRow = [
+                      r[0] || '', r[1] || '', 'BREAK',
+                      r[2] || '', r[3] || '', 'LUNCH',
+                      r[4] || '', r[5] || '', 'BREAK', r[6] || ''
+                    ];
+                    return (
+                      <tr key={dayIndex} className="border-t border-olive-100/30 hover:bg-olive-50/10 transition-colors">
+                        <td className="p-4 font-bold text-olive-800 bg-olive-50/20 border-r border-olive-100/30">
+                          <div className="flex flex-col">
+                            <span className="font-bold">{dayNames[dayIndex] || `Day ${dayIndex + 1}`}</span>
+                            <span className="text-[10px] text-olive-600 font-bold uppercase tracking-widest mt-0.5">
+                              {(dayNames[dayIndex] || `Day ${dayIndex + 1}`).slice(0, 3)}
+                            </span>
+                          </div>
+                        </td>
+                        {displayRow.map((cell, periodIndex) => {
+                          const isBreak = cell === 'BREAK' || cell === 'LUNCH';
+                          const hasSubject = cell && cell.trim() && !isBreak;
 
-                        return (
-                          <td key={periodIndex} className="p-2">
-                            <div className={`
-                              h-14 min-w-[80px] rounded-xl px-2 flex items-center justify-center text-center font-semibold transition-all shadow-sm
-                              ${isBreak
-                                ? 'bg-orange-50 text-orange-700 border border-orange-200'
-                                : hasSubject && (subjectTypes[cell?.trim() || ''] === 'open elective' || cell?.trim() === 'Open Elective')
-                                  ? 'bg-purple-100 text-purple-900 border border-purple-200 hover:bg-purple-200'
-                                  : hasSubject
-                                    ? 'bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200'
-                                    : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
-                              }
-                            `}>
-                              <div className="flex flex-col items-center">
-                                <span className="text-sm font-bold truncate w-full px-1">
-                                  {formatCellContent(cell)}
-                                </span>
-                                {hasSubject && (
-                                  <span className="text-[9px] text-black/30 uppercase tracking-tighter mt-0.5 font-bold">
-                                    Class
+                          return (
+                            <td key={periodIndex} className="p-2">
+                              <div className={`
+                                h-14 min-w-[80px] rounded-xl px-2 flex items-center justify-center text-center font-semibold transition-all shadow-sm
+                                ${isBreak
+                                  ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                                  : hasSubject && (subjectTypes[cell?.trim() || ''] === 'open elective' || cell?.trim() === 'Open Elective')
+                                    ? 'bg-purple-100 text-purple-900 border border-purple-200 hover:bg-purple-200'
+                                    : hasSubject
+                                      ? 'bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200'
+                                      : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
+                                }
+                              `}>
+                                <div className="flex flex-col items-center">
+                                  <span className="text-sm font-bold truncate w-full px-1">
+                                    {formatCellContent(cell)}
                                   </span>
-                                )}
+                                  {hasSubject && (
+                                    <span className="text-[9px] text-black/30 uppercase tracking-tighter mt-0.5 font-bold">
+                                      Class
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           ) : (
             <div className="grid gap-4">
-              {grid_data.map((row, dayIndex) => (
+              {(Array.isArray(grid_data) ? grid_data : []).map((row, dayIndex) => (
                 <Card key={dayIndex} className="overflow-hidden border-olive-100 shadow-sm bg-white/50 backdrop-blur-sm group hover:shadow-md transition-all">
                   <div className="bg-gradient-to-r from-olive-50 to-transparent py-3 px-6 border-b border-olive-100">
-                    <h3 className="font-bold text-lg text-olive-900 tracking-tight">{dayNames[dayIndex]}</h3>
+                    <h3 className="font-bold text-lg text-olive-900 tracking-tight">{dayNames[dayIndex] || `Day ${dayIndex + 1}`}</h3>
                   </div>
                   <div className="divide-y divide-olive-50">
                     {(() => {
+                      const r = Array.isArray(row) ? row : [];
                       const displayRow = [
-                        row[0], row[1], 'BREAK',
-                        row[2], row[3], 'LUNCH',
-                        row[4], row[5], 'BREAK', row[6]
+                        r[0] || '', r[1] || '', 'BREAK',
+                        r[2] || '', r[3] || '', 'LUNCH',
+                        r[4] || '', r[5] || '', 'BREAK', r[6] || ''
                       ];
                       const items = displayRow.map((cell, i) => {
                         if (!cell || cell === 'BREAK' || cell === 'LUNCH') return null;

@@ -52,7 +52,7 @@ const Login = () => {
       // 2. Check for Admin in database
       const { data: adminUsers, error: adminError } = await (supabase as any)
         .from('admin_users')
-        .select('*')
+        .select('*, admin_departments(department_id)')
         .or(`email.eq.${trimmedEmail},name.eq.${trimmedEmail}`)
         .eq('is_active', true);
 
@@ -73,11 +73,16 @@ const Login = () => {
             });
 
           if (!verifyError && isValid) {
+            const deptIds = (admin.admin_departments && admin.admin_departments.length > 0)
+              ? admin.admin_departments.map((d: any) => d.department_id)
+              : (admin.department_id ? [admin.department_id] : []);
+
             const adminData = {
               id: admin.id,
               name: admin.name,
               email: admin.email,
-              department_id: admin.department_id,
+              department_id: deptIds[0] || admin.department_id || "",
+              department_ids: deptIds,
               is_active: admin.is_active
             };
             localStorage.setItem("adminUser", JSON.stringify(adminData));

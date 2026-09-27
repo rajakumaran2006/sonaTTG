@@ -181,11 +181,11 @@ const SuperAdminDashboard = () => {
                   <Users className="h-4.5 w-4.5" />
                   <span>Manage Admins</span>
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/departments?bulk=1')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                <Button variant="outline" onClick={() => navigate('/csv-upload')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
                   <Upload className="h-4.5 w-4.5" />
                   <span>Bulk Import</span>
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/settings')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
+                <Button variant="outline" onClick={() => navigate('/super-admin/labs')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
                   <Settings className="h-4.5 w-4.5" />
                   <span>System Settings</span>
                 </Button>

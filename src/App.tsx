@@ -61,6 +61,7 @@ const App = () => (
             <Route path="/admin/faculty" element={<Faculty />} />
             <Route path="/admin/departments/:id/years/:year/sections/:section" element={<SectionManagement />} />
             <Route path="/lab" element={<Lab />} />
+            <Route path="/admin/lab-allocation" element={<Lab />} />
             <Route path="/csv-upload" element={<CSVUpload />} />
             <Route path="/faculty/csv-upload" element={<FacultyCSVUpload />} />
             <Route path="/pull-requests" element={<PullRequests />} />
@@ -74,6 +75,11 @@ const App = () => (
             <Route path="/faculty/view-dept-faculty" element={<Faculty />} />
             <Route path="/faculty/subjects" element={<AdminDepartmentYears />} />
             <Route path="/faculty/subjects/:year" element={<YearSubjects />} />
+            {/* Fallback Aliases */}
+            <Route path="/super-admin-login" element={<Login />} />
+            <Route path="/admin-login" element={<Index />} />
+            <Route path="/admin/timetable" element={<Timetable />} />
+            <Route path="/super-admin/settings" element={<LabManagement />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
