@@ -24,7 +24,17 @@ import {
   Layers,
   Printer,
   ChevronDown,
+  ArrowLeftRight,
+  GripVertical,
+  AlertCircle,
 } from "lucide-react";
+import {
+  checkSwapFacultyConflict,
+  getFacultyForSubject,
+  loadGlobalConflictData,
+  DISPLAY_COL_TO_PERIOD,
+  FacultyConflict,
+} from "@/lib/timetableConflictService";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import {
@@ -109,14 +119,32 @@ function matchesFilter(cell: string, search: string, filterType: string): boolea
   return matchSearch && matchType;
 }
 
-function MiniGrid({ grid, search, filterType, compact = false }: {
-  grid: string[][]; search: string; filterType: string; compact?: boolean;
+function MiniGrid({
+  grid,
+  search,
+  filterType,
+  compact = false,
+  onSwapSlots,
+  getFaculty,
+  showFaculty = false,
+}: {
+  grid: string[][];
+  search: string;
+  filterType: string;
+  compact?: boolean;
+  onSwapSlots?: (source: { day: number; period: number }, target: { day: number; period: number }) => void;
+  getFaculty?: (subject: string) => string[];
+  showFaculty?: boolean;
 }) {
   const { isDark } = useDarkMode();
   const safeGrid = Array.isArray(grid) ? grid : [];
+
+  const [dragSource, setDragSource] = useState<{ day: number; period: number; subject: string } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ day: number; period: number } | null>(null);
+
   return (
     <div className={`overflow-auto rounded-xl ${compact ? 'max-h-[230px]' : ''}`}>
-      <table className="w-full border-collapse" style={{ minWidth: compact ? 500 : 680 }}>
+      <table className="w-full border-collapse" style={{ minWidth: compact ? 500 : 720 }}>
         <thead>
           <tr className={isDark ? "bg-white/3" : "bg-slate-100"}>
             <th className={`py-1.5 px-2 text-left font-semibold text-[10px] w-10 ${isDark ? "text-white/30" : "text-slate-500"}`}>Day</th>
@@ -137,21 +165,96 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
             return (
               <tr key={dayIdx} className={`border-t transition-colors ${isDark ? "border-white/4 hover:bg-white/2" : "border-slate-200 hover:bg-slate-50/50"}`}>
                 <td className={`py-1 px-2 font-bold text-[10px] ${isDark ? "text-white/40" : "text-slate-500"}`}>{DAYS[dayIdx]}</td>
-                {displayRow.map((cell, i) => {
+                {displayRow.map((cell, colIdx) => {
+                  const pIdx = DISPLAY_COL_TO_PERIOD[colIdx];
+                  const isPeriodCell = pIdx !== null;
+                  const isDivider = cell === 'BREAK' || cell === 'LUNCH';
                   const highlight = (search || filterType !== 'all') ? matchesFilter(cell, search, filterType) : false;
-                  const isDimmed = (search || filterType !== 'all') && cell && cell !== 'BREAK' && cell !== 'LUNCH' && !matchesFilter(cell, search, filterType);
+                  const isDimmed = (search || filterType !== 'all') && cell && !isDivider && !matchesFilter(cell, search, filterType);
+
+                  const canDrag = !compact && !!onSwapSlots && isPeriodCell && !isDivider && !!cell && cell.trim() !== '';
+                  const canDrop = !compact && !!onSwapSlots && isPeriodCell && !isDivider;
+
+                  const isDraggingThis = dragSource?.day === dayIdx && dragSource?.period === pIdx;
+                  const isTargetThis = dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx;
+
+                  const faculties = (getFaculty && cell && !isDivider) ? getFaculty(cell) : [];
+                  const facultyLabel = faculties.join(' / ');
+
                   return (
-                    <td key={i} className="p-0.5">
-                      <div className={`
-                        rounded-lg flex items-center justify-center text-center transition-all
-                        ${compact ? 'h-8 min-w-[52px]' : 'h-11 min-w-[76px]'}
-                        ${getCellStyle(cell, isDark)}
-                        ${highlight ? (isDark ? 'ring-2 ring-white/25 scale-105 z-10 relative' : 'ring-2 ring-emerald-500/50 scale-105 z-10 relative') : ''}
-                        ${isDimmed ? 'opacity-20' : ''}
-                      `}>
-                        <span className="px-1 truncate max-w-full font-semibold leading-tight" style={{ fontSize: '9px' }}>
+                    <td
+                      key={colIdx}
+                      className="p-0.5"
+                      onDragOver={(e) => {
+                        if (!canDrop || pIdx === null) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (dragOverTarget?.day !== dayIdx || dragOverTarget?.period !== pIdx) {
+                          setDragOverTarget({ day: dayIdx, period: pIdx });
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx) {
+                          setDragOverTarget(null);
+                        }
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (!canDrop || pIdx === null || !dragSource) return;
+                        if (dragSource.day === dayIdx && dragSource.period === pIdx) {
+                          setDragSource(null);
+                          setDragOverTarget(null);
+                          return;
+                        }
+                        onSwapSlots?.(dragSource, { day: dayIdx, period: pIdx });
+                        setDragSource(null);
+                        setDragOverTarget(null);
+                      }}
+                    >
+                      <div
+                        draggable={canDrag}
+                        onDragStart={(e) => {
+                          if (!canDrag || pIdx === null) return;
+                          e.dataTransfer.setData('text/plain', JSON.stringify({ day: dayIdx, period: pIdx }));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragSource({ day: dayIdx, period: pIdx, subject: cell });
+                        }}
+                        onDragEnd={() => {
+                          setDragSource(null);
+                          setDragOverTarget(null);
+                        }}
+                        title={
+                          isDivider 
+                            ? cell 
+                            : cell 
+                              ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag to swap)' : ''}`
+                              : canDrop ? 'Empty Period (Drop here to move)' : ''
+                        }
+                        className={`
+                          rounded-lg flex flex-col items-center justify-center text-center transition-all relative select-none group
+                          ${compact ? 'h-8 min-w-[52px]' : showFaculty ? 'min-h-[48px] py-1 min-w-[78px]' : 'h-11 min-w-[76px]'}
+                          ${getCellStyle(cell, isDark)}
+                          ${canDrag ? 'cursor-grab active:cursor-grabbing hover:scale-[1.02] hover:shadow-md' : ''}
+                          ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
+                          ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-lg' : ''}
+                          ${highlight ? (isDark ? 'ring-2 ring-white/25 scale-105 z-10 relative' : 'ring-2 ring-emerald-500/50 scale-105 z-10 relative') : ''}
+                          ${isDimmed ? 'opacity-20' : ''}
+                        `}
+                      >
+                        {canDrag && !isDivider && (
+                          <GripVertical className="h-2.5 w-2.5 opacity-0 group-hover:opacity-40 absolute right-0.5 top-0.5 pointer-events-none text-slate-400" />
+                        )}
+                        <span className="px-1 truncate max-w-full font-semibold leading-tight pointer-events-none" style={{ fontSize: '9px' }}>
                           {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
                         </span>
+                        {showFaculty && facultyLabel && !isDivider && (
+                          <span
+                            className="px-1 truncate max-w-full font-medium leading-none mt-0.5 pointer-events-none text-[7.5px] text-emerald-600 dark:text-emerald-400 opacity-85"
+                            title={`Staff: ${facultyLabel}`}
+                          >
+                            {facultyLabel}
+                          </span>
+                        )}
                       </div>
                     </td>
                   );
@@ -305,6 +408,111 @@ export default function GenerateReviewPage() {
   const [exporting, setExporting] = useState(false);
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'theory-elective' | 'lab' | 'open-elective' | 'special'>('all');
 
+  // Drag & drop slot swap and staff conflict states
+  const [showFacultyInGrid, setShowFacultyInGrid] = useState(true);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const [conflictData, setConflictData] = useState<{
+    conflicts: FacultyConflict[];
+    source: { day: number; period: number; subject: string };
+    target: { day: number; period: number; subject: string };
+  } | null>(null);
+
+  const getFacultyNamesForCell = (cell: string) => {
+    return getFacultyForSubject(
+      cell,
+      activeDept,
+      activeTab,
+      activeSection,
+      subjectsData,
+      specialHoursData
+    );
+  };
+
+  const handleSwapSlots = async (
+    source: { day: number; period: number },
+    target: { day: number; period: number }
+  ) => {
+    if (source.day === target.day && source.period === target.period) return;
+
+    const activeResult = generatedResults.find(
+      (r) => r.departmentName === activeDept && r.year === activeTab && r.section === activeSection
+    );
+    if (!activeResult || !Array.isArray(activeResult.grid)) return;
+
+    const subjectA = activeResult.grid[source.day]?.[source.period] || '';
+    const subjectB = activeResult.grid[target.day]?.[target.period] || '';
+
+    // Background faculty availability check across all generated timetables and all database timetables
+    const checkResult = await checkSwapFacultyConflict(
+      source,
+      target,
+      { departmentName: activeDept, year: activeTab, section: activeSection },
+      generatedResults,
+      subjectsData,
+      specialHoursData
+    );
+
+    if (checkResult.hasConflict) {
+      setConflictData({
+        conflicts: checkResult.conflicts,
+        source: { ...source, subject: subjectA },
+        target: { ...target, subject: subjectB },
+      });
+      setConflictModalOpen(true);
+      toast.error(`Faculty Schedule Conflict Detected!`, {
+        description: checkResult.conflicts[0].reason,
+        duration: 6000,
+      });
+      return;
+    }
+
+    // No conflict -> execute swap cleanly
+    setGeneratedResults((prev) =>
+      prev.map((r) => {
+        if (r.departmentName === activeDept && r.year === activeTab && r.section === activeSection) {
+          const newGrid = r.grid.map((row) => [...row]);
+          const temp = newGrid[source.day][source.period];
+          newGrid[source.day][source.period] = newGrid[target.day][target.period];
+          newGrid[target.day][target.period] = temp;
+          return { ...r, grid: newGrid };
+        }
+        return r;
+      })
+    );
+
+    const sourceLabel = `${DAYS[source.day]} Period ${source.period + 1}`;
+    const targetLabel = `${DAYS[target.day]} Period ${target.period + 1}`;
+    toast.success(`Period hours changed successfully!`, {
+      description: `${sourceLabel} (${subjectA || 'Free'}) ↔ ${targetLabel} (${subjectB || 'Free'})`,
+    });
+  };
+
+  const handleForceSwap = () => {
+    if (!conflictData) return;
+    const { source, target } = conflictData;
+
+    setGeneratedResults((prev) =>
+      prev.map((r) => {
+        if (r.departmentName === activeDept && r.year === activeTab && r.section === activeSection) {
+          const newGrid = r.grid.map((row) => [...row]);
+          const temp = newGrid[source.day][source.period];
+          newGrid[source.day][source.period] = newGrid[target.day][target.period];
+          newGrid[target.day][target.period] = temp;
+          return { ...r, grid: newGrid };
+        }
+        return r;
+      })
+    );
+
+    const sourceLabel = `${DAYS[source.day]} Period ${source.period + 1}`;
+    const targetLabel = `${DAYS[target.day]} Period ${target.period + 1}`;
+    toast.warning(`Hours swapped with manual override!`, {
+      description: `Admin forced swap: ${sourceLabel} ↔ ${targetLabel}`,
+    });
+    setConflictModalOpen(false);
+    setConflictData(null);
+  };
+
   useEffect(() => {
     if (selections.length === 0) {
       toast.error("No generation parameters specified. Please start from the dashboard.");
@@ -368,6 +576,8 @@ export default function GenerateReviewPage() {
 
   const loadAllData = async () => {
     setLoading(true);
+    // Pre-load global cross-timetable conflict dataset in background
+    loadGlobalConflictData(true).catch(console.warn);
     try {
       const deptIdsMap: Record<string, string> = {};
       const subjectsMap: Record<string, SubjectRowWithFaculty[]> = {};
@@ -911,13 +1121,41 @@ export default function GenerateReviewPage() {
                         ? "bg-[#0c0c17] border-white/6" 
                         : "bg-white border-slate-200"
                     }`}>
-                      <div className={`flex items-center justify-between mb-4 border-b pb-3 ${
+                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 border-b pb-3 ${
                         isDark ? "border-white/5" : "border-slate-100"
                       }`}>
-                        <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
-                          Timetable Grid: Year {activeResult.year} — Section {activeResult.section}
-                        </span>
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
+                            Timetable Grid: Year {activeResult.year} — Section {activeResult.section}
+                          </span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                            isDark 
+                              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' 
+                              : 'bg-emerald-50 border-emerald-250 text-emerald-700'
+                          }`}>
+                            <ArrowLeftRight className="h-2.5 w-2.5" />
+                            Drag & Drop Enabled
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
+                            className={`h-7 px-2.5 rounded-lg text-xs gap-1.5 font-semibold border transition-all ${
+                              showFacultyInGrid
+                                ? isDark
+                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                  : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                                : isDark
+                                  ? 'border-white/10 bg-white/5 text-white/60 hover:text-white'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Users className="h-3 w-3 text-emerald-500" />
+                            {showFacultyInGrid ? "Hide Faculty" : "Show Faculty"}
+                          </Button>
+
                           <Button
                             variant="outline"
                             size="sm"
@@ -936,15 +1174,38 @@ export default function GenerateReviewPage() {
                             )}
                             Export Class PDF
                           </Button>
-                          <span className={`text-[10px] uppercase tracking-wider font-mono ${
-                            isDark ? "text-white/30" : "text-slate-450"
-                          }`}>
-                            Subjects Only View
-                          </span>
                         </div>
                       </div>
+
+                      {/* Informative Drag and Drop Instruction Banner */}
+                      <div className={`mb-3.5 px-3 py-2 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                        isDark 
+                          ? 'bg-white/3 border-white/6 text-slate-300' 
+                          : 'bg-emerald-50/50 border-emerald-150 text-slate-700'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <span className="p-1 rounded-md bg-emerald-500/15 text-emerald-500 shrink-0">
+                            <ArrowLeftRight className="h-3.5 w-3.5" />
+                          </span>
+                          <span className="leading-snug">
+                            <strong className="font-semibold text-emerald-600 dark:text-emerald-400">Drag & Drop Hours:</strong> Drag any period cell to another hour to swap them. Background staff availability is verified automatically.
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono opacity-65 shrink-0 hidden md:inline">
+                          Conflict Shield Active
+                        </span>
+                      </div>
+
                       {viewMode === 'table' ? (
-                        <MiniGrid grid={activeResult.grid} search={search} filterType={filterType} compact={false} />
+                        <MiniGrid
+                          grid={activeResult.grid}
+                          search={search}
+                          filterType={filterType}
+                          compact={false}
+                          onSwapSlots={handleSwapSlots}
+                          getFaculty={getFacultyNamesForCell}
+                          showFaculty={showFacultyInGrid}
+                        />
                       ) : (
                         <ListView grid={activeResult.grid} search={search} filterType={filterType} />
                       )}
@@ -1562,6 +1823,100 @@ export default function GenerateReviewPage() {
               }}
             />
           )}
+        </DialogContent>
+      </Dialog>
+      {/* Faculty Conflict Dialog */}
+      <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
+        <DialogContent className={`max-w-xl rounded-2xl p-6 shadow-2xl transition-colors ${
+          isDark ? 'bg-[#0f0f1c] text-white border-white/10' : 'bg-white text-slate-900 border-slate-200'
+        }`}>
+          <DialogHeader className="pb-3 border-b border-slate-100 dark:border-white/10">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-500 shrink-0">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <DialogTitle className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Faculty Schedule Conflict Detected
+                </DialogTitle>
+                <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {conflictData?.source && conflictData?.target ? (
+                    <>
+                      Attempted swap between <strong>{DAYS[conflictData.source.day]} P{conflictData.source.period + 1}</strong> and <strong>{DAYS[conflictData.target.day]} P{conflictData.target.period + 1}</strong> causes a clash.
+                    </>
+                  ) : (
+                    "The requested hour change causes a faculty clash."
+                  )}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="py-4 space-y-3 max-h-[55vh] overflow-y-auto">
+            {conflictData?.conflicts.map((c, idx) => (
+              <div
+                key={idx}
+                className={`p-3.5 rounded-xl border text-xs space-y-2 ${
+                  isDark 
+                    ? 'bg-red-500/10 border-red-500/25 text-red-200' 
+                    : 'bg-red-50 border-red-200 text-red-900'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
+                    <Users className="h-4 w-4" />
+                    {c.facultyName}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30">
+                    Double-Booking Clash
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">Moving Subject:</span>{" "}
+                    <span className="font-semibold underline">{c.movingSubject || '(Empty)'}</span> → to {c.targetSlot.dayName} {c.targetSlot.periodLabel} ({c.targetSlot.time})
+                  </div>
+                  <div className={`p-2.5 rounded-lg text-xs leading-relaxed border ${
+                    isDark ? 'bg-black/30 border-red-500/20 text-red-300' : 'bg-white border-red-200 text-red-800'
+                  }`}>
+                    ⚠️ <strong>Clash Details:</strong> {c.reason}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+              isDark ? 'bg-white/4 border-white/6 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'
+            }`}>
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <span>
+                Faculty members cannot teach two different classrooms during the same hour. The change was halted to prevent timetable collision. You can cancel to keep the valid schedule or force swap if you plan to reallocate the conflicting class.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-white/10">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setConflictModalOpen(false);
+                setConflictData(null);
+              }}
+              className="rounded-xl text-xs font-semibold"
+            >
+              Cancel (Keep Current)
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleForceSwap}
+              className="rounded-xl text-xs font-semibold"
+            >
+              Force Swap Anyway
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </main>
