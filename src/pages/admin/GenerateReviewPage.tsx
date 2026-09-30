@@ -56,6 +56,7 @@ import {
   saveTimetable,
 } from "@/lib/supabaseService";
 import { generateAllYears, YearSectionResult } from "@/lib/timetable";
+import { buildFacultyAllocationMap } from "@/lib/facultyAllocation";
 import type { WizardSelection } from "@/components/admin/GenerateWizardModal";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -677,35 +678,58 @@ export default function GenerateReviewPage() {
     setGeneratedResults([]);
 
     try {
-      const resultsArray = await Promise.all(
-        selections.map(async (deptSel) => {
-          const result = await generateAllYears(
-            deptSel.departmentName,
-            (year, section, status, error) => {
-              setProgressItems((prev) =>
-                prev.map((p) =>
-                  p.departmentName === deptSel.departmentName && p.year === year && p.section === section
-                    ? { ...p, status: status as ProgressStatus, error }
-                    : p
-                )
-              );
-            },
-            facultyBeforeAfternoon
-          );
+      // Collect all classes being generated across all selected departments to exclude stale DB timetables
+      const allSelectedClasses: Array<{ departmentId?: string; year: string; section: string }> = [];
+      for (const deptSel of selections) {
+        const dept = await getDepartmentByName(deptSel.departmentName);
+        const deptId = dept?.id;
+        for (const yr of deptSel.selectedYears) {
+          for (const sec of yr.sections) {
+            allSelectedClasses.push({ departmentId: deptId, year: yr.year, section: sec });
+          }
+        }
+      }
 
-          const selectedYearSet = new Set(deptSel.selectedYears.map(y => y.year));
-          const finalResults = result.results.filter(r => {
-            if (!selectedYearSet.has(r.year)) return false;
-            const matchingYear = deptSel.selectedYears.find(y => y.year === r.year);
-            return matchingYear?.sections.includes(r.section) ?? false;
-          }).map(r => ({
-            ...r,
-            departmentName: deptSel.departmentName
-          }));
-
-          return finalResults;
-        })
+      // Build unified college-wide shared faculty allocation map
+      const sharedFacultyMap = await buildFacultyAllocationMap(
+        '',
+        undefined,
+        undefined,
+        { allClasses: true, excludeClasses: allSelectedClasses }
       );
+
+      const resultsArray: YearSectionResult[][] = [];
+
+      // Run departments sequentially to prevent cross-department staff collisions
+      for (const deptSel of selections) {
+        const result = await generateAllYears(
+          deptSel.departmentName,
+          (year, section, status, error) => {
+            setProgressItems((prev) =>
+              prev.map((p) =>
+                p.departmentName === deptSel.departmentName && p.year === year && p.section === section
+                  ? { ...p, status: status as ProgressStatus, error }
+                  : p
+              )
+            );
+          },
+          facultyBeforeAfternoon,
+          sharedFacultyMap,
+          deptSel.selectedYears
+        );
+
+        const selectedYearSet = new Set(deptSel.selectedYears.map(y => y.year));
+        const finalResults = result.results.filter(r => {
+          if (!selectedYearSet.has(r.year)) return false;
+          const matchingYear = deptSel.selectedYears.find(y => y.year === r.year);
+          return matchingYear?.sections.includes(r.section) ?? false;
+        }).map(r => ({
+          ...r,
+          departmentName: deptSel.departmentName
+        }));
+
+        resultsArray.push(finalResults);
+      }
 
       const allFinalResults = resultsArray.flat();
       setGeneratedResults(allFinalResults);

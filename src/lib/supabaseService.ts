@@ -1844,6 +1844,38 @@ export async function getLabSchedulesForSection(
   year: string,
   section: string
 ): Promise<Array<{ day: number; period: number; labId: string; labName: string }>> {
+  // Fetch department info and department lab subjects to accurately filter
+  let deptName = '';
+  const deptLabSubjCleanNames = new Set<string>();
+  if (departmentId) {
+    try {
+      const { data: deptData } = await (supabase as any)
+        .from('departments')
+        .select('name')
+        .eq('id', departmentId)
+        .maybeSingle();
+      if (deptData?.name) deptName = deptData.name.trim();
+
+      const { data: deptSubjects } = await (supabase as any)
+        .from('subjects')
+        .select('name')
+        .eq('department_id', departmentId)
+        .eq('year', year)
+        .eq('type', 'lab');
+      if (deptSubjects) {
+        deptSubjects.forEach((s: any) => {
+          const clean = s.name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
+          deptLabSubjCleanNames.add(clean);
+        });
+      }
+    } catch (e) {
+      console.warn('Error fetching dept details for lab schedules:', e);
+    }
+  }
+
+  const cleanSubject = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
+
   // Use the structured year/section columns for reliable matching
   const { data, error } = await (supabase as any)
     .from('lab_schedules')
@@ -1874,18 +1906,58 @@ export async function getLabSchedulesForSection(
     const searchPattern = `Year ${year} Sec ${section}`;
     (fallbackData || []).forEach((item: any) => {
       if (item.semester && item.semester.includes(searchPattern)) {
+        const sem = (item.semester || '').trim();
+        const deptMatch = sem.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*/i);
+        if (deptMatch && deptName) {
+          const itemDept = (deptMatch[1] || deptMatch[2] || '').trim().toLowerCase();
+          const dName = deptName.toLowerCase();
+          if (itemDept !== dName && !itemDept.includes(dName) && !dName.includes(itemDept)) {
+            return;
+          }
+        }
+        const subjName = sem.split('-').pop()?.trim() || item.labs?.name || 'Lab';
+        if (deptLabSubjCleanNames.size > 0 && !deptLabSubjCleanNames.has(cleanSubject(subjName))) {
+          return;
+        }
+
         schedules.push({
           day: item.day_of_week - 1,
           period: item.slot_number - 1,
           labId: item.lab_id,
-          labName: item.semester.split('-').pop()?.trim() || item.labs?.name || 'Lab',
+          labName: subjName,
         });
       }
     });
     return schedules;
   }
 
-  return (data || []).map((item: any) => ({
+  const filtered = (data || []).filter((item: any) => {
+    const sem = (item.semester || '').trim();
+    if (!sem) return true;
+
+    // Check department prefix in semester (e.g., "AIDS • ..." vs "IT • ...")
+    const deptMatch = sem.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*/i);
+    if (deptMatch && deptName) {
+      const itemDept = (deptMatch[1] || deptMatch[2] || '').trim().toLowerCase();
+      const dName = deptName.toLowerCase();
+      if (itemDept !== dName && !itemDept.includes(dName) && !dName.includes(itemDept)) {
+        return false;
+      }
+    }
+
+    // Filter by subject name if department subjects were fetched
+    if (deptLabSubjCleanNames.size > 0) {
+      const subjName = sem.split('-').pop()?.trim() || item.labs?.name || '';
+      const cleanSubj = cleanSubject(subjName);
+      if (cleanSubj && !deptLabSubjCleanNames.has(cleanSubj)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  return filtered.map((item: any) => ({
     day: item.day_of_week - 1,   // Convert 1-based day to 0-based
     period: item.slot_number - 1, // Convert 1-based slot to 0-based
     labId: item.lab_id,

@@ -2,6 +2,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Subject } from "@/store/timetableStore";
 import type { Grid } from "./timetable";
 
+export interface FacultyAssignmentRecord {
+  subjectId: string;
+  year?: string | null;
+  section?: string | null;
+}
+
 export interface FacultyAllocation {
   facultyId: string;
   facultyName: string;
@@ -9,6 +15,7 @@ export interface FacultyAllocation {
   availableSlots: Set<string>;
   labPreference: boolean;
   subjectIds: Set<string>; // subjects this faculty teaches
+  assignments?: FacultyAssignmentRecord[]; // detailed assignments with year/section
   isClassCounselor: boolean;
 }
 
@@ -40,20 +47,20 @@ function createSlotId(day: number, period: number): string {
  * Fetches existing faculty allocations from all timetables
  */
 export async function fetchFacultyExistingAllocations(
-  departmentId: string
+  departmentId?: string,
+  excludeClasses?: Array<{ departmentId?: string; year: string; section: string }>
 ): Promise<Map<string, Set<string>>> {
   const facultyAllocations = new Map<string, Set<string>>();
   
   try {
-    // Get all timetables for the department
+    // Get all timetables across all departments to track true global faculty availability
     const { data: timetables, error } = await supabase
       .from('timetables')
-      .select('grid_data, year, section')
-      .eq('department_id', departmentId);
+      .select('grid_data, year, section, department_id');
 
     if (error) throw error;
 
-    // Get all faculty subject assignments for the department
+    // Get all faculty subject assignments across the department/college
     const { data: assignments, error: assignError } = await supabase
       .from('faculty_subject_assignments')
       .select(`
@@ -62,8 +69,7 @@ export async function fetchFacultyExistingAllocations(
         year,
         section,
         faculty_members!inner(name)
-      `)
-      .eq('department_id', departmentId);
+      `);
 
     if (assignError) throw assignError;
 
@@ -79,8 +85,7 @@ export async function fetchFacultyExistingAllocations(
     // Get all subjects to map names to IDs
     const { data: subjects, error: subjectError } = await supabase
       .from('subjects')
-      .select('id, name, department_id')
-      .eq('department_id', departmentId);
+      .select('id, name, department_id');
 
     if (subjectError) throw subjectError;
 
@@ -91,6 +96,15 @@ export async function fetchFacultyExistingAllocations(
 
     // Process each timetable
     (timetables || []).forEach((timetable: any) => {
+      // Exclude timetables for classes currently being regenerated so stale data does not block them
+      if (excludeClasses && excludeClasses.some(ex =>
+        (!ex.departmentId || ex.departmentId === timetable.department_id) &&
+        ex.year?.toUpperCase() === timetable.year?.toUpperCase() &&
+        ex.section?.toUpperCase() === timetable.section?.toUpperCase()
+      )) {
+        return;
+      }
+
       const grid: string[][] = timetable.grid_data || [];
       
       grid.forEach((dayRow, dayIndex) => {
@@ -107,7 +121,7 @@ export async function fetchFacultyExistingAllocations(
           
           const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
           if (specialMatch) {
-            const [, specialType, facultyName] = specialMatch;
+            const [, , facultyName] = specialMatch;
             
             // Find faculty by name for special entries
             const facultyAssignment = (assignments || []).find((a: any) => 
@@ -152,64 +166,87 @@ export async function fetchFacultyExistingAllocations(
  * Builds faculty allocation map with availability and preferences
  */
 export async function buildFacultyAllocationMap(
-  departmentId: string,
-  year: string,
-  section: string
+  departmentId?: string,
+  year?: string,
+  section?: string,
+  options?: {
+    allClasses?: boolean;
+    excludeClasses?: Array<{ departmentId?: string; year: string; section: string }>;
+  }
 ): Promise<Map<string, FacultyAllocation>> {
   const facultyMap = new Map<string, FacultyAllocation>();
   
   try {
-    // Get existing allocations across all timetables
-    const existingAllocations = await fetchFacultyExistingAllocations(departmentId);
+    // Get existing allocations across all active timetables (excluding classes being regenerated)
+    const existingAllocations = await fetchFacultyExistingAllocations(departmentId, options?.excludeClasses);
     
-    // Get faculty members with their preferences
-    const { data: faculty, error: facultyError } = await supabase
+    // Get faculty members
+    let facultyQuery = supabase
       .from('faculty_members')
-      .select('id, name, takes_electives')
-      .eq('department_id', departmentId);
+      .select('id, name, takes_electives, department_id');
+    if (departmentId && !options?.allClasses) {
+      facultyQuery = facultyQuery.eq('department_id', departmentId);
+    }
+    const { data: faculty, error: facultyError } = await facultyQuery;
 
     if (facultyError) throw facultyError;
 
-    // Get class counselor info for this specific class using the new function
+    // Get class counselor info for this specific class
     let classCounselor: { faculty_id: string } | null = null;
-    try {
-      const { data, error: ccError } = await supabase
-        .rpc('get_class_counselor_info', {
-          dept_id: departmentId,
-          year_param: year,
-          section_param: section
-        });
-      
-      if (!ccError && data && data.length > 0) {
-        classCounselor = { faculty_id: data[0].faculty_id };
+    if (departmentId && year && section) {
+      try {
+        const { data, error: ccError } = await supabase
+          .rpc('get_class_counselor_info', {
+            dept_id: departmentId,
+            year_param: year,
+            section_param: section
+          });
+        
+        if (!ccError && data && data.length > 0) {
+          classCounselor = { faculty_id: data[0].faculty_id };
+        }
+      } catch (error) {
+        console.warn('Could not fetch class counselor, continuing without CC info:', error);
       }
-    } catch (error) {
-      console.warn('Could not fetch class counselor, continuing without CC info:', error);
     }
 
-    // Get faculty subject assignments for this specific year/section
-    const { data: assignments, error: assignError } = await supabase
+    // Get faculty subject assignments
+    let assignQuery = supabase
       .from('faculty_subject_assignments')
-      .select('faculty_id, subject_id')
-      .eq('department_id', departmentId)
-      .eq('year', year)
-      .or(`section.eq.${section},section.is.null`);
+      .select('faculty_id, subject_id, year, section, department_id');
+    if (departmentId && !options?.allClasses) {
+      assignQuery = assignQuery.eq('department_id', departmentId);
+      if (year && section) {
+        assignQuery = assignQuery.eq('year', year).or(`section.eq.${section},section.is.null`);
+      }
+    }
 
+    const { data: assignments, error: assignError } = await assignQuery;
     if (assignError) throw assignError;
 
-    // Build faculty-to-subjects mapping
+    // Build faculty-to-subjects mapping and detailed assignment records
     const facultySubjects = new Map<string, Set<string>>();
+    const facultyAssignments = new Map<string, FacultyAssignmentRecord[]>();
     (assignments || []).forEach((assignment: any) => {
       if (!facultySubjects.has(assignment.faculty_id)) {
         facultySubjects.set(assignment.faculty_id, new Set());
       }
       facultySubjects.get(assignment.faculty_id)!.add(assignment.subject_id);
+
+      if (!facultyAssignments.has(assignment.faculty_id)) {
+        facultyAssignments.set(assignment.faculty_id, []);
+      }
+      facultyAssignments.get(assignment.faculty_id)!.push({
+        subjectId: assignment.subject_id,
+        year: assignment.year,
+        section: assignment.section,
+      });
     });
 
     // Build allocation map for each faculty
     (faculty || []).forEach((f: any) => {
       const assignedSlots = existingAllocations.get(f.id) || new Set();
-      const isClassCounselor = classCounselor?.faculty_id === f.id;
+      const isClassCounselor = Boolean(classCounselor?.faculty_id === f.id);
       const availableSlots = new Set<string>();
       
       // Calculate available slots (all slots minus assigned ones)
@@ -219,7 +256,6 @@ export async function buildFacultyAllocationMap(
           
           // Reserve Saturday P3-P7 for class counselor
           if (isClassCounselor && day === 5 && period >= 2) {
-            // CC gets Saturday P3-P7 reserved, so these are not available for regular allocation
             continue;
           }
           
@@ -234,8 +270,10 @@ export async function buildFacultyAllocationMap(
         facultyName: f.name,
         assignedSlots,
         availableSlots,
-        labPreference: Boolean(f.takes_electives), // Using takes_electives as proxy for lab preference
+        // takes_electives is only for open electives; do not disable lab if null or true
+        labPreference: f.takes_electives !== false,
         subjectIds: facultySubjects.get(f.id) || new Set(),
+        assignments: facultyAssignments.get(f.id) || [],
         isClassCounselor,
       });
     });
@@ -250,13 +288,16 @@ export async function buildFacultyAllocationMap(
 /**
  * Finds available faculty for a subject at a specific time slot.
  * Supports combined subject IDs (separated by '_') for parallel electives.
+ * Supports year and section to match exact teacher-section assignments.
  */
 export function findAvailableFacultyForSlot(
   subjectId: string,
   day: number,
   period: number,
   facultyMap: Map<string, FacultyAllocation>,
-  isLabSubject: boolean = false
+  isLabSubject: boolean = false,
+  year?: string,
+  section?: string
 ): AllocationResult {
   const slotId = createSlotId(day, period);
   const subjectIds = subjectId.includes('_') ? subjectId.split('_') : [subjectId];
@@ -265,24 +306,49 @@ export function findAvailableFacultyForSlot(
   const allocatedFacultyNames: string[] = [];
   
   for (const subId of subjectIds) {
-    // Find faculty who teach this subject
+    // Find faculty who teach this subject (matching section if available)
     const eligibleFaculty = Array.from(facultyMap.values())
-      .filter(faculty => faculty.subjectIds.has(subId));
+      .filter(faculty => {
+        if (faculty.assignments && faculty.assignments.length > 0) {
+          const hasMatchingAssgn = faculty.assignments.some(a =>
+            a.subjectId === subId &&
+            (!a.year || !year || a.year.toUpperCase() === year.toUpperCase()) &&
+            (!a.section || !section || a.section.toUpperCase() === section.toUpperCase())
+          );
+          if (hasMatchingAssgn) return true;
+        }
+        return faculty.subjectIds.has(subId);
+      });
       
     if (eligibleFaculty.length === 0) {
       // No faculty assigned — allowed (continue)
       continue;
     }
+
+    // Prioritize section-specific matches if multiple faculty teach this subject
+    let candidateFaculty = eligibleFaculty;
+    if (year && section && eligibleFaculty.length > 1) {
+      const sectionSpecific = eligibleFaculty.filter(faculty =>
+        faculty.assignments?.some(a =>
+          a.subjectId === subId &&
+          a.year && a.year.toUpperCase() === year.toUpperCase() &&
+          a.section && a.section.toUpperCase() === section.toUpperCase()
+        )
+      );
+      if (sectionSpecific.length > 0) {
+        candidateFaculty = sectionSpecific;
+      }
+    }
     
     // Filter by availability and lab preference
-    const availableFaculty = eligibleFaculty.filter(faculty => {
+    const availableFaculty = candidateFaculty.filter(faculty => {
       // Check if slot is available
       if (!faculty.availableSlots.has(slotId)) {
         return false;
       }
       
-      // Check lab preference for lab subjects
-      if (isLabSubject && !faculty.labPreference) {
+      // Check lab preference for lab subjects (only reject if explicitly false)
+      if (isLabSubject && faculty.labPreference === false) {
         return false;
       }
       
@@ -296,6 +362,7 @@ export function findAvailableFacultyForSlot(
         success: false,
         day,
         period,
+        conflictReason: `Faculty assigned to subject is busy at ${slotId}`
       };
     }
     
@@ -368,7 +435,9 @@ export async function validateFacultyConflicts(
   const warnings: string[] = [];
   
   try {
-    const facultyMap = await buildFacultyAllocationMap(departmentId, year, section);
+    const facultyMap = await buildFacultyAllocationMap(departmentId, year, section, {
+      excludeClasses: [{ departmentId, year, section }]
+    });
     const subjectNameToId = new Map<string, string>();
     subjects.forEach(subject => {
       subjectNameToId.set(subject.name, subject.id);
@@ -391,7 +460,7 @@ export async function validateFacultyConflicts(
         // Handle special cases like "Seminar (Faculty Name)"
         const specialMatch = cellStr.match(/^(.*?)\s*\((.*?)\)$/);
         if (specialMatch) {
-          const [, specialType, facultyName] = specialMatch;
+          const [, , facultyName] = specialMatch;
           
           // Find faculty by name for special entries
           const faculty = Array.from(facultyMap.values()).find(f => f.facultyName === facultyName);
@@ -420,17 +489,40 @@ export async function validateFacultyConflicts(
           cellParts.forEach(part => {
             const subjectId = subjectNameToId.get(part);
             if (subjectId) {
-              // Find faculty for this subject
-              const eligibleFaculty = Array.from(facultyMap.values())
-                .filter(faculty => faculty.subjectIds.has(subjectId));
+              // Find faculty for this subject matching section if available
+              const eligibleFaculty = Array.from(facultyMap.values()).filter(faculty => {
+                if (faculty.assignments && faculty.assignments.length > 0) {
+                  const matches = faculty.assignments.some(a =>
+                    a.subjectId === subjectId &&
+                    (!a.year || !year || a.year.toUpperCase() === year.toUpperCase()) &&
+                    (!a.section || !section || a.section.toUpperCase() === section.toUpperCase())
+                  );
+                  if (matches) return true;
+                }
+                return faculty.subjectIds.has(subjectId);
+              });
+
+              let candidates = eligibleFaculty;
+              if (year && section && eligibleFaculty.length > 1) {
+                const sectionSpecific = eligibleFaculty.filter(faculty =>
+                  faculty.assignments?.some(a =>
+                    a.subjectId === subjectId &&
+                    a.year && a.year.toUpperCase() === year.toUpperCase() &&
+                    a.section && a.section.toUpperCase() === section.toUpperCase()
+                  )
+                );
+                if (sectionSpecific.length > 0) {
+                  candidates = sectionSpecific;
+                }
+              }
                 
-              if (eligibleFaculty.length === 0) {
+              if (candidates.length === 0) {
                 warnings.push(`No faculty assigned for ${part} at ${slotId}`);
                 return;
               }
               
               // Check for conflicts with existing assignments (other timetables)
-              const availableFaculty = eligibleFaculty.filter(faculty => 
+              const availableFaculty = candidates.filter(faculty => 
                 faculty.availableSlots.has(slotId)
               );
               
