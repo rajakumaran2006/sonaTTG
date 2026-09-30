@@ -134,7 +134,11 @@ export function calculateYearGrandTotalHours({
   };
 }
 
-export async function getSubjectsForYear(departmentId: string, year: string): Promise<Subject[]> {
+export async function getSubjectsForYear(
+  departmentId: string,
+  year: string,
+  semesterType: 'odd' | 'even' = 'odd'
+): Promise<Subject[]> {
   const { data, error } = await (supabase as any)
     .from('subjects')
     .select('*')
@@ -144,17 +148,58 @@ export async function getSubjectsForYear(departmentId: string, year: string): Pr
   
   if (error) throw error;
   
-  return (data || []).map(dbSubjectToSubject);
+  const all = (data || []).map(dbSubjectToSubject);
+  if (semesterType === 'even') {
+    return all.filter(s => (s.tags || []).some(t => /even_sem|even\b/i.test(t)));
+  } else {
+    return all.filter(s => !(s.tags || []).some(t => /even_sem|even\b/i.test(t)));
+  }
 }
 
-export async function addSubject(subject: Omit<Subject, 'id'> & { departmentId: string; year: string }): Promise<Subject> {
+export async function hasEvenSemesterSubjects(departmentId: string, year?: string): Promise<boolean> {
+  try {
+    let query = (supabase as any)
+      .from('subjects')
+      .select('id, tags, year')
+      .eq('department_id', departmentId);
+    if (year) {
+      query = query.eq('year', year);
+    }
+    const { data, error } = await query;
+    if (error) return false;
+    return (data || []).some((s: any) => (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t)));
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteEvenSemesterSubjects(departmentId: string, year?: string): Promise<void> {
+  const { data } = await (supabase as any)
+    .from('subjects')
+    .select('id, tags, year')
+    .eq('department_id', departmentId);
+  const idsToDelete = (data || [])
+    .filter((s: any) => (!year || s.year === year) && (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t)))
+    .map((s: any) => s.id);
+  if (idsToDelete.length > 0) {
+    await (supabase as any).from('subjects').delete().in('id', idsToDelete);
+  }
+}
+
+export async function addSubject(
+  subject: Omit<Subject, 'id'> & { departmentId: string; year: string; semesterType?: 'odd' | 'even' }
+): Promise<Subject> {
+  const tags = [...(subject.tags || [])];
+  if (subject.semesterType === 'even' && !tags.some(t => /even_sem|even\b/i.test(t))) {
+    tags.push('even_sem');
+  }
   const { data, error } = await (supabase as any)
     .from('subjects')
     .insert({
       name: subject.name,
       hours_per_week: subject.hoursPerWeek,
       type: subject.type,
-      tags: subject.tags || [],
+      tags,
       code: subject.code,
       abbreviation: subject.abbreviation,
       staff: subject.staff,
@@ -170,21 +215,29 @@ export async function addSubject(subject: Omit<Subject, 'id'> & { departmentId: 
   return dbSubjectToSubject(data);
 }
 
-export async function addSubjectsBulk(subjects: (Omit<Subject, 'id'> & { departmentId: string; year: string })[]): Promise<Subject[]> {
+export async function addSubjectsBulk(
+  subjects: (Omit<Subject, 'id'> & { departmentId: string; year: string; semesterType?: 'odd' | 'even' })[]
+): Promise<Subject[]> {
   if (!subjects?.length) return [];
-  const rows = subjects.map((s) => ({
-    name: s.name,
-    hours_per_week: s.hoursPerWeek,
-    type: s.type,
-    tags: s.tags || [],
-    code: s.code,
-    abbreviation: s.abbreviation,
-    staff: s.staff,
-    department_id: s.departmentId,
-    year: s.year,
-    max_faculty_count: s.maxFacultyCount,
-    credits: s.credits || 3,
-  }));
+  const rows = subjects.map((s) => {
+    const tags = [...(s.tags || [])];
+    if (s.semesterType === 'even' && !tags.some(t => /even_sem|even\b/i.test(t))) {
+      tags.push('even_sem');
+    }
+    return {
+      name: s.name,
+      hours_per_week: s.hoursPerWeek,
+      type: s.type,
+      tags,
+      code: s.code,
+      abbreviation: s.abbreviation,
+      staff: s.staff,
+      department_id: s.departmentId,
+      year: s.year,
+      max_faculty_count: s.maxFacultyCount,
+      credits: s.credits || 3,
+    };
+  });
   const { data, error } = await (supabase as any)
     .from('subjects')
     .insert(rows)

@@ -152,13 +152,16 @@ const SubjectManagement = () => {
   const [filterFaculty, setFilterFaculty] = useState<string>("all");
 
 
+  const semesterType = useTimetableStore((s) => s.semesterType);
+  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
+
   // Load subjects for current selection from Supabase
   useEffect(() => {
     if (!selection.department || !selection.year || !selection.section) return;
     (async () => {
       try {
         const dep = await ensureDepartment(selection.department!);
-        const yearBaseSubjects = await getSubjectsForYear(dep.id, selection.year!);
+        const yearBaseSubjects = await getSubjectsForYear(dep.id, selection.year!, semesterType);
         const sectionAllocatedIds = await getSectionSubjects(dep.id, selection.year!, selection.section!);
 
         const AI_DS_NAMES = new Set([
@@ -169,7 +172,7 @@ const SubjectManagement = () => {
         const isAidsYear3 = AI_DS_NAMES.has(selection.department!) && (selection.year === "III" || selection.year === "3");
 
         let loadedSubjects = yearBaseSubjects;
-        if (loadedSubjects.length === 0 && isAidsYear3) {
+        if (loadedSubjects.length === 0 && isAidsYear3 && semesterType === 'odd') {
           const base: Omit<Subject, 'id'>[] = [
             { name: "CN", hoursPerWeek: 4, type: "theory" },
             { name: "ML", hoursPerWeek: 4, type: "theory" },
@@ -220,7 +223,7 @@ const SubjectManagement = () => {
         toast({ title: "Failed to load subjects", description: e?.message || String(e) });
       }
     })();
-  }, [selection.department, selection.year, selection.section]);
+  }, [selection.department, selection.year, selection.section, semesterType]);
 
   // Load faculty and subject-faculty mapping when department/year/section changes
   useEffect(() => {
@@ -307,7 +310,7 @@ const SubjectManagement = () => {
       localStorage.setItem(`oe_mode:${depId}:${selection.year}`, openElectiveMode);
       
       // Do not alter subjects; open elective hours are now a setting. Still refresh to keep UI consistent
-      const subs = await getSubjectsForYear(depId, selection.year);
+      const subs = await getSubjectsForYear(depId, selection.year, semesterType);
       seedYearDataset(subs);
       toast({ title: "Saved", description: "Open Elective settings updated." });
     } catch (e: any) {
@@ -329,7 +332,7 @@ const SubjectManagement = () => {
       }
       localStorage.setItem(`pe_mode:${depId}:${selection.year}`, mode);
       
-      const subs = await getSubjectsForYear(depId, selection.year);
+      const subs = await getSubjectsForYear(depId, selection.year, semesterType);
       seedYearDataset(subs);
       toast({ title: "Saved", description: "Professional Elective settings updated." });
     } catch (e: any) {
@@ -349,7 +352,10 @@ const SubjectManagement = () => {
         name: form.name,
         hoursPerWeek: Number(form.hours),
         type: form.type,
-        tags: form.tags ? form.tags.split(',').map((t) => t.trim()) : [],
+        tags: [
+          ...(form.tags ? form.tags.split(',').map((t) => t.trim()) : []),
+          ...(semesterType === 'even' ? ['even_sem'] : [])
+        ],
         code: form.code?.trim() || undefined,
         abbreviation: form.abbreviation?.trim() || undefined,
         staff: form.staff?.trim() || undefined,
@@ -613,6 +619,42 @@ const SubjectManagement = () => {
       <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
         <SelectionHeader />
         <section className="container py-4">
+        {/* Semester Selection Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 mb-6 rounded-2xl bg-card border border-border/60 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Semester:</span>
+            <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setSemesterType("odd")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  semesterType === "odd"
+                    ? "bg-emerald-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Odd Semester
+              </button>
+              <button
+                type="button"
+                onClick={() => setSemesterType("even")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  semesterType === "even"
+                    ? "bg-amber-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Even Semester
+              </button>
+            </div>
+            {semesterType === "even" && (
+              <Badge variant="outline" className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25">
+                Even Semester (Years II &amp; III)
+              </Badge>
+            )}
+          </div>
+        </div>
+
         {/* Top row: Summary + Faculty (+ Elective settings cards) */}
         <div className={`grid grid-cols-1 md:grid-cols-2 ${
           (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 4 ? 'lg:grid-cols-4' : 

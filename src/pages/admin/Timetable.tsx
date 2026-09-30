@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { DAYS, generateTimetable, validateLabPlacement } from "@/lib/timetable";
+import { DAYS, generateTimetable, validateLabPlacement, verifySubjectHours } from "@/lib/timetable";
+import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
 import { getSubjectFacultyMapByDeptName, getClassCounselor, getFacultyById, getDepartmentByName } from "@/lib/supabaseService";
 import { useTimetableStore } from "@/store/timetableStore";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -78,6 +79,11 @@ function Timetable() {
   } | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'list'>('table');
   const [facultyBeforeAfternoon, setFacultyBeforeAfternoon] = useState(false);
+
+  const hourVerification = useMemo(() => {
+    if (!timetable || timetable.length === 0 || !selected || selected.length === 0) return null;
+    return verifySubjectHours(timetable, selected, specialHoursConfigs);
+  }, [timetable, selected, specialHoursConfigs]);
 
   // Manual edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -297,16 +303,25 @@ function Timetable() {
       const validation = validateLabPlacement(grid, selected, labPreferences);
       setValidationResult(validation);
 
+      // Verify subject hours
+      const verification = verifySubjectHours(gridAsStrings, selected, specialHoursConfigs);
+
       if (!validation.valid) {
         toast({
           title: 'Lab placement issues detected',
           description: `${validation.errors.length} issue(s) found. Check the warnings below.`,
           variant: 'destructive'
         });
-      } else if (Object.keys(validation.labDays).length > 0) {
+      } else if (!verification.isValid) {
         toast({
-          title: 'Timetable generated successfully',
-          description: 'All lab preferences have been applied correctly.',
+          title: 'Subject Hours Mismatch Detected',
+          description: verification.summaryText,
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Timetable generated & verified',
+          description: `All ${verification.subjects.length} subjects match their exact weekly hours!`,
           variant: 'default'
         });
       }
@@ -711,17 +726,18 @@ function Timetable() {
       const subjectsByYear: Record<string, any[]> = {};
       await Promise.all(
         uniqueYears.map(async (y) => {
-          subjectsByYear[y] = await getSubjectsForYear(dept.id, y).catch(() => []);
+          subjectsByYear[y] = await getSubjectsForYear(dept.id, y, useTimetableStore.getState().semesterType).catch(() => []);
         })
       );
 
       const exportItems: TimetableExportClassItem[] = await Promise.all(
         dbTimetables.map(async (t) => {
+          const rawGrid = (t as any).grid_data ?? (t as any).data;
           let grid: string[][] = [];
-          if (Array.isArray(t.data)) {
-            grid = t.data;
-          } else if (t.data && Array.isArray((t.data as any).grid)) {
-            grid = (t.data as any).grid;
+          if (Array.isArray(rawGrid)) {
+            grid = rawGrid;
+          } else if (rawGrid && Array.isArray((rawGrid as any).grid)) {
+            grid = (rawGrid as any).grid;
           }
 
           const yearSubjects = subjectsByYear[t.year] || [];
@@ -1000,6 +1016,17 @@ function Timetable() {
                   </AlertDescription>
                 </Alert>
               )}
+            </div>
+          )}
+
+          {/* Subject Hours Allocation Verification */}
+          {hourVerification && (
+            <div className="mb-6">
+              <SubjectHoursVerificationCard
+                verification={hourVerification}
+                isDark={false}
+                defaultExpanded={!hourVerification.isValid}
+              />
             </div>
           )}
 

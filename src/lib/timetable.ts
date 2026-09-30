@@ -42,7 +42,41 @@ export interface GenerateOptions {
   facultyBeforeAfternoon?: boolean;
   sharedYear2AuditDays?: Set<number>;
   sharedFacultyMap?: Map<string, FacultyAllocation>;
+  semesterType?: 'odd' | 'even';
 }
+
+export interface SubjectHourVerification {
+  subjectId: string;
+  subjectName: string;
+  name?: string;
+  subjectCode?: string;
+  code?: string;
+  abbreviation?: string;
+  type: string;
+  givenHours: number;
+  generatedHours: number;
+  difference: number;
+  diff?: number;
+  isMatch: boolean;
+  status: 'match' | 'under' | 'over';
+}
+
+export interface TimetableHourVerificationResult {
+  isValid: boolean;
+  totalGivenHours: number;
+  totalGeneratedHours: number;
+  subjects: SubjectHourVerification[];
+  specialHours?: Array<{
+    name: string;
+    givenHours: number;
+    generatedHours: number;
+    isMatch: boolean;
+  }>;
+  unallocatedSlots: number;
+  summaryText: string;
+  mismatches: SubjectHourVerification[];
+}
+
 
 const emptyGrid = (): Grid =>
   Array.from({ length: 6 }, () => Array.from({ length: PERIODS }, () => null));
@@ -315,6 +349,379 @@ function lockStaticLabs(
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subject Hour Verification & Saturday Special Slots Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function cleanSubjectName(s: string): string {
+  if (!s) return '';
+  return s.toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+export function isCellMatchingSubject(cell: string | null | undefined, subject: Subject): boolean {
+  if (!cell) return false;
+  const c = cell.trim();
+  if (c === 'BREAK' || c === 'LUNCH') return false;
+
+  // 1. Direct equality with name or code or abbreviation
+  if (c === subject.name) return true;
+  if (subject.code && c === subject.code) return true;
+  if (subject.abbreviation && c === subject.abbreviation) return true;
+
+  // 2. Special subjects matching (Counseling, Seminar, Library)
+  // Handles variations like "Counseling" vs "Student Counselling", "Counselling (Staff)", etc.
+  if (/counsel/i.test(c) && /counsel/i.test(subject.name)) return true;
+  if (/seminar/i.test(c) && /seminar/i.test(subject.name)) return true;
+  if (/library/i.test(c) && /library/i.test(subject.name)) return true;
+
+  // 3. Parallel / slash-separated slots (e.g. "Subject A / Subject B" or "PE1 / PE2")
+  if (c.includes(' / ')) {
+    const parts = c.split(' / ').map(p => p.trim());
+    if (parts.some(p => 
+      p === subject.name || 
+      (subject.code && p === subject.code) || 
+      (subject.abbreviation && p === subject.abbreviation) ||
+      cleanSubjectName(p) === cleanSubjectName(subject.name)
+    )) {
+      return true;
+    }
+  }
+
+  // 4. Normalized exact subject name match (e.g. "Mini Project" vs "Mini-Project" or punctuation/case differences)
+  const cClean = cleanSubjectName(c);
+  const sClean = cleanSubjectName(subject.name);
+  if (cClean && sClean && cClean === sClean) return true;
+
+  // 5. Normalized substring match
+  // Protect against false-positive matching between theory and lab counterparts
+  // e.g. "Data Engineering" (theory) should NOT match "Data Engineering Laboratory" (lab)
+  const cellIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b|\b L$/i.test(c);
+  const subjIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(subject.name) || (subject.type === 'lab' && !/project/i.test(subject.name));
+  if (cellIsLab !== subjIsLab) return false;
+
+  if (cClean && sClean && (cClean.includes(sClean) || sClean.includes(cClean))) return true;
+
+  return false;
+}
+
+export function countSubjectHoursInGrid(
+  grid: (string | null)[][],
+  subject: Subject
+): number {
+  let count = 0;
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      const cell = grid[d]?.[p];
+      if (cell && isCellMatchingSubject(cell, subject)) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+export function verifySubjectHours(
+  grid: (string | null)[][],
+  subjects: Subject[],
+  specialHoursConfigs?: SpecialHoursConfig[]
+): TimetableHourVerificationResult {
+  const verifications: SubjectHourVerification[] = [];
+  let totalGiven = 0;
+  let totalGenerated = 0;
+
+  for (const subj of subjects) {
+    const genCount = countSubjectHoursInGrid(grid, subj);
+    const diff = genCount - subj.hoursPerWeek;
+    const isMatch = diff === 0;
+    const status: 'match' | 'under' | 'over' = diff === 0 ? 'match' : diff < 0 ? 'under' : 'over';
+
+    totalGiven += subj.hoursPerWeek;
+    totalGenerated += genCount;
+
+    verifications.push({
+      subjectId: subj.id,
+      subjectName: subj.name,
+      name: subj.name,
+      subjectCode: subj.code,
+      code: subj.code,
+      abbreviation: subj.abbreviation,
+      type: subj.type,
+      givenHours: subj.hoursPerWeek,
+      generatedHours: genCount,
+      difference: diff,
+      diff,
+      isMatch,
+      status,
+    });
+  }
+
+  // Count unallocated slots
+  let unallocatedSlots = 0;
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d]?.[p] === null || grid[d]?.[p] === '') {
+        unallocatedSlots++;
+      }
+    }
+  }
+
+  // Special hours verification if configs provided
+  const specialVerifications: Array<{
+    name: string;
+    givenHours: number;
+    generatedHours: number;
+    isMatch: boolean;
+  }> = [];
+
+  if (specialHoursConfigs && specialHoursConfigs.length > 0) {
+    for (const cfg of specialHoursConfigs) {
+      if (!cfg.is_active) continue;
+      const expectedHrs = cfg.saturday_hours ?? cfg.total_hours ?? 0;
+      let count = 0;
+      for (let d = 0; d < 6; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          const cell = grid[d]?.[p];
+          if (!cell) continue;
+          const isMatchSpecial =
+            (/counsel/i.test(cfg.special_type) && /counsel/i.test(cell)) ||
+            (/seminar/i.test(cfg.special_type) && /seminar/i.test(cell)) ||
+            (/library/i.test(cfg.special_type) && /library/i.test(cell)) ||
+            new RegExp(cfg.special_type, 'i').test(cell);
+          if (isMatchSpecial) {
+            count++;
+          }
+        }
+      }
+      specialVerifications.push({
+        name: cfg.special_type,
+        givenHours: expectedHrs,
+        generatedHours: count,
+        isMatch: count === expectedHrs,
+      });
+    }
+  }
+
+  const mismatches = verifications.filter((v) => !v.isMatch);
+  const isValid = mismatches.length === 0;
+
+  let summaryText = "";
+  if (isValid) {
+    const sample = verifications[0];
+    const sampleText = sample ? ` (e.g., ${sample.abbreviation || sample.subjectName}: ${sample.givenHours}h / ${sample.generatedHours}h)` : '';
+    summaryText = `All ${verifications.length} subjects have exact allocated weekly hours matching curriculum${sampleText}.`;
+  } else {
+    const preview = mismatches
+      .slice(0, 3)
+      .map((m) => `${m.abbreviation || m.subjectName} (${m.generatedHours}h/${m.givenHours}h)`)
+      .join(", ");
+    const more = mismatches.length > 3 ? ` +${mismatches.length - 3} more` : "";
+    summaryText = `${mismatches.length} subject(s) have hour discrepancies: ${preview}${more}.`;
+  }
+
+  return {
+    isValid,
+    totalGivenHours: totalGiven,
+    totalGeneratedHours: totalGenerated,
+    subjects: verifications,
+    specialHours: specialVerifications,
+    unallocatedSlots,
+    summaryText,
+    mismatches,
+  };
+}
+
+export function placeSaturdaySpecialSlots(
+  grid: Grid,
+  specialHoursConfigs: SpecialHoursConfig[] | undefined,
+  classCounselorInfo: { name: string | null; id: string | null } | null,
+  subjects: Subject[],
+  remaining: Map<string, number>,
+  facultyMap?: Map<string, FacultyAllocation>
+): { seminarHours: number; libraryHours: number; counselHours: number } {
+  const counselorName = classCounselorInfo?.name || null;
+  const counselorId = classCounselorInfo?.id || null;
+  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
+  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
+  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counseling";
+
+  const hasSpecialConfigs = specialHoursConfigs && specialHoursConfigs.length > 0;
+  const seminarCfg = specialHoursConfigs?.find((c) => /seminar/i.test(c.special_type));
+  const libraryCfg = specialHoursConfigs?.find((c) => /library/i.test(c.special_type));
+  const counselCfg = specialHoursConfigs?.find((c) => /counsel/i.test(c.special_type));
+
+  const seminarActive = hasSpecialConfigs ? (seminarCfg?.is_active ?? false) : true;
+  const libraryActive = hasSpecialConfigs ? (libraryCfg?.is_active ?? false) : true;
+  const counselActive = hasSpecialConfigs ? (counselCfg?.is_active ?? false) : true;
+
+  const seminarHours = seminarActive ? (seminarCfg?.saturday_hours ?? seminarCfg?.total_hours ?? 2) : 0;
+  const libraryHours = libraryActive ? (libraryCfg?.saturday_hours ?? libraryCfg?.total_hours ?? 1) : 0;
+  const counselHours = counselActive ? (counselCfg?.saturday_hours ?? counselCfg?.total_hours ?? 2) : 0;
+
+  // Saturday 3rd and 4th hr (indices 2, 3) for Seminar
+  if (seminarHours >= 2) {
+    grid[5][2] = seminarLabel;
+    grid[5][3] = seminarLabel;
+    if (counselorId && facultyMap) {
+      allocateFacultyToSlot(counselorId, 5, 2, facultyMap);
+      allocateFacultyToSlot(counselorId, 5, 3, facultyMap);
+    }
+  } else if (seminarHours === 1) {
+    grid[5][2] = seminarLabel;
+    if (counselorId && facultyMap) {
+      allocateFacultyToSlot(counselorId, 5, 2, facultyMap);
+    }
+  }
+
+  const semSubj = subjects.find((s) => /seminar/i.test(s.name));
+  if (semSubj) {
+    remaining.set(semSubj.id, Math.max(0, (remaining.get(semSubj.id) || seminarHours) - seminarHours));
+  }
+
+  // Saturday 5th hr (index 4) for Library
+  if (libraryHours >= 1) {
+    grid[5][4] = libraryLabel;
+    if (counselorId && facultyMap) {
+      allocateFacultyToSlot(counselorId, 5, 4, facultyMap);
+    }
+  }
+  const libSubj = subjects.find((s) => /library/i.test(s.name));
+  if (libSubj) {
+    remaining.set(libSubj.id, Math.max(0, (remaining.get(libSubj.id) || libraryHours) - libraryHours));
+  }
+
+  // Saturday 6th and 7th hr (indices 5, 6) for Counseling
+  if (counselHours >= 2) {
+    grid[5][5] = counselLabel;
+    grid[5][6] = counselLabel;
+    if (counselorId && facultyMap) {
+      allocateFacultyToSlot(counselorId, 5, 5, facultyMap);
+      allocateFacultyToSlot(counselorId, 5, 6, facultyMap);
+    }
+  } else if (counselHours === 1) {
+    grid[5][5] = counselLabel;
+    if (counselorId && facultyMap) {
+      allocateFacultyToSlot(counselorId, 5, 5, facultyMap);
+    }
+  }
+  const counselSubj = subjects.find((s) => /counsel/i.test(s.name));
+  if (counselSubj) {
+    remaining.set(counselSubj.id, Math.max(0, (remaining.get(counselSubj.id) || counselHours) - counselHours));
+  }
+
+  return { seminarHours, libraryHours, counselHours };
+}
+
+export function rebalanceSubjectHours(
+  grid: Grid,
+  subjects: Subject[],
+  facultyMap?: Map<string, FacultyAllocation>,
+  year?: string,
+  section?: string
+): void {
+  const rebalanceable = subjects.filter(
+    (s) => s.type === "theory" || s.type === "elective"
+  );
+  if (rebalanceable.length < 2) return;
+
+  const maxIterations = 25;
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const counts = new Map<string, number>();
+    for (const s of rebalanceable) {
+      counts.set(s.id, countSubjectHoursInGrid(grid, s));
+    }
+
+    const overAllocated = rebalanceable
+      .filter((s) => (counts.get(s.id) || 0) > s.hoursPerWeek)
+      .sort((a, b) => ((counts.get(b.id) || 0) - b.hoursPerWeek) - ((counts.get(a.id) || 0) - a.hoursPerWeek));
+
+    const underAllocated = rebalanceable
+      .filter((s) => (counts.get(s.id) || 0) < s.hoursPerWeek)
+      .sort((a, b) => (b.hoursPerWeek - (counts.get(b.id) || 0)) - (a.hoursPerWeek - (counts.get(a.id) || 0)));
+
+    if (overAllocated.length === 0) {
+      break;
+    }
+
+    if (underAllocated.length === 0) {
+      // All subjects have at least their required hours, but some have surplus.
+      // Remove surplus instances so every subject matches its exact hoursPerWeek.
+      for (const overSubj of overAllocated) {
+        let currentCount = countSubjectHoursInGrid(grid, overSubj);
+        for (let d = 5; d >= 0; d--) {
+          if (currentCount <= overSubj.hoursPerWeek) break;
+          for (let p = PERIODS - 1; p >= 0; p--) {
+            if (currentCount <= overSubj.hoursPerWeek) break;
+            const cell = grid[d][p];
+            if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
+              if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
+              grid[d][p] = null;
+              currentCount--;
+            }
+          }
+        }
+      }
+      break;
+    }
+
+    const overSubj = overAllocated[0];
+    const underSubj = underAllocated[0];
+
+    let swapped = false;
+    // Attempt 1: conflict-free slot replacement
+    for (let d = 0; d < 6; d++) {
+      if (swapped) break;
+      for (let p = 0; p < PERIODS; p++) {
+        const cell = grid[d][p];
+        if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
+          if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
+
+          if (facultyMap) {
+            const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
+            if (fac.success) {
+              grid[d][p] = underSubj.name;
+              if (fac.facultyId) {
+                allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+              }
+              swapped = true;
+              break;
+            }
+          } else {
+            grid[d][p] = underSubj.name;
+            swapped = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // Attempt 2: force slot replacement if no conflict-free slot exists
+    if (!swapped) {
+      for (let d = 0; d < 6; d++) {
+        if (swapped) break;
+        for (let p = 0; p < PERIODS; p++) {
+          const cell = grid[d][p];
+          if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
+            if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
+            grid[d][p] = underSubj.name;
+            if (facultyMap) {
+              const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
+              if (fac.success && fac.facultyId) {
+                allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+              }
+            }
+            swapped = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!swapped) break;
+  }
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PHASE 2 — Staff Pre-Check
@@ -667,11 +1074,29 @@ function fillFreeHours(
   }
 
   // ── REPAIR PASS (Phase 4b) ────────────────────────────────────────────────
-  // After filling what we can with remaining hours, any STILL-empty slot is
+  // Step 1: Satisfy any subjects that are still under-allocated (remaining > 0)
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] !== null) continue;
+      const underAllocated = subjects.filter(
+        (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+      );
+      if (underAllocated.length > 0) {
+        const cand = underAllocated.sort(
+          (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
+        )[0];
+        grid[d][p] = cand.name;
+        const fac = findAvailableFacultyForSlot(cand.id, d, p, facultyMap, false, year, section);
+        if (fac.success && fac.facultyId) {
+          allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+        }
+        remaining.set(cand.id, Math.max(0, (remaining.get(cand.id) || 1) - 1));
+      }
+    }
+  }
+
+  // Step 2: After all subjects have reached their given hours, any STILL-empty slot is
   // filled as an extra repeat period for the most hour-heavy subject.
-  // This covers the case where demand < capacity (e.g., 41 hrs for 42 slots)
-  // and ensures NO slot is left blank — matching the user's expectation of a
-  // fully populated timetable.
   const allTheory = subjects
     .filter((s) => s.type !== "lab" && s.type !== "open elective")
     .sort((a, b) => b.hoursPerWeek - a.hoursPerWeek);
@@ -700,7 +1125,6 @@ function fillFreeHours(
       }
 
       // Pass 2 (force): all faculty are booked — place anyway so no slot is blank.
-      // The timetable validator will flag any conflict for the admin to review.
       if (!placed) {
         for (const subj of candidates) {
           if (isSSA(subj) && d === 5) continue; // still respect SSA rule
@@ -714,6 +1138,9 @@ function fillFreeHours(
       }
     }
   }
+
+  // Step 3: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, facultyMap, year, section);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -961,40 +1388,14 @@ async function generateYear2Timetable({
   };
 
   // 1. SATURDAY SPECIAL SLOTS & AP&S
-  const counselorName = ctx.classCounselorInfo?.name || null;
-  const counselorId = ctx.classCounselorInfo?.id || null;
-  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
-  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
-  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counseling";
-
-  // Saturday 3rd and 4th hr (indices 2, 3) MUST BE SEMINAR
-  grid[5][2] = seminarLabel;
-  grid[5][3] = seminarLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 2, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 3, ctx.facultyMap);
-  }
-  const semSubj = subjects.find((s) => /seminar/i.test(s.name));
-  if (semSubj) {
-    remaining.set(semSubj.id, Math.max(0, (remaining.get(semSubj.id) || 2) - 2));
-  }
-
-  // Saturday 5th hr: Library; 6th & 7th hr: Counseling
-  grid[5][4] = libraryLabel;
-  grid[5][5] = counselLabel;
-  grid[5][6] = counselLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 4, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 5, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 6, ctx.facultyMap);
-  }
-  subjects.forEach((s) => {
-    if (/library/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 1) - 1));
-    } else if (/counsel/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 2) - 2));
-    }
-  });
+  placeSaturdaySpecialSlots(
+    grid,
+    specialHoursConfigs,
+    ctx.classCounselorInfo,
+    subjects,
+    remaining,
+    ctx.facultyMap
+  );
 
   // Saturday 1st or 2nd hr: AP&S, alternate hr: other theory subject
   const apsSubj = subjects.find(isYear2APS);
@@ -1027,18 +1428,55 @@ async function generateYear2Timetable({
     if (ctx.facultyMap) {
       altSubj =
         altTheoryCandidates.find(
+          (cand) => (remaining.get(cand.id) || 0) > 0 && findAvailableFacultyForSlot(cand.id, 5, altPeriod, ctx.facultyMap, false).success
+        ) ||
+        altTheoryCandidates.find(
           (cand) => findAvailableFacultyForSlot(cand.id, 5, altPeriod, ctx.facultyMap, false).success
-        ) || altTheoryCandidates[0];
+        ) ||
+        altTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        altTheoryCandidates[0];
     } else {
-      altSubj = altTheoryCandidates[0];
+      altSubj =
+        altTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        altTheoryCandidates[0];
     }
   }
 
-  if (apsSubj) {
+  if (apsSubj && grid[5][apsPeriod] === null) {
     placeSlot(5, apsPeriod, apsSubj);
   }
-  if (altSubj) {
+  if (altSubj && grid[5][altPeriod] === null) {
     placeSlot(5, altPeriod, altSubj);
+  }
+
+  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours
+  for (const p of [2, 3]) {
+    if (grid[5][p] === null) {
+      const candidates = shuffle(
+        subjects.filter(
+          (s) =>
+            s.type === "theory" &&
+            (remaining.get(s.id) || 0) > 0 &&
+            !isYear2AuditCourse(s) &&
+            !isYear2SoftSkillOrAptitude(s) &&
+            !isYear2NPTEL(s) &&
+            !isYear2SpecialSat(s)
+        )
+      );
+      if (candidates.length > 0) {
+        let placedCand: Subject | null = null;
+        if (ctx.facultyMap) {
+          placedCand = candidates.find(
+            (c) => findAvailableFacultyForSlot(c.id, 5, p, ctx.facultyMap!, false).success
+          ) || candidates[0];
+        } else {
+          placedCand = candidates[0];
+        }
+        if (placedCand) {
+          placeSlot(5, p, placedCand);
+        }
+      }
+    }
   }
 
   // 2. LABS
@@ -1409,24 +1847,42 @@ async function generateYear2Timetable({
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot)
+  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
 
-    for (const d of shuffle([0, 1, 2, 3, 4])) {
+    for (const d of shuffle([0, 1, 2, 3, 4, 5])) {
       if (rem <= 0) break;
       for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
         if (grid[d][p] === null) {
           placeSlot(d, p, subj);
-          rem--;
-          break;
+          rem = remaining.get(subj.id) || 0;
+          if (rem <= 0) break;
         }
       }
     }
   }
 
-  // Pass 4: Free Hour Fill (repair pass - ensure no slot is left blank)
+  // Pass 4: Free Hour Fill (repair pass - ensure exact hours and no slot left blank)
+  // Step 4a: First priority — strictly satisfy any under-allocated subjects
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] === null) {
+        const underAllocated = subjects.filter(
+          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+        );
+        if (underAllocated.length > 0) {
+          const cand = underAllocated.sort(
+            (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
+          )[0];
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
+  // Step 4b: Only if all subjects have met their given hours, fill any remaining blank slots
   const allTheoryForRepair = otherTheory.concat(apsSubj ? [apsSubj] : []);
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
@@ -1450,6 +1906,9 @@ async function generateYear2Timetable({
       }
     }
   }
+
+  // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
 
   return grid;
 }
@@ -1524,6 +1983,7 @@ async function generateYear3Timetable({
   specialHoursConfigs,
   labPreferences,
   facultyBeforeAfternoon,
+  semesterType = "odd",
 }: {
   subjects: Subject[];
   rawSubjects: Subject[];
@@ -1534,6 +1994,7 @@ async function generateYear3Timetable({
   specialHoursConfigs: SpecialHoursConfig[];
   labPreferences?: LabPrefsMap;
   facultyBeforeAfternoon?: boolean;
+  semesterType?: 'odd' | 'even';
 }): Promise<Grid> {
   const grid = emptyGrid();
   const remaining = new Map<string, number>();
@@ -1567,43 +2028,47 @@ async function generateYear3Timetable({
     return true;
   };
 
-  // 1. SATURDAY SPECIAL SLOTS & ANY 2 THEORY SUBJECTS (NO AP&S)
-  const counselorName = ctx.classCounselorInfo?.name || null;
-  const counselorId = ctx.classCounselorInfo?.id || null;
-  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
-  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
-  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counseling";
+  // 1. OPEN ELECTIVE (OE) FOR EVEN SEMESTER
+  // As per OE institutional rule:
+  // Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0), Sat 1st & 2nd hrs (d=5, p=0, p=1)
+  if (semesterType === 'even') {
+    const OE_FIXED_SLOTS = [
+      { d: 0, p: 0 }, // Mon Period 1
+      { d: 2, p: 0 }, // Wed Period 1
+      { d: 4, p: 0 }, // Fri Period 1
+      { d: 5, p: 0 }, // Sat Period 1
+      { d: 5, p: 1 }, // Sat Period 2
+    ];
 
-  // Saturday 3rd and 4th hr (indices 2, 3) MUST BE SEMINAR
-  grid[5][2] = seminarLabel;
-  grid[5][3] = seminarLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 2, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 3, ctx.facultyMap);
-  }
-  const semSubj = subjects.find((s) => /seminar/i.test(s.name));
-  if (semSubj) {
-    remaining.set(semSubj.id, Math.max(0, (remaining.get(semSubj.id) || 2) - 2));
-  }
+    const oeSubjects = subjects.filter((s) => s.type === "open elective");
+    const oeSubj = oeSubjects[0] || null;
+    const oeLabel = oeSubj?.name || ctx.openElectiveConfig?.group_name || "Open Elective";
 
-  // Saturday 5th hr: Library; 6th & 7th hr: Counseling
-  grid[5][4] = libraryLabel;
-  grid[5][5] = counselLabel;
-  grid[5][6] = counselLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 4, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 5, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 6, ctx.facultyMap);
-  }
-  subjects.forEach((s) => {
-    if (/library/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 1) - 1));
-    } else if (/counsel/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 2) - 2));
+    for (const { d, p } of OE_FIXED_SLOTS) {
+      grid[d][p] = oeLabel;
+      if (oeSubj && ctx.facultyMap) {
+        const fac = findAvailableFacultyForSlot(oeSubj.id, d, p, ctx.facultyMap, false, year, section);
+        if (fac.success && fac.facultyId) {
+          allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
+        }
+      }
     }
-  });
+    oeSubjects.forEach((s) => remaining.set(s.id, 0));
+  }
 
-  // Saturday 1st and 2nd hr: ANY 2 theory subjects (NO AP&S!)
+  // 2. SATURDAY SPECIAL SLOTS (SEMINAR, LIBRARY, COUNSELING)
+  placeSaturdaySpecialSlots(
+    grid,
+    specialHoursConfigs,
+    ctx.classCounselorInfo,
+    subjects,
+    remaining,
+    ctx.facultyMap
+  );
+
+  // In odd semester, Saturday 1st and 2nd hr: ANY 2 theory subjects (NO AP&S!)
+  // In even semester, Saturday 1st and 2nd hr are already filled by Open Elective above!
+  if (semesterType !== 'even') {
   const satTheoryCandidates = shuffle(
     subjects.filter(
       (s) =>
@@ -1662,11 +2127,42 @@ async function generateYear3Timetable({
     }
   }
 
-  if (subj1) {
+  if (subj1 && grid[5][0] === null) {
     placeSlot(5, 0, subj1);
   }
-  if (subj2) {
+  if (subj2 && grid[5][1] === null) {
     placeSlot(5, 1, subj2);
+  }
+  }
+
+  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours
+  for (const p of [2, 3]) {
+    if (grid[5][p] === null) {
+      const candidates = shuffle(
+        subjects.filter(
+          (s) =>
+            (s.type === "theory" || s.type === "elective" || s.type === "open elective") &&
+            (remaining.get(s.id) || 0) > 0 &&
+            !isYear3SpecialSat(s) &&
+            !isYear3SoftSkillOrAptitude(s) &&
+            !isYear3AuditCourse(s) &&
+            !isYear3NPTEL(s)
+        )
+      );
+      if (candidates.length > 0) {
+        let placedCand: Subject | null = null;
+        if (ctx.facultyMap) {
+          placedCand = candidates.find(
+            (c) => findAvailableFacultyForSlot(c.id, 5, p, ctx.facultyMap!, false).success
+          ) || candidates[0];
+        } else {
+          placedCand = candidates[0];
+        }
+        if (placedCand) {
+          placeSlot(5, p, placedCand);
+        }
+      }
+    }
   }
 
   // 2. LABS
@@ -1688,6 +2184,26 @@ async function generateYear3Timetable({
         if (matchedLab && grid[slot.day][slot.period] === null) {
           placeSlot(slot.day, slot.period, matchedLab, true);
           dayUsedForLab.add(slot.day);
+        }
+      }
+    }
+
+    // If a manual lab still has remaining hours (e.g. 2 slots booked for a 3-hour lab),
+    // extend it to an adjacent period on that same day to fulfill the required lab hours
+    for (const lab of labs) {
+      let rem = remaining.get(lab.id) || 0;
+      if (rem > 0) {
+        for (const d of Array.from(dayUsedForLab)) {
+          const placedOnDay = grid[d]
+            .map((c, p) => ({ cell: c, p }))
+            .filter((item) => item.cell && isSameSubject(item.cell, lab.name));
+          if (placedOnDay.length > 0) {
+            const maxP = Math.max(...placedOnDay.map((x) => x.p));
+            while (rem > 0 && maxP + 1 < PERIODS && grid[d][maxP + 1] === null) {
+              placeSlot(d, maxP + 1, lab, true);
+              rem = remaining.get(lab.id) || 0;
+            }
+          }
         }
       }
     }
@@ -1937,7 +2453,7 @@ async function generateYear3Timetable({
   const otherTheory = shuffle(
     subjects.filter(
       (s) =>
-        (s.type === "theory" || s.type === "elective" || s.type === "open elective") &&
+        (s.type === "theory" || s.type === "elective") &&
         !isYear3SpecialSat(s) &&
         !isYear3SoftSkillOrAptitude(s) &&
         !isYear3AuditCourse(s) &&
@@ -2010,24 +2526,42 @@ async function generateYear3Timetable({
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot)
+  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
 
-    for (const d of shuffle([0, 1, 2, 3, 4])) {
+    for (const d of shuffle([0, 1, 2, 3, 4, 5])) {
       if (rem <= 0) break;
       for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
         if (grid[d][p] === null) {
           placeSlot(d, p, subj);
-          rem--;
-          break;
+          rem = remaining.get(subj.id) || 0;
+          if (rem <= 0) break;
         }
       }
     }
   }
 
-  // Pass 4: Free Hour Fill (repair pass - ensure no slot is left blank)
+  // Pass 4: Free Hour Fill (repair pass - ensure exact hours and no slot left blank)
+  // Step 4a: First priority — strictly satisfy any under-allocated subjects
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] === null) {
+        const underAllocated = subjects.filter(
+          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+        );
+        if (underAllocated.length > 0) {
+          const cand = underAllocated.sort(
+            (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
+          )[0];
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
+  // Step 4b: Only if all subjects have met their given hours, fill any remaining blank slots
   const allTheoryForRepair = otherTheory;
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
@@ -2051,6 +2585,9 @@ async function generateYear3Timetable({
       }
     }
   }
+
+  // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
 
   return grid;
 }
@@ -2198,40 +2735,14 @@ async function generateYear4Timetable({
   }
 
   // 2. SATURDAY SPECIAL SLOTS (SEMINAR, LIBRARY, COUNSELING)
-  const counselorName = ctx.classCounselorInfo?.name || null;
-  const counselorId = ctx.classCounselorInfo?.id || null;
-  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
-  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
-  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counseling";
-
-  // Saturday 3rd and 4th hr (indices 2, 3) MUST BE SEMINAR
-  grid[5][2] = seminarLabel;
-  grid[5][3] = seminarLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 2, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 3, ctx.facultyMap);
-  }
-  const semSubj = subjects.find((s) => /seminar/i.test(s.name));
-  if (semSubj) {
-    remaining.set(semSubj.id, Math.max(0, (remaining.get(semSubj.id) || 2) - 2));
-  }
-
-  // Saturday 5th hr: Library; 6th & 7th hr: Counseling
-  grid[5][4] = libraryLabel;
-  grid[5][5] = counselLabel;
-  grid[5][6] = counselLabel;
-  if (counselorId && ctx.facultyMap) {
-    allocateFacultyToSlot(counselorId, 5, 4, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 5, ctx.facultyMap);
-    allocateFacultyToSlot(counselorId, 5, 6, ctx.facultyMap);
-  }
-  subjects.forEach((s) => {
-    if (/library/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 1) - 1));
-    } else if (/counsel/i.test(s.name)) {
-      remaining.set(s.id, Math.max(0, (remaining.get(s.id) || 2) - 2));
-    }
-  });
+  placeSaturdaySpecialSlots(
+    grid,
+    specialHoursConfigs,
+    ctx.classCounselorInfo,
+    subjects,
+    remaining,
+    ctx.facultyMap
+  );
 
   // 3. LABS
   // Same day continuous on weekdays only:
@@ -2528,7 +3039,6 @@ async function generateYear4Timetable({
     subjects.filter(
       (s) =>
         (s.type === "theory" || s.type === "elective") &&
-        s.type !== "open elective" &&
         !isYear4SpecialSat(s) &&
         !isYear4SoftSkillOrAptitude(s) &&
         !isYear4AuditCourse(s) &&
@@ -2601,24 +3111,42 @@ async function generateYear4Timetable({
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot)
+  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
 
-    for (const d of shuffle([0, 1, 2, 3, 4])) {
+    for (const d of shuffle([0, 1, 2, 3, 4, 5])) {
       if (rem <= 0) break;
       for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
         if (grid[d][p] === null) {
           placeSlot(d, p, subj);
-          rem--;
-          break;
+          rem = remaining.get(subj.id) || 0;
+          if (rem <= 0) break;
         }
       }
     }
   }
 
-  // Pass 4: Free Hour Fill (repair pass - ensure no slot is left blank)
+  // Pass 4: Free Hour Fill (repair pass - ensure exact hours and no slot left blank)
+  // Step 4a: First priority — strictly satisfy any under-allocated subjects
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS; p++) {
+      if (grid[d][p] === null) {
+        const underAllocated = subjects.filter(
+          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+        );
+        if (underAllocated.length > 0) {
+          const cand = underAllocated.sort(
+            (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
+          )[0];
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
+  // Step 4b: Only if all subjects have met their given hours, fill any remaining blank slots
   const allTheoryForRepair = otherTheory;
   for (let d = 0; d < 6; d++) {
     for (let p = 0; p < PERIODS; p++) {
@@ -2643,6 +3171,9 @@ async function generateYear4Timetable({
     }
   }
 
+  // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+
   return grid;
 }
 
@@ -2663,6 +3194,7 @@ export async function generateTimetable({
   facultyBeforeAfternoon = false,
   sharedYear2AuditDays,
   sharedFacultyMap,
+  semesterType = 'odd',
 }: GenerateOptions): Promise<Grid> {
   const grid = emptyGrid();
 
@@ -2689,8 +3221,8 @@ export async function generateTimetable({
 
     for (const s of electiveSubjects) {
       const peTag = (s.tags || []).find((t) =>
-        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+)$/i.test(t.trim())
-      );
+        /^(pe\s*\d+|elective\s*\d+|professional\s*elective\s*\d+|pe_group_\w+)$/i.test(t.trim())
+      ) || (s.elective_group_name ? s.elective_group_name : undefined);
       if (peTag) {
         const key = peTag.trim().toUpperCase();
         if (!peTagGroups.has(key)) peTagGroups.set(key, []);
@@ -2789,6 +3321,7 @@ export async function generateTimetable({
       specialHoursConfigs,
       labPreferences,
       facultyBeforeAfternoon,
+      semesterType,
     });
   }
 
@@ -2884,6 +3417,9 @@ export async function generateTimetable({
 
   // ── PHASE 4: Free Hour Fill ───────────────────────────────────────────────
   fillFreeHours(grid, subjects, remaining, ctx.facultyMap, year, section);
+
+  // ── PHASE 5: Hours Rebalancing & Self-Healing ─────────────────────────────
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
 
   return grid;
 }
@@ -3034,11 +3570,13 @@ export function validateLabPlacement(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type YearSectionResult = {
+  departmentName?: string;
   year: string;
   section: string;
   grid: string[][];
   status: 'ok' | 'error';
   error?: string;
+  hourVerification?: TimetableHourVerificationResult;
 };
 
 export type BatchGenerationResult = {
@@ -3059,7 +3597,8 @@ export async function generateAllYears(
   onProgress?: (year: string, section: string, status: 'running' | 'ok' | 'error', error?: string) => void,
   facultyBeforeAfternoon: boolean = false,
   existingSharedFacultyMap?: Map<string, FacultyAllocation>,
-  targetYearSections?: Array<{ year: string; sections: string[] }>
+  targetYearSections?: Array<{ year: string; sections: string[] }>,
+  semesterType: 'odd' | 'even' = 'odd'
 ): Promise<BatchGenerationResult> {
   const department = await getDepartmentByName(departmentName);
   if (!department) {
@@ -3076,10 +3615,14 @@ export async function generateAllYears(
   const sectionsToGenerate: Record<string, string[]> = {};
   if (targetYearSections && targetYearSections.length > 0) {
     for (const item of targetYearSections) {
+      if (semesterType === 'even' && item.year === 'IV') continue;
       sectionsToGenerate[item.year] = item.sections;
     }
   } else {
     Object.assign(sectionsToGenerate, YEAR_SECTIONS);
+    if (semesterType === 'even') {
+      delete sectionsToGenerate['IV'];
+    }
   }
 
   // Collect all (year, section) pairs being generated so we can exclude stale DB timetables
@@ -3098,7 +3641,7 @@ export async function generateAllYears(
     { allClasses: true, excludeClasses: allGeneratingClasses }
   );
 
-  const YEAR_ORDER = ['II', 'III', 'IV'] as const;
+  const YEAR_ORDER = (semesterType === 'even' ? ['II', 'III'] : ['II', 'III', 'IV']) as const;
 
   // Run years SEQUENTIALLY across sections to preserve total real-time cross-year and cross-section faculty conflict awareness
   for (const year of YEAR_ORDER) {
@@ -3106,7 +3649,7 @@ export async function generateAllYears(
     if (!sections || sections.length === 0) continue;
     // Load subjects + special hours once per year (shared across sections)
     const [subjects, specialHoursConfigs] = await Promise.all([
-      getSubjectsForYear(deptId, year).catch(() => [] as Subject[]),
+      getSubjectsForYear(deptId, year, semesterType).catch(() => [] as Subject[]),
       getSpecialHoursConfigsForYear(deptId, year).catch(() => [] as SpecialHoursConfig[]),
     ]);
 
@@ -3118,9 +3661,9 @@ export async function generateAllYears(
           section,
           grid: [],
           status: 'error',
-          error: `No subjects configured for Year ${year}`,
+          error: `No subjects configured for Year ${year} (${semesterType} semester)`,
         });
-        onProgress?.(year, section, 'error', `No subjects configured for Year ${year}`);
+        onProgress?.(year, section, 'error', `No subjects configured for Year ${year} (${semesterType} semester)`);
       }
       continue;
     }
@@ -3166,11 +3709,21 @@ export async function generateAllYears(
           facultyBeforeAfternoon,
           sharedFacultyMap,
           sharedYear2AuditDays: isYearTwo(year) ? year2AuditDays : undefined,
+          semesterType,
         });
 
         const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
+        const hourVerification = verifySubjectHours(grid, sectionSubjects, specialHoursConfigs);
 
-        allResults.push({ year, section, grid: gridAsStrings, status: 'ok' });
+        console.log(`[Hour Verification ${departmentName} Year ${year} Sec ${section}] ${hourVerification.summaryText}`);
+
+        allResults.push({
+          year,
+          section,
+          grid: gridAsStrings,
+          status: 'ok',
+          hourVerification,
+        });
         onProgress?.(year, section, 'ok');
       } catch (err: any) {
         const msg = err?.message ?? 'Unknown error';

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { getSubjectsForYear, getOpenElectiveHours, getOpenElectiveConfig, setOpenElectiveConfig } from "@/lib/supabaseService";
+import { useTimetableStore } from "@/store/timetableStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -188,6 +189,8 @@ const YearSubjects = () => {
     if (meta) meta.setAttribute("content", "Add, update, and delete subjects for the selected department year.");
   }, [year]);
 
+  const semesterType = useTimetableStore((s) => s.semesterType);
+
   useEffect(() => {
     if (!isLoggedIn) { navigate('/', { replace: true }); return; }
     (async () => {
@@ -201,7 +204,7 @@ const YearSubjects = () => {
       if (d?.name) setDeptName(d.name);
       const list = await (async () => {
         try {
-          const arr = await getSubjectsForYear(targetDeptId, year);
+          const arr = await getSubjectsForYear(targetDeptId, year, semesterType);
           return (arr || []).map((s: any) => ({
             id: s.id,
             name: s.name,
@@ -240,7 +243,7 @@ const YearSubjects = () => {
       }
       setLoading(false);
     })();
-  }, [isLoggedIn, id, year]);
+  }, [isLoggedIn, id, year, semesterType]);
 
   const resetForm = () => {
     setName("");

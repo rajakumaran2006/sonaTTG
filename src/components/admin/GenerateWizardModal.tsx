@@ -82,7 +82,8 @@ interface GenerateWizardModalProps {
   onClose: () => void;
   departments: any[];
   defaultDepartmentNames: string[];
-  onProceed: (selections: DepartmentSelection[]) => void;
+  onProceed: (selections: DepartmentSelection[], semesterType?: 'odd' | 'even') => void;
+  semesterType?: 'odd' | 'even';
 }
 
 export function GenerateWizardModal({
@@ -91,10 +92,13 @@ export function GenerateWizardModal({
   departments,
   defaultDepartmentNames,
   onProceed,
+  semesterType = "odd",
 }: GenerateWizardModalProps) {
   const navigate = useNavigate();
   const { isDark } = useDarkMode();
   const [step, setStep] = useState<1 | 2>(1);
+
+  const activeYears = semesterType === "even" ? ["II", "III"] : YEAR_ORDER;
 
   const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
   const [selectedYears, setSelectedYears] = useState<Record<string, Record<string, boolean>>>({});
@@ -117,7 +121,7 @@ export function GenerateWizardModal({
       const initialYears: Record<string, Record<string, boolean>> = {};
       const initialSections: Record<string, Record<string, Record<string, boolean>>> = {};
       departments.forEach(d => {
-        initialYears[d.name] = { II: true, III: true, IV: true };
+        initialYears[d.name] = { II: true, III: true, IV: semesterType !== "even" };
         initialSections[d.name] = {
           II:  { A: true, B: true, C: true },
           III: { A: true, B: true, C: true },
@@ -127,13 +131,13 @@ export function GenerateWizardModal({
       setSelectedYears(initialYears);
       setSelectedSections(initialSections);
     }
-  }, [open, departments, defaultDepartmentNames]);
+  }, [open, departments, defaultDepartmentNames, semesterType]);
 
   const getWizardSelection = (): DepartmentSelection[] => {
     return Object.keys(selectedDepts)
       .filter((deptName) => selectedDepts[deptName])
       .map((deptName) => {
-        const deptYears = YEAR_ORDER.filter((y) => selectedYears[deptName]?.[y])
+        const deptYears = activeYears.filter((y) => selectedYears[deptName]?.[y])
           .map((y) => ({
             year: y,
             sections: YEAR_CONFIG[y].filter((s) => selectedSections[deptName]?.[y]?.[s]),
@@ -165,7 +169,7 @@ export function GenerateWizardModal({
         const deptChecks = await Promise.all(
           deptSel.selectedYears.map(async ({ year, sections }) => {
             const [subjects, specialHoursConfigs] = await Promise.all([
-              getSubjectsForYear(dept.id, year).catch(() => []),
+              getSubjectsForYear(dept.id, year, semesterType).catch(() => []),
               getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),
             ]);
             
@@ -183,7 +187,11 @@ export function GenerateWizardModal({
               const secSubjects = secSubjIds.length > 0 
                 ? subjects.filter(s => secSubjIds.includes(s.id))
                 : subjects;
-              const subjectsTotal = calculateTotalHours(secSubjects);
+              let subjectsTotal = calculateTotalHours(secSubjects);
+              // For Year III in Even Semester, Open Elective is automatically fixed to 5 hours
+              if (year === 'III' && semesterType === 'even' && !secSubjects.some(s => s.type === 'open elective')) {
+                subjectsTotal += 5;
+              }
               const total = subjectsTotal + specialHoursTotal;
               maxSectionHours = Math.max(maxSectionHours, total);
               if (total > TOTAL_HOURS) hasError = true;
@@ -280,7 +288,7 @@ export function GenerateWizardModal({
                 }`}>
                   {dept.name}
                 </div>
-                {YEAR_ORDER.map((year) => {
+                {activeYears.map((year) => {
                   const isChecked = !!selectedYears[dept.name]?.[year];
                   const itemBgBorder = isChecked
                     ? (isDark ? "bg-emerald-500/5 border-emerald-500/30 text-white" : "bg-emerald-50/40 border-emerald-250 text-slate-900")
@@ -474,7 +482,7 @@ export function GenerateWizardModal({
                 <ArrowLeft className="h-3.5 w-3.5" /> Back
               </button>
               <Button
-                onClick={() => { onClose(); onProceed(getWizardSelection()); }}
+                onClick={() => { onClose(); onProceed(getWizardSelection(), semesterType); }}
                 disabled={!canProceed || loadingHours}
                 className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl gap-2 disabled:opacity-40"
               >

@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { X, ChevronLeft, LayoutGrid, List, Search, CheckCircle2, AlertCircle, Maximize2 } from "lucide-react";
 import type { YearSectionResult } from "@/lib/timetable";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 const DISPLAY_COLUMNS = [
@@ -416,9 +417,18 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
                 >
                   Section {r.section}
                   {r.status === 'ok' ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                      title={
+                        r.hourVerification?.isValid ?? true
+                          ? "Hours verified 100% exact"
+                          : "Subject hour mismatch detected"
+                      }
+                    />
                   ) : (
-                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500" title="Generation error" />
                   )}
                 </button>
               ))}
@@ -465,6 +475,16 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
                 <MiniGrid grid={activeResult.grid} search={search} filterType={filterType} compact={false} />
               ) : (
                 <ListView grid={activeResult.grid} search={search} filterType={filterType} />
+              )}
+
+              {activeResult.hourVerification && (
+                <div className="mt-4">
+                  <SubjectHoursVerificationCard
+                    verification={activeResult.hourVerification}
+                    isDark={isDark}
+                    defaultExpanded={!activeResult.hourVerification.isValid}
+                  />
+                </div>
               )}
             </div>
           )}

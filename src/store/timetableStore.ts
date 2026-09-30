@@ -59,6 +59,8 @@ export interface TimetableState {
   setSpecialHoursConfigs: (configs: SpecialHoursConfig[]) => void;
   setSelectedSubjects: (subs: Subject[]) => void;
   setTimetable: (grid: string[][]) => void;
+  semesterType: 'odd' | 'even';
+  setSemesterType: (sem: 'odd' | 'even') => void;
   // Lab preferences for the current selection
   labPreferences: LabPrefsMap;
   setLabPreferences: (prefs: LabPrefsMap) => void;
@@ -86,6 +88,22 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   specialHoursConfigs: [],
   timetable: Array.from({ length: DAYS }, () => Array.from({ length: PERIODS }, () => "")),
   labPreferences: {},
+  semesterType: (() => {
+    try {
+      const stored = localStorage.getItem("optitime_semester_type");
+      return (stored === "even" || stored === "odd") ? stored : "odd";
+    } catch {
+      return "odd";
+    }
+  })(),
+  setSemesterType: (sem) => {
+    try {
+      localStorage.setItem("optitime_semester_type", sem);
+    } catch (e) {
+      console.warn("Failed to save semesterType to localStorage:", e);
+    }
+    set({ semesterType: sem });
+  },
   setSelection: (s) => set((state) => {
     // Helpers for dataset keying
     const AI_DS_NAMES = new Set([

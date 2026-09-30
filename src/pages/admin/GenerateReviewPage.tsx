@@ -55,7 +55,8 @@ import {
   getSectionSubjects,
   saveTimetable,
 } from "@/lib/supabaseService";
-import { generateAllYears, YearSectionResult } from "@/lib/timetable";
+import { generateAllYears, YearSectionResult, verifySubjectHours } from "@/lib/timetable";
+import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
 import { buildFacultyAllocationMap } from "@/lib/facultyAllocation";
 import type { WizardSelection } from "@/components/admin/GenerateWizardModal";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { SpecialHoursManager } from "@/components/SpecialHoursManager";
+import { useTimetableStore } from "@/store/timetableStore";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 const DISPLAY_COLUMNS = [
@@ -374,9 +376,22 @@ export default function GenerateReviewPage() {
 
   const stateData = location.state as {
     selections?: { departmentName: string; selectedYears: WizardSelection[] }[];
+    semesterType?: 'odd' | 'even';
   } | null;
 
-  const selections = stateData?.selections || [];
+  const storeSemesterType = useTimetableStore((s) => s.semesterType);
+  const semesterType: 'odd' | 'even' = stateData?.semesterType || storeSemesterType || 'odd';
+
+  const rawSelections = stateData?.selections || [];
+  const selections = useMemo(() => {
+    if (semesterType === 'even') {
+      return rawSelections.map(d => ({
+        ...d,
+        selectedYears: d.selectedYears.filter(y => y.year !== 'IV')
+      })).filter(d => d.selectedYears.length > 0);
+    }
+    return rawSelections;
+  }, [rawSelections, semesterType]);
 
   const [activeDept, setActiveDept] = useState<string>("");
   const [activeTab, setActiveTab] = useState<string>("");
@@ -598,7 +613,7 @@ export default function GenerateReviewPage() {
           deptSel.selectedYears.map(async ({ year, sections }) => {
             const key = `${deptSel.departmentName}_${year}`;
             
-            const subjects = await getSubjectsForYear(dept.id, year).catch(() => []);
+            const subjects = await getSubjectsForYear(dept.id, year, semesterType).catch(() => []);
             const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
             const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
 
@@ -698,7 +713,7 @@ export default function GenerateReviewPage() {
         { allClasses: true, excludeClasses: allSelectedClasses }
       );
 
-      const resultsArray: YearSectionResult[][] = [];
+      const resultsArray: GeneratedTimetableResult[][] = [];
 
       // Run departments sequentially to prevent cross-department staff collisions
       for (const deptSel of selections) {
@@ -715,11 +730,12 @@ export default function GenerateReviewPage() {
           },
           facultyBeforeAfternoon,
           sharedFacultyMap,
-          deptSel.selectedYears
+          deptSel.selectedYears,
+          semesterType
         );
 
         const selectedYearSet = new Set(deptSel.selectedYears.map(y => y.year));
-        const finalResults = result.results.filter(r => {
+        const finalResults: GeneratedTimetableResult[] = result.results.filter(r => {
           if (!selectedYearSet.has(r.year)) return false;
           const matchingYear = deptSel.selectedYears.find(y => y.year === r.year);
           return matchingYear?.sections.includes(r.section) ?? false;
@@ -737,7 +753,16 @@ export default function GenerateReviewPage() {
       const totalErr = allFinalResults.filter(r => r.status === "error").length;
 
       if (totalOk > 0) {
-        toast.success(`Generated ${totalOk} timetable(s) successfully!`);
+        const totalMismatches = allFinalResults.reduce(
+          (sum, r) => sum + (r.hourVerification?.mismatches.length || 0),
+          0
+        );
+
+        if (totalMismatches === 0) {
+          toast.success(`Generated ${totalOk} timetable(s) successfully! All subject weekly hours verified 100% exact.`);
+        } else {
+          toast.warning(`Generated ${totalOk} timetable(s), but ${totalMismatches} subject weekly hour mismatch(es) detected.`);
+        }
         setViewTab('timetable');
       }
       if (totalErr > 0) {
@@ -894,6 +919,17 @@ export default function GenerateReviewPage() {
   const currentYearResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === activeTab);
   const activeResult = currentYearResults.find((r) => r.section === activeSection);
 
+  const currentVerification = useMemo(() => {
+    if (!activeResult || !Array.isArray(activeResult.grid) || activeResult.status !== 'ok') return null;
+    const sectionToSubjectIds = sectionSubjectsData[activeYearKey] || {};
+    const mappedIds = sectionToSubjectIds[activeSection] || new Set();
+    const sectionSpecificSubjects = mappedIds.size > 0
+      ? activeYearSubjects.filter((s) => mappedIds.has(s.id))
+      : activeYearSubjects;
+
+    return verifySubjectHours(activeResult.grid, sectionSpecificSubjects as any, activeYearSpecialHours);
+  }, [activeResult?.grid, activeResult?.status, activeSection, activeYearKey, activeYearSubjects, activeYearSpecialHours, sectionSubjectsData]);
+
   if (loading) {
     return (
       <main className={`min-h-screen transition-colors duration-300 ${isDark ? "bg-[#07070d] text-slate-100" : "bg-[#f5f5f7] text-slate-900"}`}>
@@ -926,9 +962,18 @@ export default function GenerateReviewPage() {
                 <span>/</span>
                 <span>Review &amp; Generate</span>
               </div>
-              <h1 className={`text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
-                Review &amp; Generate Timetables
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className={`text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                  Review &amp; Generate Timetables
+                </h1>
+                <Badge className={`text-xs px-2.5 py-0.5 font-bold ${
+                  semesterType === 'even'
+                    ? "bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                    : "bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
+                }`}>
+                  {semesterType === 'even' ? "Even Semester (Years II & III)" : "Odd Semester"}
+                </Badge>
+              </div>
               <p className={`text-sm mt-1 ${isDark ? "text-slate-400" : "text-slate-650"}`}>
                 Active View: <span className="text-emerald-500 font-semibold">{activeDept}</span>
               </p>
@@ -1053,9 +1098,18 @@ export default function GenerateReviewPage() {
                           >
                             Section {r.section}
                             {r.status === 'ok' ? (
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
+                                }`}
+                                title={
+                                  r.hourVerification?.isValid ?? true
+                                    ? "Hours verified 100% exact"
+                                    : "Subject hour mismatch detected"
+                                }
+                              />
                             ) : (
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" title="Generation error" />
                             )}
                           </button>
                         ))}
@@ -1233,6 +1287,15 @@ export default function GenerateReviewPage() {
                       ) : (
                         <ListView grid={activeResult.grid} search={search} filterType={filterType} />
                       )}
+
+                      {/* Subject Hours Allocation Verification Component */}
+                      <div className="mt-5">
+                        <SubjectHoursVerificationCard
+                          verification={currentVerification}
+                          isDark={isDark}
+                          defaultExpanded={true}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

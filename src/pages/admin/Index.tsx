@@ -26,7 +26,10 @@ import {
   Loader2,
   AlertCircle,
   X,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { ImportEvenSemesterModal } from "@/components/admin/ImportEvenSemesterModal";
 
 
 const years = ["I", "II", "III", "IV"];
@@ -63,14 +66,18 @@ const Index = () => {
   // ── Generate Wizard State ───────────────────────────────────────────────
   const [showWizard, setShowWizard] = useState(false);
   const [selectedDashboardDepts, setSelectedDashboardDepts] = useState<string[]>([]);
+  const semesterType = useTimetableStore((s) => s.semesterType);
+  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
+  const [showImportEvenModal, setShowImportEvenModal] = useState(false);
 
-  const handleWizardProceed = useCallback((selections: { departmentName: string; selectedYears: WizardSelection[] }[]) => {
+  const handleWizardProceed = useCallback((selections: { departmentName: string; selectedYears: WizardSelection[] }[], semType?: 'odd' | 'even') => {
     navigate("/admin/generate-review", {
       state: {
         selections,
+        semesterType: semType || semesterType,
       },
     });
-  }, [navigate]);
+  }, [navigate, semesterType]);
 
   const ready = selection.department && selection.year && selection.section;
 
@@ -345,6 +352,66 @@ const Index = () => {
               </div>
 
               <div className="p-6 space-y-6">
+                {/* Academic Semester Selector */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Academic Semester</label>
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                      {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III only)"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSemesterType("odd")}
+                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
+                        semesterType === "odd"
+                          ? "bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/20"
+                          : `${inputBg} border-white/10 hover:border-white/20 text-muted-foreground`
+                      }`}
+                    >
+                      <Sun className="h-4 w-4" />
+                      Odd Semester
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSemesterType("even")}
+                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
+                        semesterType === "even"
+                          ? "bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/20"
+                          : `${inputBg} border-white/10 hover:border-white/20 text-muted-foreground`
+                      }`}
+                    >
+                      <Moon className="h-4 w-4" />
+                      Even Semester
+                    </button>
+                  </div>
+
+                  {semesterType === "even" && (
+                    <div className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                      isDark ? "bg-emerald-500/10 border-emerald-500/25" : "bg-emerald-50 border-emerald-250"
+                    }`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="space-y-1">
+                          <p className="font-bold text-emerald-700 dark:text-emerald-300">Even Semester Configuration Active:</p>
+                          <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-700 dark:text-slate-300">
+                            <li><strong>3rd Year:</strong> Open Elective (OE) is added to <strong>Mon-1, Wed-1, Fri-1, Sat-1 & Sat-2</strong>.</li>
+                            <li><strong>4th Year:</strong> Timetable generation is omitted (Years II & III only).</li>
+                          </ul>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowImportEvenModal(true)}
+                          className="self-start sm:self-auto shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm flex items-center gap-1.5"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          Import Even Sem Subjects
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Department */}
                 <div className="space-y-2">
                   <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Departments</label>
@@ -444,6 +511,14 @@ const Index = () => {
         departments={departments}
         defaultDepartmentNames={selectedDashboardDepts}
         onProceed={handleWizardProceed}
+        semesterType={semesterType}
+      />
+
+      {/* ── Import Even Semester Subjects Modal ── */}
+      <ImportEvenSemesterModal
+        open={showImportEvenModal}
+        onClose={() => setShowImportEvenModal(false)}
+        departmentName={selectedDashboardDepts[0] || "AIDS"}
       />
     </div>
   );
