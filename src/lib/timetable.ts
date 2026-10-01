@@ -741,6 +741,7 @@ export function rebalanceSubjectHours(
         const cell = grid[d][p];
         if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
           if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
+          if (d === 5 && grid[5].some((c) => c && (c === underSubj.name || isCellMatchingSubject(c, underSubj)))) continue;
 
           if (facultyMap) {
             const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
@@ -769,6 +770,7 @@ export function rebalanceSubjectHours(
           const cell = grid[d][p];
           if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
             if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
+            if (d === 5 && grid[5].some((c) => c && (c === underSubj.name || isCellMatchingSubject(c, underSubj)))) continue;
             grid[d][p] = underSubj.name;
             if (facultyMap) {
               const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
@@ -993,6 +995,9 @@ function placeTheorySubjects(
       // Strict mode: no duplicate subject on the same day
       if (mode === "strict" && grid[d].some((c) => c === subj.name)) continue;
 
+      // Saturday rule: Strictly no repeated theory subject on Saturday
+      if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
+
       // Faculty availability check
       const facultyResult = findAvailableFacultyForSlot(
         subj.id, d, p, facultyMap, false, year, section
@@ -1019,6 +1024,7 @@ function placeTheorySubjects(
         for (let p = 0; p < PERIODS; p++) {
           if (grid[d][p] !== null) continue;
           if (isSSA(subj) && d > 4) continue;
+          if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
           if (prioritizeMorning && p >= 4) continue;
           
           const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section);
@@ -1035,6 +1041,7 @@ function placeTheorySubjects(
         for (let p = 0; p < PERIODS; p++) {
           if (grid[d][p] !== null) continue;
           if (isSSA(subj) && d > 4) continue;
+          if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
           
           const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section);
           grid[d][p] = subj.name;
@@ -1121,11 +1128,15 @@ function fillFreeHours(
         (s) => (remaining.get(s.id) || 0) > 0
       );
 
-      const candidates = preferNotOnDay.length > 0 ? preferNotOnDay : fallback;
+      // On Saturday, strictly never repeat any theory subject
+      const candidates = day === 5
+        ? preferNotOnDay
+        : (preferNotOnDay.length > 0 ? preferNotOnDay : fallback);
 
       for (const subj of candidates) {
         if ((remaining.get(subj.id) || 0) <= 0) continue;
         if (isSSA(subj) && day === 5) continue;
+        if (day === 5 && grid[5].some((c) => c === subj.name)) continue;
 
         const fac = findAvailableFacultyForSlot(subj.id, day, period, facultyMap, false, year, section);
         if (fac.success) {
@@ -1144,7 +1155,11 @@ function fillFreeHours(
     for (let p = 0; p < PERIODS; p++) {
       if (grid[d][p] !== null) continue;
       const underAllocated = subjects.filter(
-        (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+        (s) =>
+          (remaining.get(s.id) || 0) > 0 &&
+          s.type !== "lab" &&
+          s.type !== "open elective" &&
+          (d !== 5 || !grid[5].some((c) => c === s.name))
       );
       if (underAllocated.length > 0) {
         const cand = underAllocated.sort(
@@ -1174,12 +1189,16 @@ function fillFreeHours(
       const preferNotOnDay = allTheory.filter(
         (s) => !grid[d].some((c) => c === s.name)
       );
-      const candidates = preferNotOnDay.length > 0 ? preferNotOnDay : allTheory;
+      // On Saturday, strictly never repeat any theory subject
+      const candidates = d === 5
+        ? preferNotOnDay
+        : (preferNotOnDay.length > 0 ? preferNotOnDay : allTheory);
 
       // Pass 1: faculty-aware (preferred — no conflict)
       let placed = false;
       for (const subj of candidates) {
         if (isSSA(subj) && d === 5) continue; // SSA can't go on Saturday
+        if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
         const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section);
         if (fac.success) {
           grid[d][p] = subj.name;
@@ -1193,6 +1212,7 @@ function fillFreeHours(
       if (!placed) {
         for (const subj of candidates) {
           if (isSSA(subj) && d === 5) continue; // still respect SSA rule
+          if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
           console.warn(
             `[Phase 4b Force] Slot Day ${d} P${p} — all faculty booked; ` +
             `placing "${subj.name}" (conflict flagged for validation).`
@@ -1462,9 +1482,9 @@ async function generateYear2Timetable({
     ctx.facultyMap
   );
 
-  // Saturday 1st or 2nd hr: AP&S, alternate hr: other theory subject
+  // Saturday 1st or 2nd hr: AP&S (if available) or distinct theory, alternate hr: other distinct theory subject (strictly no theory repeated)
   const apsSubj = subjects.find(isYear2APS);
-  const altTheoryCandidates = shuffle(
+  const theoryCandidates = shuffle(
     subjects.filter(
       (s) =>
         s.type === "theory" &&
@@ -1488,33 +1508,46 @@ async function generateYear2Timetable({
     }
   }
 
+  let firstSubj: Subject | null = apsSubj || null;
+  if (!firstSubj && theoryCandidates.length > 0) {
+    firstSubj =
+      theoryCandidates.find(
+        (cand) => (remaining.get(cand.id) || 0) > 0 && (!ctx.facultyMap || findAvailableFacultyForSlot(cand.id, 5, apsPeriod, ctx.facultyMap, false).success)
+      ) ||
+      theoryCandidates.find(
+        (cand) => !ctx.facultyMap || findAvailableFacultyForSlot(cand.id, 5, apsPeriod, ctx.facultyMap, false).success
+      ) ||
+      theoryCandidates[0];
+  }
+
+  const remCandidates = theoryCandidates.filter((s) => !firstSubj || s.id !== firstSubj.id);
   let altSubj: Subject | null = null;
-  if (altTheoryCandidates.length > 0) {
+  if (remCandidates.length > 0) {
     if (ctx.facultyMap) {
       altSubj =
-        altTheoryCandidates.find(
+        remCandidates.find(
           (cand) => (remaining.get(cand.id) || 0) > 0 && findAvailableFacultyForSlot(cand.id, 5, altPeriod, ctx.facultyMap, false).success
         ) ||
-        altTheoryCandidates.find(
+        remCandidates.find(
           (cand) => findAvailableFacultyForSlot(cand.id, 5, altPeriod, ctx.facultyMap, false).success
         ) ||
-        altTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
-        altTheoryCandidates[0];
+        remCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        remCandidates[0];
     } else {
       altSubj =
-        altTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
-        altTheoryCandidates[0];
+        remCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        remCandidates[0];
     }
   }
 
-  if (apsSubj && grid[5][apsPeriod] === null) {
-    placeSlot(5, apsPeriod, apsSubj);
+  if (firstSubj && grid[5][apsPeriod] === null) {
+    placeSlot(5, apsPeriod, firstSubj);
   }
   if (altSubj && grid[5][altPeriod] === null) {
     placeSlot(5, altPeriod, altSubj);
   }
 
-  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours
+  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours, strictly without repeating any theory subject on Saturday
   for (const p of [2, 3]) {
     if (grid[5][p] === null) {
       const candidates = shuffle(
@@ -1522,6 +1555,7 @@ async function generateYear2Timetable({
           (s) =>
             s.type === "theory" &&
             (remaining.get(s.id) || 0) > 0 &&
+            !grid[5].some((c) => c === s.name) &&
             !isYear2AuditCourse(s) &&
             !isYear2SoftSkillOrAptitude(s) &&
             !isYear2NPTEL(s) &&
@@ -2094,8 +2128,7 @@ async function generateYear3Timetable({
   };
 
   // 1. OPEN ELECTIVE (OE) FOR EVEN SEMESTER
-  // As per OE institutional rule:
-  // Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0), Sat 1st & 2nd hrs (d=5, p=0, p=1)
+  // Institutional rule: Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0), Sat 1st & 2nd hrs (d=5, p=0, p=1)
   if (semesterType === 'even') {
     const OE_FIXED_SLOTS = [
       { d: 0, p: 0 }, // Mon Period 1
@@ -2131,13 +2164,11 @@ async function generateYear3Timetable({
     ctx.facultyMap
   );
 
-  // In odd semester, Saturday 1st and 2nd hr: ANY 2 theory subjects (NO AP&S!)
-  // In even semester, Saturday 1st and 2nd hr are already filled by Open Elective above!
-  if (semesterType !== 'even') {
+  // Saturday 1st and 2nd hr: 2 distinct theory subjects (strictly no theory repeated on Saturday)
   const satTheoryCandidates = shuffle(
     subjects.filter(
       (s) =>
-        (s.type === "theory" || s.type === "elective" || s.type === "open elective") &&
+        (s.type === "theory" || s.type === "elective") &&
         !isYear3SpecialSat(s) &&
         !isYear3SoftSkillOrAptitude(s) &&
         !isYear3AuditCourse(s) &&
@@ -2153,10 +2184,10 @@ async function generateYear3Timetable({
         satTheoryCandidates.find(
           (cand) =>
             (remaining.get(cand.id) || 0) > 0 &&
-            findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false).success
+            findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false, year, section).success
         ) ||
         satTheoryCandidates.find(
-          (cand) => findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false).success
+          (cand) => findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false, year, section).success
         ) ||
         satTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
         satTheoryCandidates[0];
@@ -2167,10 +2198,10 @@ async function generateYear3Timetable({
     }
   }
 
-  // Pick Subject 2 for Period 1 (Sat 2nd hr) - prefer distinct from Subject 1
+  // Pick Subject 2 for Period 1 (Sat 2nd hr) - strictly distinct from Subject 1
   let subj2: Subject | null = null;
   const remForSubj2 = satTheoryCandidates.filter((s) => !subj1 || s.id !== subj1.id);
-  const candList2 = remForSubj2.length > 0 ? remForSubj2 : satTheoryCandidates;
+  const candList2 = remForSubj2.length > 0 ? remForSubj2 : satTheoryCandidates.filter((s) => !subj1 || s.id !== subj1.id);
 
   if (candList2.length > 0) {
     if (ctx.facultyMap) {
@@ -2178,10 +2209,10 @@ async function generateYear3Timetable({
         candList2.find(
           (cand) =>
             (remaining.get(cand.id) || 0) > 0 &&
-            findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false).success
+            findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false, year, section).success
         ) ||
         candList2.find(
-          (cand) => findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false).success
+          (cand) => findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false, year, section).success
         ) ||
         candList2.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
         candList2[0];
@@ -2198,16 +2229,16 @@ async function generateYear3Timetable({
   if (subj2 && grid[5][1] === null) {
     placeSlot(5, 1, subj2);
   }
-  }
 
-  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours
+  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours, strictly without repeating any theory subject on Saturday
   for (const p of [2, 3]) {
     if (grid[5][p] === null) {
       const candidates = shuffle(
         subjects.filter(
           (s) =>
-            (s.type === "theory" || s.type === "elective" || s.type === "open elective") &&
+            (s.type === "theory" || s.type === "elective") &&
             (remaining.get(s.id) || 0) > 0 &&
+            !grid[5].some((c) => c === s.name) &&
             !isYear3SpecialSat(s) &&
             !isYear3SoftSkillOrAptitude(s) &&
             !isYear3AuditCourse(s) &&
@@ -2218,7 +2249,7 @@ async function generateYear3Timetable({
         let placedCand: Subject | null = null;
         if (ctx.facultyMap) {
           placedCand = candidates.find(
-            (c) => findAvailableFacultyForSlot(c.id, 5, p, ctx.facultyMap!, false).success
+            (c) => findAvailableFacultyForSlot(c.id, 5, p, ctx.facultyMap!, false, year, section).success
           ) || candidates[0];
         } else {
           placedCand = candidates[0];
@@ -2664,8 +2695,8 @@ async function generateYear3Timetable({
 //    - ALWAYS placed on Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0),
 //      and Sat 1st & 2nd hrs (d=5, p=0 & p=1).
 //    - Consistent across all classes/departments (IT, AIDS, etc.).
-// 2. Saturday Special Slots:
-//    - 1st & 2nd hr: Open Elective (OE)
+// 2. Saturday:
+//    - 1st & 2nd hr: Open Elective (OE) (or 2 distinct theory subjects if OE not scheduled)
 //    - 3rd & 4th hr: Seminar (Class Counselor)
 //    - 5th hr: Library (Class Counselor)
 //    - 6th & 7th hr: Counseling (Class Counselor)
@@ -2877,7 +2908,7 @@ async function generateYear4Timetable({
   };
 
   // 1. OPEN ELECTIVE (OE)
-  // Always comes on Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0), Sat 1st & 2nd hrs (d=5, p=0, p=1)
+  // Institutional rule: Mon 1st hr (d=0, p=0), Wed 1st hr (d=2, p=0), Fri 1st hr (d=4, p=0), Sat 1st & 2nd hrs (d=5, p=0, p=1)
   const OE_FIXED_SLOTS = [
     { d: 0, p: 0 }, // Mon Period 1
     { d: 2, p: 0 }, // Wed Period 1
@@ -2912,6 +2943,101 @@ async function generateYear4Timetable({
     remaining,
     ctx.facultyMap
   );
+
+  // Saturday 1st and 2nd hr: 2 distinct theory subjects (strictly no theory repeated on Saturday)
+  const satTheoryCandidates = shuffle(
+    subjects.filter(
+      (s) =>
+        (s.type === "theory" || s.type === "elective") &&
+        !isYear4SpecialSat(s) &&
+        !isYear4SoftSkillOrAptitude(s) &&
+        !isYear4AuditCourse(s) &&
+        !isYear4NPTEL(s)
+    )
+  );
+
+  let subj1: Subject | null = null;
+  if (satTheoryCandidates.length > 0) {
+    if (ctx.facultyMap) {
+      subj1 =
+        satTheoryCandidates.find(
+          (cand) =>
+            (remaining.get(cand.id) || 0) > 0 &&
+            findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false, year, section).success
+        ) ||
+        satTheoryCandidates.find(
+          (cand) => findAvailableFacultyForSlot(cand.id, 5, 0, ctx.facultyMap, false, year, section).success
+        ) ||
+        satTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        satTheoryCandidates[0];
+    } else {
+      subj1 =
+        satTheoryCandidates.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        satTheoryCandidates[0];
+    }
+  }
+
+  let subj2: Subject | null = null;
+  const remForSubj2 = satTheoryCandidates.filter((s) => !subj1 || s.id !== subj1.id);
+  const candList2 = remForSubj2.length > 0 ? remForSubj2 : satTheoryCandidates.filter((s) => !subj1 || s.id !== subj1.id);
+
+  if (candList2.length > 0) {
+    if (ctx.facultyMap) {
+      subj2 =
+        candList2.find(
+          (cand) =>
+            (remaining.get(cand.id) || 0) > 0 &&
+            findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false, year, section).success
+        ) ||
+        candList2.find(
+          (cand) => findAvailableFacultyForSlot(cand.id, 5, 1, ctx.facultyMap, false, year, section).success
+        ) ||
+        candList2.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        candList2[0];
+    } else {
+      subj2 =
+        candList2.find((cand) => (remaining.get(cand.id) || 0) > 0) ||
+        candList2[0];
+    }
+  }
+
+  if (subj1 && grid[5][0] === null) {
+    placeSlot(5, 0, subj1);
+  }
+  if (subj2 && grid[5][1] === null) {
+    placeSlot(5, 1, subj2);
+  }
+
+  // If Saturday period 2 or 3 is empty (e.g. Seminar was inactive or 1h), allocate additional theory subjects with remaining hours, strictly without repeating any theory subject on Saturday
+  for (const p of [2, 3]) {
+    if (grid[5][p] === null) {
+      const candidates = shuffle(
+        subjects.filter(
+          (s) =>
+            (s.type === "theory" || s.type === "elective") &&
+            (remaining.get(s.id) || 0) > 0 &&
+            !grid[5].some((c) => c === s.name) &&
+            !isYear4SpecialSat(s) &&
+            !isYear4SoftSkillOrAptitude(s) &&
+            !isYear4AuditCourse(s) &&
+            !isYear4NPTEL(s)
+        )
+      );
+      if (candidates.length > 0) {
+        let placedCand: Subject | null = null;
+        if (ctx.facultyMap) {
+          placedCand = candidates.find(
+            (c) => findAvailableFacultyForSlot(c.id, 5, p, ctx.facultyMap!, false, year, section).success
+          ) || candidates[0];
+        } else {
+          placedCand = candidates[0];
+        }
+        if (placedCand) {
+          placeSlot(5, p, placedCand);
+        }
+      }
+    }
+  }
 
   // 3. LABS
   // Same day continuous on weekdays only:

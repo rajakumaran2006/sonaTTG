@@ -284,7 +284,7 @@ export async function getOpenElectiveConfig(departmentId: string, year: string):
     hours: 5,
     group_name: "Open elective",
     is_shared_slot: true,
-    selected_slots: ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+    selected_slots: ['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2']
   };
   try {
     const { data, error } = await (supabase as any)
@@ -327,6 +327,8 @@ export async function setOpenElectiveConfig(
   year: string,
   config: OpenElectiveConfig
 ): Promise<void> {
+  const finalSlots = config.selected_slots || ['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2'];
+
   try {
     await (supabase as any)
       .from('open_elective_settings')
@@ -336,13 +338,13 @@ export async function setOpenElectiveConfig(
         hours: config.hours,
         group_name: config.group_name,
         is_shared_slot: config.is_shared_slot,
-        selected_slots: config.selected_slots || ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']
+        selected_slots: finalSlots
       })
       .maybeSingle();
   } catch (e: any) {}
   try {
     const key = `oe_config:${departmentId}:${year}`;
-    localStorage.setItem(key, JSON.stringify(config));
+    localStorage.setItem(key, JSON.stringify({ ...config, selected_slots: finalSlots }));
     localStorage.setItem(`oe_hours:${departmentId}:${year}`, String(config.hours));
   } catch {}
 }

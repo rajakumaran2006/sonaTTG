@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,11 +24,13 @@ import {
   Layers,
   Printer,
   ChevronDown,
+  ChevronUp,
   ArrowLeftRight,
   GripVertical,
   AlertCircle,
   Maximize2,
   Minimize2,
+  RotateCcw,
 } from "lucide-react";
 import {
   checkSwapFacultyConflict,
@@ -392,165 +394,373 @@ function FullScreenGrid({
 
   const [dragSource, setDragSource] = useState<{ day: number; period: number; subject: string } | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ day: number; period: number } | null>(null);
+  const [selectedTapSlot, setSelectedTapSlot] = useState<{ day: number; period: number; subject: string } | null>(null);
 
   const cols = [
-    { key: 'day', label: 'Day', time: '', widthPercent: '5.2%', isDivider: false, pIdx: null },
-    { key: 'p1', label: 'P1', time: '9:00–9:55', widthPercent: '11.4%', isDivider: false, pIdx: 0 },
-    { key: 'p2', label: 'P2', time: '9:55–10:50', widthPercent: '11.4%', isDivider: false, pIdx: 1 },
-    { key: 'b1', label: 'BREAK', time: '10:50–11:05', widthPercent: '4.5%', isDivider: true, pIdx: null },
-    { key: 'p3', label: 'P3', time: '11:05–12:00', widthPercent: '11.4%', isDivider: false, pIdx: 2 },
-    { key: 'p4', label: 'P4', time: '12:00–12:55', widthPercent: '11.4%', isDivider: false, pIdx: 3 },
-    { key: 'lunch', label: 'LUNCH', time: '12:55–1:55', widthPercent: '6.0%', isDivider: true, pIdx: null },
-    { key: 'p5', label: 'P5', time: '1:55–2:50', widthPercent: '11.4%', isDivider: false, pIdx: 4 },
-    { key: 'p6', label: 'P6', time: '2:50–3:45', widthPercent: '11.4%', isDivider: false, pIdx: 5 },
-    { key: 'b2', label: 'BREAK', time: '3:45–3:55', widthPercent: '4.5%', isDivider: true, pIdx: null },
-    { key: 'p7', label: 'P7', time: '3:55–4:50', widthPercent: '11.4%', isDivider: false, pIdx: 6 },
+    { key: 'day', label: 'Day', time: '', widthPercent: '5%', isDivider: false, pIdx: null },
+    { key: 'p1', label: 'P1', time: '9:00–9:55', widthPercent: '11%', isDivider: false, pIdx: 0 },
+    { key: 'p2', label: 'P2', time: '9:55–10:50', widthPercent: '11%', isDivider: false, pIdx: 1 },
+    { key: 'b1', label: 'BREAK', time: '10:50–11:05', widthPercent: '6%', isDivider: true, pIdx: null },
+    { key: 'p3', label: 'P3', time: '11:05–12:00', widthPercent: '11%', isDivider: false, pIdx: 2 },
+    { key: 'p4', label: 'P4', time: '12:00–12:55', widthPercent: '11%', isDivider: false, pIdx: 3 },
+    { key: 'lunch', label: 'LUNCH', time: '12:55–1:55', widthPercent: '6%', isDivider: true, pIdx: null },
+    { key: 'p5', label: 'P5', time: '1:55–2:50', widthPercent: '11%', isDivider: false, pIdx: 4 },
+    { key: 'p6', label: 'P6', time: '2:50–3:45', widthPercent: '11%', isDivider: false, pIdx: 5 },
+    { key: 'b2', label: 'BREAK', time: '3:45–3:55', widthPercent: '6%', isDivider: true, pIdx: null },
+    { key: 'p7', label: 'P7', time: '3:55–4:50', widthPercent: '11%', isDivider: false, pIdx: 6 },
   ];
+
+  const handleCellTap = (dayIdx: number, pIdx: number, cell: string) => {
+    if (!onSwapSlots || pIdx === null) return;
+    if (!selectedTapSlot) {
+      if (cell && cell.trim() !== '') {
+        setSelectedTapSlot({ day: dayIdx, period: pIdx, subject: cell });
+      }
+    } else {
+      if (selectedTapSlot.day === dayIdx && selectedTapSlot.period === pIdx) {
+        setSelectedTapSlot(null);
+      } else {
+        onSwapSlots(selectedTapSlot, { day: dayIdx, period: pIdx });
+        toast.success(`Swapped ${selectedTapSlot.subject} with ${cell || 'Empty Slot'}`);
+        setSelectedTapSlot(null);
+      }
+    }
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none relative">
+      {/* Mobile scroll hint */}
+      <div className="xl:hidden px-2.5 py-1 bg-emerald-500/10 dark:bg-emerald-500/15 border-b border-emerald-500/20 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between shrink-0">
+        <span className="flex items-center gap-1.5 truncate">
+          <ArrowLeftRight className="h-3 w-3 text-emerald-500 shrink-0" />
+          <span>Swipe horizontally for all periods • Tap slots to swap</span>
+        </span>
+        {selectedTapSlot && (
+          <button
+            onClick={() => setSelectedTapSlot(null)}
+            className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold underline shrink-0 ml-2"
+          >
+            Cancel swap
+          </button>
+        )}
+      </div>
+
+      {/* Main scrollable grid viewport with sticky day column */}
+      <div className="flex-1 min-h-0 w-full overflow-x-auto overflow-y-auto">
+        <div className="w-full min-w-[940px] xl:min-w-0 xl:w-full h-full flex flex-col">
+          {/* Header */}
+          <div className="h-9 shrink-0 bg-[#064e3b] dark:bg-[#064e3b] text-white grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] border-b border-emerald-800 sticky top-0 z-30">
+            {cols.map((col, idx) => (
+              <div
+                key={col.key}
+                className={`flex flex-col items-center justify-center leading-none border-r border-emerald-700/60 last:border-r-0 p-1 ${
+                  col.isDivider ? "bg-[#053d2e]" : ""
+                } ${idx === 0 ? "sticky left-0 z-40 bg-[#064e3b] shadow-[2px_0_4px_rgba(0,0,0,0.2)]" : ""}`}
+              >
+                <span className="text-xs sm:text-[13px] font-extrabold text-white tracking-wide uppercase">
+                  {col.label}
+                </span>
+                {col.time && (
+                  <span className="text-[10px] xl:text-[10.5px] font-mono text-emerald-100/90 mt-0.5 whitespace-nowrap leading-none tracking-tight">
+                    ({col.time})
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Body: 6 equal rows */}
+          <div className="flex-1 min-h-0 grid grid-rows-6 divide-y divide-slate-100 dark:divide-white/5">
+            {safeGrid.map((row, dayIdx) => {
+              const r = Array.isArray(row) ? row : [];
+              const displayRow: string[] = [
+                r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''
+              ];
+
+              return (
+                <div
+                  key={dayIdx}
+                  className="grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] h-full min-h-[58px] xl:min-h-0 transition-colors hover:bg-slate-50/50 dark:hover:bg-white/[0.01]"
+                >
+                  {/* Sticky Day column */}
+                  <div className="flex items-center justify-center border-r border-slate-200 dark:border-white/10 font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0e0e1b] sticky left-0 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.06)] uppercase tracking-wider">
+                    {DAYS[dayIdx]}
+                  </div>
+
+                  {/* 10 period & divider columns */}
+                  {displayRow.map((cell, colIdx) => {
+                    const colDef = cols[colIdx + 1];
+                    const pIdx = colDef.pIdx;
+                    const isDivider = colDef.isDivider;
+
+                    if (isDivider) {
+                      return (
+                        <div
+                          key={colIdx}
+                          className="border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] flex items-center justify-center select-none"
+                        >
+                          <span className="text-xs sm:text-[13px] font-extrabold tracking-widest text-slate-500 dark:text-slate-400 uppercase whitespace-nowrap">
+                            {cell}
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    const canDrag = !!onSwapSlots && pIdx !== null && !!cell && cell.trim() !== '';
+                    const canDrop = !!onSwapSlots && pIdx !== null;
+                    const isDraggingThis = dragSource?.day === dayIdx && dragSource?.period === pIdx;
+                    const isTargetThis = dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx;
+                    const isTapSelectedThis = selectedTapSlot?.day === dayIdx && selectedTapSlot?.period === pIdx;
+                    const faculties = (getFaculty && cell) ? getFaculty(cell) : [];
+                    const facultyLabel = faculties.join(' / ');
+
+                    return (
+                      <div
+                        key={colIdx}
+                        className="p-1 border-r border-slate-200 dark:border-white/5 last:border-r-0 h-full min-h-0 overflow-hidden flex items-center justify-center"
+                        onDragOver={(e) => {
+                          if (!canDrop || pIdx === null) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOverTarget?.day !== dayIdx || dragOverTarget?.period !== pIdx) {
+                            setDragOverTarget({ day: dayIdx, period: pIdx });
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx) {
+                            setDragOverTarget(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!canDrop || pIdx === null || !dragSource) return;
+                          if (dragSource.day === dayIdx && dragSource.period === pIdx) {
+                            setDragSource(null);
+                            setDragOverTarget(null);
+                            return;
+                          }
+                          onSwapSlots?.(dragSource, { day: dayIdx, period: pIdx });
+                          setDragSource(null);
+                          setDragOverTarget(null);
+                        }}
+                      >
+                        <div
+                          draggable={canDrag}
+                          onClick={() => pIdx !== null && handleCellTap(dayIdx, pIdx, cell)}
+                          onDragStart={(e) => {
+                            if (!canDrag || pIdx === null) return;
+                            e.dataTransfer.setData('text/plain', JSON.stringify({ day: dayIdx, period: pIdx }));
+                            e.dataTransfer.effectAllowed = 'move';
+                            setDragSource({ day: dayIdx, period: pIdx, subject: cell });
+                          }}
+                          onDragEnd={() => {
+                            setDragSource(null);
+                            setDragOverTarget(null);
+                          }}
+                          title={
+                            cell
+                              ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag or tap to swap)' : ''}`
+                              : canDrop
+                              ? 'Empty Period (Click or drop to place subject)'
+                              : ''
+                          }
+                          className={`
+                            rounded-lg flex flex-col justify-center items-center px-1.5 py-0.5 transition-all duration-150 h-full w-full select-none text-center overflow-hidden cursor-pointer
+                            ${getCellStyle(cell, isDark)}
+                            ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:scale-[1.01]' : ''}
+                            ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
+                            ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
+                            ${isTapSelectedThis ? 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-[#0c0c18] bg-emerald-500/25 scale-[1.02] z-20 shadow-lg' : ''}
+                            ${selectedTapSlot && !isTapSelectedThis ? 'hover:ring-2 hover:ring-emerald-400/60 hover:bg-emerald-500/10' : ''}
+                          `}
+                        >
+                          <span className="text-xs font-bold tracking-tight text-center leading-snug line-clamp-2 w-full text-slate-900 dark:text-slate-100">
+                            {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
+                          </span>
+
+                          {showFaculty && facultyLabel && (
+                            <span
+                              className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 text-center uppercase tracking-wide truncate w-full mt-0.5 opacity-90 leading-tight"
+                              title={`Staff: ${facultyLabel}`}
+                            >
+                              {facultyLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Action Banner for Mobile / Tap-to-Swap */}
+      {selectedTapSlot && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-[#141426]/95 text-white backdrop-blur-md px-3.5 py-1.5 rounded-full shadow-2xl border border-emerald-500/40 flex items-center gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+          <span className="font-semibold truncate max-w-[180px] sm:max-w-xs">
+            Selected: <span className="text-emerald-300 font-bold">{selectedTapSlot.subject}</span> ({DAYS[selectedTapSlot.day]} P{selectedTapSlot.period + 1})
+          </span>
+          <span className="text-slate-400 text-[11px] hidden sm:inline">• Tap destination slot to swap</span>
+          <button
+            onClick={() => setSelectedTapSlot(null)}
+            className="p-1 hover:bg-white/15 rounded-full transition-colors ml-1 text-slate-300 hover:text-white"
+            title="Cancel swap"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MobileDayScheduleView({
+  grid,
+  getFaculty,
+  showFaculty = true,
+  onSwapSlots,
+  isDark,
+}: {
+  grid: string[][];
+  getFaculty?: (subject: string) => string[];
+  showFaculty?: boolean;
+  onSwapSlots?: (source: { day: number; period: number }, target: { day: number; period: number }) => void;
+  isDark: boolean;
+}) {
+  const safeGrid = Array.isArray(grid) ? grid : [];
+  const [activeDayIdx, setActiveDayIdx] = useState<number>(0);
+  const [selectedTapSlot, setSelectedTapSlot] = useState<{ day: number; period: number; subject: string } | null>(null);
+
+  const activeRow = safeGrid[activeDayIdx] || [];
+  const scheduleItems = [
+    { type: 'period', pIdx: 0, label: 'P1', time: '9:00 – 9:55 AM', cell: activeRow[0] || '' },
+    { type: 'period', pIdx: 1, label: 'P2', time: '9:55 – 10:50 AM', cell: activeRow[1] || '' },
+    { type: 'break', pIdx: null, label: 'BREAK', time: '10:50 – 11:05 AM', cell: 'BREAK' },
+    { type: 'period', pIdx: 2, label: 'P3', time: '11:05 – 12:00 PM', cell: activeRow[2] || '' },
+    { type: 'period', pIdx: 3, label: 'P4', time: '12:00 – 12:55 PM', cell: activeRow[3] || '' },
+    { type: 'lunch', pIdx: null, label: 'LUNCH', time: '12:55 – 1:55 PM', cell: 'LUNCH' },
+    { type: 'period', pIdx: 4, label: 'P5', time: '1:55 – 2:50 PM', cell: activeRow[4] || '' },
+    { type: 'period', pIdx: 5, label: 'P6', time: '2:50 – 3:45 PM', cell: activeRow[5] || '' },
+    { type: 'break', pIdx: null, label: 'BREAK', time: '3:45 – 3:55 PM', cell: 'BREAK' },
+    { type: 'period', pIdx: 6, label: 'P7', time: '3:55 – 4:50 PM', cell: activeRow[6] || '' },
+  ];
+
+  const handlePeriodTap = (pIdx: number, cell: string) => {
+    if (!onSwapSlots) return;
+    if (!selectedTapSlot) {
+      if (cell && cell.trim()) {
+        setSelectedTapSlot({ day: activeDayIdx, period: pIdx, subject: cell });
+      }
+    } else {
+      if (selectedTapSlot.day === activeDayIdx && selectedTapSlot.period === pIdx) {
+        setSelectedTapSlot(null);
+      } else {
+        onSwapSlots(selectedTapSlot, { day: activeDayIdx, period: pIdx });
+        toast.success(`Swapped ${selectedTapSlot.subject} with ${cell || 'Empty Slot'}`);
+        setSelectedTapSlot(null);
+      }
+    }
+  };
 
   return (
     <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
-      {/* Header: fixed height 32px */}
-      <div className="h-8 shrink-0 bg-[#064e3b] dark:bg-[#064e3b] text-white grid grid-cols-[5.2%_11.4%_11.4%_4.5%_11.4%_11.4%_6.0%_11.4%_11.4%_4.5%_11.4%] border-b border-emerald-800">
-        {cols.map((col) => (
-          <div
-            key={col.key}
-            className={`flex flex-col items-center justify-center leading-none border-r border-emerald-700/60 last:border-r-0 ${
-              col.isDivider ? "bg-[#053d2e]" : ""
-            }`}
-          >
-            <span className="text-xs font-bold text-white tracking-wide">
-              {col.label}
-            </span>
-            {col.time && (
-              <span className="text-[9.5px] font-mono text-emerald-100/90 mt-0.5">
-                ({col.time})
-              </span>
-            )}
-          </div>
-        ))}
+      {/* Day Selector Pills */}
+      <div className="bg-[#064e3b] dark:bg-[#064e3b] px-3 py-2 flex items-center justify-between shrink-0 gap-2 border-b border-emerald-800 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 min-w-max">
+          <span className="text-xs font-bold text-white uppercase mr-1">Day:</span>
+          {DAYS.map((d, idx) => (
+            <button
+              key={d}
+              onClick={() => setActiveDayIdx(idx)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                activeDayIdx === idx
+                  ? "bg-white text-slate-900 shadow-md scale-105"
+                  : "bg-emerald-800/80 text-emerald-100 hover:bg-emerald-700"
+              }`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Body: exactly 6 equal rows via grid-rows-6 (every day strictly identical in height) */}
-      <div className="flex-1 min-h-0 grid grid-rows-6 divide-y divide-slate-100 dark:divide-white/5">
-        {safeGrid.map((row, dayIdx) => {
-          const r = Array.isArray(row) ? row : [];
-          const displayRow: string[] = [
-            r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''
-          ];
+      {/* Vertical Timeline Card List */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+        {scheduleItems.map((item, idx) => {
+          if (item.type === 'break' || item.type === 'lunch') {
+            return (
+              <div
+                key={idx}
+                className="py-1.5 px-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold"
+              >
+                <span className="font-extrabold uppercase tracking-widest flex items-center gap-1.5">
+                  <span>{item.type === 'lunch' ? '🍽️' : '☕'}</span>
+                  <span>{item.label}</span>
+                </span>
+                <span className="font-mono text-[11px]">{item.time}</span>
+              </div>
+            );
+          }
+
+          const pIdx = item.pIdx!;
+          const cell = item.cell;
+          const faculties = (getFaculty && cell) ? getFaculty(cell) : [];
+          const facultyLabel = faculties.join(' / ');
+          const isSelected = selectedTapSlot?.day === activeDayIdx && selectedTapSlot?.period === pIdx;
 
           return (
             <div
-              key={dayIdx}
-              className="grid grid-cols-[5.2%_11.4%_11.4%_4.5%_11.4%_11.4%_6.0%_11.4%_11.4%_4.5%_11.4%] h-full min-h-0 transition-colors hover:bg-slate-50/50 dark:hover:bg-white/[0.01]"
+              key={idx}
+              onClick={() => handlePeriodTap(pIdx, cell)}
+              className={`
+                p-3 rounded-xl border transition-all duration-150 flex flex-col gap-1.5 cursor-pointer
+                ${getCellStyle(cell, isDark)}
+                ${isSelected ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-[1.01]' : 'hover:border-emerald-500/40'}
+              `}
             >
-              {/* Day column */}
-              <div className="flex items-center justify-center border-r border-slate-200 dark:border-white/10 font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0e0e1b]">
-                {DAYS[dayIdx]}
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                  <span>{item.label}</span>
+                  <span className="text-slate-400 dark:text-slate-500">•</span>
+                  <span>{item.time}</span>
+                </span>
+                {cell && onSwapSlots && (
+                  <span className="text-[10px] text-slate-400 font-medium">Tap to swap</span>
+                )}
               </div>
 
-              {/* 10 period & divider columns */}
-              {displayRow.map((cell, colIdx) => {
-                const colDef = cols[colIdx + 1];
-                const pIdx = colDef.pIdx;
-                const isDivider = colDef.isDivider;
+              <div className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-snug">
+                {cell || <span className="italic text-slate-400 font-normal">Free / Unassigned Period</span>}
+              </div>
 
-                if (isDivider) {
-                  return (
-                    <div
-                      key={colIdx}
-                      className="border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] flex items-center justify-center select-none"
-                    >
-                      <span className="text-xs font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
-                        {cell}
-                      </span>
-                    </div>
-                  );
-                }
-
-                const canDrag = !!onSwapSlots && pIdx !== null && !!cell && cell.trim() !== '';
-                const canDrop = !!onSwapSlots && pIdx !== null;
-                const isDraggingThis = dragSource?.day === dayIdx && dragSource?.period === pIdx;
-                const isTargetThis = dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx;
-                const faculties = (getFaculty && cell) ? getFaculty(cell) : [];
-                const facultyLabel = faculties.join(' / ');
-
-                return (
-                  <div
-                    key={colIdx}
-                    className="p-1 border-r border-slate-200 dark:border-white/5 last:border-r-0 h-full min-h-0 overflow-hidden flex items-center justify-center"
-                    onDragOver={(e) => {
-                      if (!canDrop || pIdx === null) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      if (dragOverTarget?.day !== dayIdx || dragOverTarget?.period !== pIdx) {
-                        setDragOverTarget({ day: dayIdx, period: pIdx });
-                      }
-                    }}
-                    onDragLeave={() => {
-                      if (dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx) {
-                        setDragOverTarget(null);
-                      }
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (!canDrop || pIdx === null || !dragSource) return;
-                      if (dragSource.day === dayIdx && dragSource.period === pIdx) {
-                        setDragSource(null);
-                        setDragOverTarget(null);
-                        return;
-                      }
-                      onSwapSlots?.(dragSource, { day: dayIdx, period: pIdx });
-                      setDragSource(null);
-                      setDragOverTarget(null);
-                    }}
-                  >
-                    <div
-                      draggable={canDrag}
-                      onDragStart={(e) => {
-                        if (!canDrag || pIdx === null) return;
-                        e.dataTransfer.setData('text/plain', JSON.stringify({ day: dayIdx, period: pIdx }));
-                        e.dataTransfer.effectAllowed = 'move';
-                        setDragSource({ day: dayIdx, period: pIdx, subject: cell });
-                      }}
-                      onDragEnd={() => {
-                        setDragSource(null);
-                        setDragOverTarget(null);
-                      }}
-                      title={
-                        cell
-                          ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag to swap period)' : ''}`
-                          : canDrop
-                          ? 'Empty Period (Drop subject here to reschedule)'
-                          : ''
-                      }
-                      className={`
-                        rounded-lg flex flex-col justify-center items-center px-1.5 py-0.5 transition-all duration-150 h-full w-full select-none text-center overflow-hidden
-                        ${getCellStyle(cell, isDark)}
-                        ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:scale-[1.01]' : ''}
-                        ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
-                        ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
-                      `}
-                    >
-                      <span className="text-xs font-bold tracking-tight text-center leading-snug line-clamp-2 w-full text-slate-900 dark:text-slate-100">
-                        {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
-                      </span>
-
-                      {showFaculty && facultyLabel && (
-                        <span
-                          className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 text-center uppercase tracking-wide truncate w-full mt-0.5 opacity-90 leading-tight"
-                          title={`Staff: ${facultyLabel}`}
-                        >
-                          {facultyLabel}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {showFaculty && facultyLabel && (
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 font-medium">
+                  <Users className="h-3 w-3 text-emerald-500 shrink-0" />
+                  <span className="truncate">{facultyLabel}</span>
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {selectedTapSlot && (
+        <div className="p-2.5 bg-slate-900 text-white flex items-center justify-between text-xs shrink-0 border-t border-emerald-500/30">
+          <span className="truncate font-semibold">
+            Selected: <span className="text-emerald-300 font-bold">{selectedTapSlot.subject}</span> • Tap any period to swap
+          </span>
+          <button
+            onClick={() => setSelectedTapSlot(null)}
+            className="p-1 hover:bg-white/20 rounded-full ml-2"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -562,67 +772,77 @@ function FullScreenAllocationTable({
   rows: { code: string; title: string; category: string; hours: number; faculty: string }[];
   isDark: boolean;
 }) {
-  const [layoutMode, setLayoutMode] = useState<'single' | 'split'>(rows.length > 8 ? 'split' : 'single');
-  const rowCount = rows.length;
+  const [viewType, setViewType] = useState<'table' | 'cards'>('table');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
 
-  const mid = Math.ceil(rows.length / 2);
-  const leftRows = rows.slice(0, mid);
-  const rightRows = rows.slice(mid);
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchSearch = !q ||
+        r.title.toLowerCase().includes(q) ||
+        r.code.toLowerCase().includes(q) ||
+        r.faculty.toLowerCase().includes(q);
+      const matchCat = categoryFilter === 'all' || r.category.toLowerCase() === categoryFilter.toLowerCase();
+      return matchSearch && matchCat;
+    });
+  }, [rows, searchQuery, categoryFilter]);
 
-  const renderSingleTable = () => (
-    <div className="w-full h-full overflow-y-auto rounded-lg border border-slate-200/80 dark:border-white/5">
-      <table className="w-full text-left border-collapse table-fixed">
-        <colgroup>
-          <col style={{ width: '15%' }} />
-          <col style={{ width: '38%' }} />
-          <col style={{ width: '12%' }} />
-          <col style={{ width: '8%' }} />
-          <col style={{ width: '27%' }} />
-        </colgroup>
-        <thead>
-          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7.5 shrink-0 sticky top-0 z-10">
-            <th className="px-3 border-r border-emerald-700/60 py-1.5">Course Code</th>
-            <th className="px-3 border-r border-emerald-700/60 py-1.5">Course Title</th>
-            <th className="px-2 text-center border-r border-emerald-700/60 py-1.5">Category</th>
-            <th className="px-2 text-center border-r border-emerald-700/60 py-1.5">Hrs/Wk</th>
-            <th className="px-3 py-1.5">Faculty In-Charge</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-          {rows.map((row, idx) => (
-            <tr
-              key={idx}
-              className={`h-7 transition-colors ${
-                isDark
-                  ? idx % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
-                  : idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-              } hover:bg-emerald-500/5`}
-            >
-              <td className="px-3 font-mono font-bold text-xs text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach(r => { if (r.category) set.add(r.category); });
+    return ['all', ...Array.from(set)];
+  }, [rows]);
+
+  const mid = Math.ceil(filteredRows.length / 2);
+  const leftRows = filteredRows.slice(0, mid);
+  const rightRows = filteredRows.slice(mid);
+
+  const renderCardsView = () => (
+    <div className="w-full h-full overflow-y-auto p-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+      {filteredRows.length === 0 ? (
+        <div className="col-span-full py-8 text-center text-xs text-muted-foreground italic">
+          No courses match current filter.
+        </div>
+      ) : (
+        filteredRows.map((row, idx) => (
+          <div
+            key={idx}
+            className={`p-3 rounded-xl border transition-all ${
+              isDark
+                ? "bg-[#101022] border-white/10 hover:border-emerald-500/40"
+                : "bg-white border-slate-200 hover:border-emerald-500/50 shadow-sm"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+              <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-800 dark:text-slate-200">
                 {row.code}
-              </td>
-              <td className="px-3 font-bold text-xs text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5 truncate align-middle">
-                {row.title}
-              </td>
-              <td className="px-2 text-center font-medium text-xs text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5 truncate align-middle">
-                {row.category}
-              </td>
-              <td className="px-2 text-center font-bold text-xs text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5 align-middle">
-                {row.hours}
-              </td>
-              <td className="px-3 font-semibold text-xs text-slate-800 dark:text-slate-200 truncate align-middle">
-                {row.faculty}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 capitalize">
+                  {row.category}
+                </span>
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300">
+                  {row.hours}h
+                </span>
+              </div>
+            </div>
+            <div className="font-bold text-xs sm:text-[13px] text-slate-900 dark:text-slate-100 line-clamp-2 mb-1.5">
+              {row.title}
+            </div>
+            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate">
+              <Users className="h-3 w-3 text-emerald-500 shrink-0" />
+              <span className="truncate">{row.faculty}</span>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 
   const renderSplitTable = (subRows: typeof rows, startIdx: number) => (
-    <div className="w-full h-full overflow-hidden rounded-lg border border-slate-200/80 dark:border-white/5">
-      <table className="w-full h-full table-fixed border-collapse text-left">
+    <div className="w-full h-full overflow-x-auto overflow-y-auto rounded-lg border border-slate-200/80 dark:border-white/5">
+      <table className="w-full h-full table-fixed border-collapse text-left" style={{ minWidth: 440 }}>
         <colgroup>
           <col style={{ width: '18%' }} />
           <col style={{ width: '42%' }} />
@@ -631,7 +851,7 @@ function FullScreenAllocationTable({
           <col style={{ width: '19%' }} />
         </colgroup>
         <thead>
-          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7 shrink-0">
+          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7 shrink-0 sticky top-0 z-10">
             <th className="px-2.5 border-r border-emerald-700/60 py-1">Code</th>
             <th className="px-2.5 border-r border-emerald-700/60 py-1">Course Title</th>
             <th className="px-1 text-center border-r border-emerald-700/60 py-1">Category</th>
@@ -674,51 +894,65 @@ function FullScreenAllocationTable({
 
   return (
     <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
-      <div className="bg-[#064e3b] text-white px-3 py-1.5 flex items-center justify-between shrink-0">
+      {/* Allocation Header */}
+      <div className="bg-[#064e3b] text-white px-2.5 sm:px-3 py-1.5 flex flex-wrap items-center justify-between shrink-0 gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-extrabold uppercase tracking-wider">
+          <span className="text-xs font-extrabold uppercase tracking-wider truncate">
             Subjects &amp; Faculty Allocation
           </span>
           <span className="text-[10px] font-mono text-emerald-200 font-semibold px-2 py-0.5 rounded-md bg-emerald-900/60 border border-emerald-500/30">
-            {rows.length} total subjects configured
+            {filteredRows.length} total subjects
           </span>
         </div>
 
-        {rows.length > 8 && (
-          <div className="flex items-center gap-0.5 bg-black/20 p-0.5 rounded-lg border border-white/10">
+        <div className="flex items-center gap-1.5">
+          {/* Search Box */}
+          <div className="relative w-28 sm:w-40">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-emerald-300" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="h-6.5 pl-6 text-[11px] rounded-lg bg-black/20 border-white/10 text-white placeholder:text-emerald-200/50"
+            />
+          </div>
+
+          {/* Mobile view format toggle (Table vs Cards) */}
+          <div className="flex items-center gap-0.5 bg-black/20 p-0.5 rounded-lg border border-white/10 xl:hidden">
             <button
-              onClick={() => setLayoutMode('split')}
+              onClick={() => setViewType('table')}
               className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
-                layoutMode === 'split'
-                  ? 'bg-white/20 text-white shadow-sm'
-                  : 'text-emerald-200 hover:text-white'
+                viewType === 'table' ? 'bg-white/20 text-white shadow-sm' : 'text-emerald-200 hover:text-white'
               }`}
-              title="2-Column Side-by-Side Table (Fits all subjects on single page)"
+              title="Table View"
             >
-              2 Columns
+              Table
             </button>
             <button
-              onClick={() => setLayoutMode('single')}
+              onClick={() => setViewType('cards')}
               className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
-                layoutMode === 'single'
-                  ? 'bg-white/20 text-white shadow-sm'
-                  : 'text-emerald-200 hover:text-white'
+                viewType === 'cards' ? 'bg-white/20 text-white shadow-sm' : 'text-emerald-200 hover:text-white'
               }`}
-              title="Full Width Table"
+              title="Card View (Best for mobile)"
             >
-              Full Table
+              Cards
             </button>
           </div>
-        )}
+        </div>
       </div>
 
+      {/* Content Area */}
       <div className="flex-1 min-h-0 w-full overflow-hidden p-1 flex flex-col">
-        {layoutMode === 'single' ? (
-          renderSingleTable()
+        {viewType === 'cards' ? (
+          renderCardsView()
+        ) : filteredRows.length === 0 ? (
+          <div className="w-full h-full flex items-center justify-center text-xs italic text-muted-foreground">
+            No courses match current filter.
+          </div>
         ) : (
-          <div className="w-full h-full overflow-hidden grid grid-cols-2 gap-1.5">
+          <div className={`w-full h-full overflow-hidden grid grid-cols-1 ${rightRows.length > 0 ? 'xl:grid-cols-2' : ''} gap-1.5`}>
             {renderSplitTable(leftRows, 0)}
-            {renderSplitTable(rightRows, mid)}
+            {rightRows.length > 0 && renderSplitTable(rightRows, mid)}
           </div>
         )}
       </div>
@@ -831,9 +1065,9 @@ export default function GenerateReviewPage() {
   const [exporting, setExporting] = useState(false);
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'theory-elective' | 'lab' | 'open-elective' | 'special'>('all');
 
-  // Drag & drop slot swap and staff conflict states
   const [showFacultyInGrid, setShowFacultyInGrid] = useState(true);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [fullScreenPage, setFullScreenPage] = useState<'timetable' | 'allocation'>('timetable');
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [conflictData, setConflictData] = useState<{
     conflicts: FacultyConflict[];
@@ -841,16 +1075,61 @@ export default function GenerateReviewPage() {
     target: { day: number; period: number; subject: string };
   } | null>(null);
 
-  // Escape key and scroll lock handler for Full Screen View
+  // Touch and wheel swipe refs for full screen mode
+  const touchStartY = useRef<number | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const wheelLockRef = useRef<boolean>(false);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY.current === null || touchStartX.current === null) return;
+    const deltaY = touchStartY.current - e.changedTouches[0].clientY;
+    const deltaX = Math.abs(touchStartX.current - e.changedTouches[0].clientX);
+    touchStartY.current = null;
+    touchStartX.current = null;
+
+    if (Math.abs(deltaY) > 40 && Math.abs(deltaY) > deltaX) {
+      if (deltaY > 0 && fullScreenPage === 'timetable') {
+        setFullScreenPage('allocation');
+      } else if (deltaY < 0 && fullScreenPage === 'allocation') {
+        setFullScreenPage('timetable');
+      }
+    }
+  };
+
+  const handleWheelSlide = (e: React.WheelEvent) => {
+    if (wheelLockRef.current) return;
+    if (e.deltaY > 30 && fullScreenPage === 'timetable') {
+      wheelLockRef.current = true;
+      setFullScreenPage('allocation');
+      setTimeout(() => { wheelLockRef.current = false; }, 400);
+    } else if (e.deltaY < -30 && fullScreenPage === 'allocation') {
+      wheelLockRef.current = true;
+      setFullScreenPage('timetable');
+      setTimeout(() => { wheelLockRef.current = false; }, 400);
+    }
+  };
+
+  // Escape key and ArrowUp / ArrowDown handler for Full Screen View
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isFullScreen) {
         setIsFullScreen(false);
+      } else if (isFullScreen) {
+        if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+          setFullScreenPage('allocation');
+        } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+          setFullScreenPage('timetable');
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullScreen]);
+  }, [isFullScreen, fullScreenPage]);
 
   useEffect(() => {
     if (isFullScreen) {
@@ -1016,7 +1295,7 @@ export default function GenerateReviewPage() {
       activeRes.grid.forEach((row) => {
         if (Array.isArray(row)) {
           row.forEach((cell) => {
-            if (cell && typeof cell === 'string' && cell.trim() && cell !== 'BREAK' && cell !== 'LUNCH') {
+            if (cell && typeof cell === 'string' && cell.trim() && cell !== '  BREAK  ' && cell !== 'LUNCH') {
               const name = cell.trim();
               gridSubjectCounts.set(name, (gridSubjectCounts.get(name) || 0) + 1);
             }
@@ -1328,7 +1607,9 @@ export default function GenerateReviewPage() {
         } else {
           toast.warning(`Generated ${totalOk} timetable(s), but ${totalMismatches} subject weekly hour mismatch(es) detected.`);
         }
-        setViewTab('timetable');
+        setShowProgress(false);
+        setIsFullScreen(true);
+        setFullScreenPage('timetable');
       }
       if (totalErr > 0) {
         toast.error(`${totalErr} timetable(s) failed.`);
@@ -1605,342 +1886,37 @@ export default function GenerateReviewPage() {
             })}
           </div>
 
-          {/* View Tab Switcher (Visible only after timetable is generated) */}
+          {/* Quick Return Banner if timetables were generated */}
           {generatedResults.length > 0 && (
-            <div className="flex gap-2 mb-6">
+            <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between gap-4 transition-all shadow-sm ${
+              isDark 
+                ? "bg-emerald-500/10 border-emerald-500/30 text-white" 
+                : "bg-emerald-50 border-emerald-300 text-slate-900"
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-500">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold">
+                    Timetables Generated ({generatedResults.filter(r => r.status === 'ok').length} Class Schedules Ready)
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Timetable is ready in full-screen distraction-free mode.
+                  </p>
+                </div>
+              </div>
               <Button
-                variant={viewTab === 'review' ? 'default' : 'outline'}
-                onClick={() => setViewTab('review')}
-                className={`rounded-xl font-bold px-4 py-2 border shadow-sm ${
-                  viewTab === 'review'
-                    ? (isDark ? 'bg-white/15 text-white border-white/15' : 'bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600')
-                    : (isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white' : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700')
-                }`}
+                onClick={() => setIsFullScreen(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-2 font-bold px-4 py-2 text-xs shadow-md shadow-emerald-500/25 shrink-0"
               >
-                Review Configuration
-              </Button>
-              <Button
-                variant={viewTab === 'timetable' ? 'default' : 'outline'}
-                onClick={() => setViewTab('timetable')}
-                className={`rounded-xl font-bold px-4 py-2 border shadow-sm flex items-center gap-1.5 ${
-                  viewTab === 'timetable'
-                    ? (isDark ? 'bg-white/15 text-white border-white/15' : 'bg-emerald-500 text-white border-emerald-500 hover:bg-emerald-600')
-                    : (isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white' : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700')
-                }`}
-              >
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                Generated Timetables Grid
+                <Maximize2 className="h-3.5 w-3.5" />
+                <span>Open Full Screen</span>
               </Button>
             </div>
           )}
 
-          {viewTab === 'timetable' ? (
-            <div className="space-y-6">
-              <Card className={`rounded-2xl shadow-xl border overflow-hidden transition-colors duration-300 ${
-                isDark ? "bg-[#0c0c18] border-white/10 text-white" : "bg-white border-slate-200/90 text-slate-900"
-              }`}>
-                {/* ── Unified Executive Workspace Header ── */}
-                <div className={`p-5 sm:p-6 border-b flex flex-col gap-4 ${
-                  isDark ? "border-white/10 bg-white/[0.015]" : "border-slate-100 bg-slate-50/50"
-                }`}>
-                  {/* Top Row: Class Identity, Section Tabs & Key Actions */}
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div>
-                        <div className="flex items-center gap-2.5">
-                          <h2 className={`text-lg sm:text-xl font-extrabold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
-                            Year {activeResult?.year || activeTab} • Section {activeResult?.section || activeSection}
-                          </h2>
-                          <Badge variant="outline" className={`text-xs px-2.5 py-0.5 font-bold ${
-                            isDark
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                              : "bg-emerald-50 border-emerald-300 text-emerald-700"
-                          }`}>
-                            Active Class
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {activeDept} Department • {semesterType === 'even' ? 'Even Semester' : 'Odd Semester'} Schedule
-                        </p>
-                      </div>
-
-                      {/* Section Tabs right in header */}
-                      {currentYearResults.length > 0 && (
-                        <div className={`flex p-1 rounded-xl border gap-1 ml-0 sm:ml-2 shadow-sm ${
-                          isDark ? "bg-white/5 border-white/10" : "bg-slate-200/60 border-slate-200"
-                        }`}>
-                          {currentYearResults.map((r) => (
-                            <button
-                              key={r.section}
-                              onClick={() => setActiveSection(r.section)}
-                              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                activeSection === r.section
-                                  ? isDark
-                                    ? "bg-white/15 text-white shadow-sm"
-                                    : "bg-white text-slate-900 shadow-sm"
-                                  : isDark
-                                  ? "text-slate-400 hover:text-white"
-                                  : "text-slate-600 hover:text-slate-950"
-                              }`}
-                            >
-                              Section {r.section}
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${
-                                  r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
-                                }`}
-                              />
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right action controls */}
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
-                        className={`h-9 px-3 rounded-xl text-xs gap-1.5 font-bold border transition-all ${
-                          showFacultyInGrid
-                            ? isDark
-                              ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-                              : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                            : isDark
-                            ? "border-white/10 bg-white/5 text-slate-300 hover:text-white"
-                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        <Users className="h-3.5 w-3.5 text-emerald-500" />
-                        {showFacultyInGrid ? "Hide Faculty" : "Show Faculty"}
-                      </Button>
-
-                      <div className={`flex p-0.5 rounded-xl border ${
-                        isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
-                      }`}>
-                        <button
-                          onClick={() => setViewMode("table")}
-                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === "table"
-                              ? isDark
-                                ? "bg-white/15 text-white shadow-sm"
-                                : "bg-white text-slate-900 shadow-sm"
-                              : isDark
-                              ? "text-slate-400 hover:text-white"
-                              : "text-slate-500 hover:text-slate-900"
-                          }`}
-                          title="Grid View"
-                        >
-                          <LayoutGrid className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">Grid</span>
-                        </button>
-                        <button
-                          onClick={() => setViewMode("list")}
-                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === "list"
-                              ? isDark
-                                ? "bg-white/15 text-white shadow-sm"
-                                : "bg-white text-slate-900 shadow-sm"
-                              : isDark
-                              ? "text-slate-400 hover:text-white"
-                              : "text-slate-500 hover:text-slate-900"
-                          }`}
-                          title="List View"
-                        >
-                          <List className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">List</span>
-                        </button>
-                      </div>
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleExportPDF("current")}
-                        disabled={exporting || activeResult?.status !== "ok"}
-                        className="h-9 px-3.5 rounded-xl text-xs gap-1.5 font-bold shadow-sm"
-                      >
-                        {exporting ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-                        ) : (
-                          <FileDown className="h-3.5 w-3.5 text-emerald-500" />
-                        )}
-                        Export PDF
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        onClick={() => setIsFullScreen(true)}
-                        className="h-9 px-3.5 rounded-xl text-xs gap-1.5 font-bold shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-all hover:scale-[1.02]"
-                        title="Open timetable in clear, full-width distraction-free view"
-                      >
-                        <Maximize2 className="h-3.5 w-3.5" />
-                        Full Screen View
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Sub-row: Search, Filter & Drag Hint */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200/60 dark:border-white/5">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <div className="relative w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                          placeholder="Search subject in grid..."
-                          className="pl-8 h-8 text-xs rounded-xl"
-                        />
-                      </div>
-
-                      <Select value={filterType} onValueChange={setFilterType}>
-                        <SelectTrigger className="h-8 w-36 text-xs rounded-xl">
-                          <SelectValue placeholder="All Types" />
-                        </SelectTrigger>
-                        <SelectContent className={isDark ? "bg-[#141424] border-white/10 text-white" : "bg-white border-slate-200"}>
-                          {SUBJECT_TYPES.map((t) => (
-                            <SelectItem key={t} value={t} className="capitalize text-xs">
-                              {t === "all" ? "All Types" : t.charAt(0).toUpperCase() + t.slice(1)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-slate-100/60 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/5 px-3 py-1.5 rounded-xl self-start sm:self-auto select-none">
-                      <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                      <span>Drag any period cell to swap hours</span>
-                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold ml-1.5 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
-                        Shield Active
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Grid Content */}
-                <div className="p-5 sm:p-6 space-y-6">
-                  {!activeResult ? (
-                    <div className="flex flex-col items-center justify-center h-60 italic gap-2 text-muted-foreground">
-                      <AlertTriangle className="h-8 w-8 text-muted-foreground/40" />
-                      No timetables generated for this selection
-                    </div>
-                  ) : activeResult.status === "error" ? (
-                    <div className="flex flex-col items-center justify-center h-60 border border-red-500/20 bg-red-500/5 rounded-2xl p-6 text-center">
-                      <AlertTriangle className="h-10 w-10 text-red-500 mb-3" />
-                      <h3 className="text-base font-bold text-red-600 dark:text-red-400 mb-1">
-                        Generation Failed
-                      </h3>
-                      <p className="text-sm max-w-md text-red-500/80">{activeResult.error}</p>
-                    </div>
-                  ) : (
-                    <>
-                      {viewMode === "table" ? (
-                        <MiniGrid
-                          grid={activeResult.grid}
-                          search={search}
-                          filterType={filterType}
-                          compact={false}
-                          onSwapSlots={handleSwapSlots}
-                          getFaculty={getFacultyNamesForCell}
-                          showFaculty={showFacultyInGrid}
-                        />
-                      ) : (
-                        <ListView grid={activeResult.grid} search={search} filterType={filterType} />
-                      )}
-
-                      {/* ── SUBJECTS & FACULTY ALLOCATION (Official Institutional Format) ── */}
-                      <div className="space-y-3 pt-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <h3 className="text-sm sm:text-base font-extrabold uppercase tracking-wider text-slate-900 dark:text-slate-100">
-                              Subjects &amp; Faculty Allocation
-                            </h3>
-                            <span className="text-xs text-muted-foreground hidden sm:inline">
-                              ({allocationRows.length} Course{allocationRows.length !== 1 ? 's' : ''})
-                            </span>
-                          </div>
-                          <Badge variant="outline" className={`text-xs px-2.5 py-0.5 font-bold ${
-                            isDark
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                              : "bg-emerald-50 border-emerald-300 text-emerald-800"
-                          }`}>
-                            Year {activeResult.year} • Section {activeResult.section}
-                          </Badge>
-                        </div>
-
-                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm bg-white dark:bg-[#0c0c18]">
-                          <table className="w-full border-collapse text-left" style={{ minWidth: 900 }}>
-                            <thead>
-                              <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
-                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-36 border-r border-emerald-700/60">
-                                  Course Code
-                                </th>
-                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider border-r border-emerald-700/60">
-                                  Course Title
-                                </th>
-                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-32 text-center border-r border-emerald-700/60">
-                                  Category
-                                </th>
-                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-24 text-center border-r border-emerald-700/60">
-                                  Hrs/Wk
-                                </th>
-                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-64">
-                                  Faculty In-Charge
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                              {allocationRows.length === 0 ? (
-                                <tr>
-                                  <td colSpan={5} className="py-8 text-center text-sm italic text-muted-foreground">
-                                    No subjects configured for Year {activeResult.year} Section {activeResult.section}.
-                                  </td>
-                                </tr>
-                              ) : (
-                                allocationRows.map((row, idx) => (
-                                  <tr
-                                    key={idx}
-                                    className={`transition-colors border-b border-slate-100 dark:border-white/5 ${
-                                      isDark
-                                        ? idx % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
-                                        : idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-                                    } hover:bg-emerald-500/5`}
-                                  >
-                                    <td className="py-3 px-4 font-mono font-bold text-xs sm:text-[13px] text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5">
-                                      {row.code}
-                                    </td>
-                                    <td className="py-3 px-4 font-bold text-xs sm:text-[13px] text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5">
-                                      {row.title}
-                                    </td>
-                                    <td className="py-3 px-4 text-xs sm:text-[13px] text-center font-medium text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5">
-                                      {row.category}
-                                    </td>
-                                    <td className="py-3 px-4 text-xs sm:text-[13px] text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5">
-                                      {row.hours}
-                                    </td>
-                                    <td className="py-3 px-4 text-xs sm:text-[13px] font-semibold text-slate-800 dark:text-slate-200">
-                                      {row.faculty}
-                                    </td>
-                                  </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Subject Hours Allocation Verification Component */}
-                      <SubjectHoursVerificationCard
-                        verification={currentVerification}
-                        isDark={isDark}
-                        defaultExpanded={!currentVerification?.isValid}
-                      />
-                    </>
-                  )}
-                </div>
-              </Card>
-            </div>
-          ) : (
-            <div className="grid gap-6 lg:grid-cols-4">
+          <div className="grid gap-6 lg:grid-cols-4">
               {/* Left side: Config / Stats (1 col) */}
               <div className="lg:col-span-1 space-y-6">
                 {/* Hours Validator Card */}
@@ -2252,7 +2228,6 @@ export default function GenerateReviewPage() {
                 </Card>
               </div>
             </div>
-          )}
         </div>
       </div>
 
@@ -2307,16 +2282,24 @@ export default function GenerateReviewPage() {
               variant="outline"
               onClick={() => {
                 setGeneratedResults([]);
-                setViewTab('review');
               }}
-              className={`rounded-xl font-bold px-6 py-5 border ${
+              className={`rounded-xl font-bold px-5 py-5 border gap-2 ${
                 isDark 
                   ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white' 
                   : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
               }`}
               disabled={publishing || exporting}
             >
-              Discard &amp; Reconfigure
+              <RotateCcw className="h-4 w-4 text-amber-500" />
+              <span>Discard &amp; Reconfigure</span>
+            </Button>
+
+            <Button
+              onClick={() => setIsFullScreen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-2 font-bold px-5 py-5 shadow-lg shadow-emerald-500/25 transition-all"
+            >
+              <Maximize2 className="h-4 w-4" />
+              <span>Open Full Screen</span>
             </Button>
 
             {/* Export PDF Dropdown */}
@@ -2520,11 +2503,13 @@ export default function GenerateReviewPage() {
               <button
                 onClick={() => {
                   setShowProgress(false);
-                  setViewTab('timetable');
+                  setIsFullScreen(true);
+                  setFullScreenPage('timetable');
                 }}
-                className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold hover:from-emerald-600 hover:to-teal-700 transition-all shadow-sm shadow-emerald-500/25"
+                className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold hover:from-emerald-600 hover:to-teal-700 transition-all shadow-sm shadow-emerald-500/25 flex items-center justify-center gap-2"
               >
-                View Generated Timetables →
+                <span>Open Timetable Full Screen</span>
+                <Maximize2 className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -2647,32 +2632,57 @@ export default function GenerateReviewPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── FULL SCREEN TIMETABLE WORKSPACE (SINGLE PAGE - ZERO SCROLL) ── */}
+      {/* ── FULL SCREEN TIMETABLE WORKSPACE (FULL PAGE SLIDE MODE) ── */}
       {isFullScreen && activeResult && (
-        <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-[#07070f] text-slate-900 dark:text-slate-100 p-2 sm:p-3 select-none animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-[#07070f] text-slate-900 dark:text-slate-100 p-1.5 sm:p-2.5 md:p-3 select-none animate-in fade-in duration-150">
           {/* Top Compact Command Bar */}
-          <header className="h-11 shrink-0 bg-white dark:bg-[#0d0d1a] rounded-xl border border-slate-200 dark:border-white/10 px-3.5 flex items-center justify-between shadow-sm gap-2">
-            {/* Left: Class Identity & Section Switcher */}
-            <div className="flex items-center gap-2.5">
+          <header className="min-h-11 h-auto py-1.5 sm:py-0 sm:h-11 shrink-0 bg-white dark:bg-[#0d0d1a] rounded-xl border border-slate-200 dark:border-white/10 px-2.5 sm:px-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between shadow-sm gap-2">
+            {/* Left: Class Identity, Year Switcher & Section Switcher */}
+            <div className="flex items-center gap-2 sm:gap-2.5">
               <div className="flex items-center gap-1.5">
-                <Badge className="bg-emerald-600 text-white font-extrabold text-[11px] px-2 py-0.5 rounded-lg shadow-sm">
+                <Badge className="bg-emerald-600 text-white font-extrabold text-[11px] px-2 py-0.5 rounded-lg shadow-sm shrink-0">
                   Yr {activeResult.year} • Sec {activeResult.section}
                 </Badge>
-                <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white">
+                <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate">
                   {activeDept}
                 </span>
               </div>
 
+              {/* Year switcher pills if multiple years */}
+              {activeDeptSelection && activeDeptSelection.selectedYears.length > 1 && (
+                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm overflow-x-auto no-scrollbar ${
+                  isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
+                }`}>
+                  {activeDeptSelection.selectedYears.map(({ year }) => (
+                    <button
+                      key={year}
+                      onClick={() => {
+                        setActiveTab(year);
+                        const yrResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === year);
+                        if (yrResults.length > 0) setActiveSection(yrResults[0].section);
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all ${
+                        activeTab === year
+                          ? isDark ? "bg-white/20 text-white shadow-sm" : "bg-white text-slate-900 shadow-sm"
+                          : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-950"
+                      }`}
+                    >
+                      Yr {year}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Section switcher pills */}
               {currentYearResults.length > 0 && (
-                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm ${
+                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm overflow-x-auto no-scrollbar max-w-[140px] sm:max-w-none ${
                   isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
                 }`}>
                   {currentYearResults.map((r) => (
                     <button
                       key={r.section}
                       onClick={() => setActiveSection(r.section)}
-                      className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                      className={`px-2 sm:px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 ${
                         activeSection === r.section
                           ? isDark
                             ? "bg-white/20 text-white shadow-sm"
@@ -2694,19 +2704,46 @@ export default function GenerateReviewPage() {
               )}
             </div>
 
-            {/* Center: Realtime Interactive Hint Banner */}
-            <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-semibold select-none">
-              <Zap className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-              <span>Interactive Timetable • Drag period cells to swap hours • Conflict protection active</span>
+            {/* Center: Mode Switcher (Timetable vs Subject Staffs) */}
+            <div className="flex items-center p-0.5 rounded-lg border bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 shadow-sm gap-0.5">
+              <button
+                onClick={() => setFullScreenPage('timetable')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  fullScreenPage === 'timetable'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : isDark
+                    ? 'text-slate-400 hover:text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="View Full Timetable (Swipe Down / Up Arrow)"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span>Timetable</span>
+              </button>
+
+              <button
+                onClick={() => setFullScreenPage('allocation')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  fullScreenPage === 'allocation'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : isDark
+                    ? 'text-slate-400 hover:text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="View Subject Staff Allocation (Swipe Up / Down Arrow)"
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>Subject Staffs ({allocationRows.length})</span>
+              </button>
             </div>
 
-            {/* Right: Controls & Exit button */}
-            <div className="flex items-center gap-2">
+            {/* Right: Controls & Actions (Image 4 Buttons) */}
+            <div className="flex items-center gap-1.5 sm:gap-2 ml-auto sm:ml-0 flex-wrap">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
-                className={`h-8 px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
+                className={`h-8 px-2 sm:px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
                   showFacultyInGrid
                     ? isDark
                       ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
@@ -2717,51 +2754,169 @@ export default function GenerateReviewPage() {
                 }`}
               >
                 <Users className="h-3.5 w-3.5 text-emerald-500" />
-                {showFacultyInGrid ? "Hide Staff" : "Show Staff"}
+                <span className="hidden md:inline">{showFacultyInGrid ? "Hide Staff" : "Show Staff"}</span>
+                <span className="md:hidden">Staff</span>
               </Button>
 
+              {/* Image 4: Export PDF Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={exporting || publishing || generatedResults.filter(r => r.status === 'ok').length === 0}
+                    className={`h-8 px-2.5 sm:px-3 rounded-lg font-bold border gap-1.5 shadow-sm transition-all text-xs ${
+                      isDark 
+                        ? 'border-white/15 bg-white/10 hover:bg-white/15 text-white' 
+                        : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
+                    }`}
+                  >
+                    {exporting ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                        <span className="hidden sm:inline">Exporting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                        <span>Export PDF</span>
+                        <ChevronDown className="h-3 w-3 opacity-60 ml-0.5" />
+                      </>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className={`w-64 rounded-xl p-1.5 shadow-xl border z-[70] ${
+                  isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+                }`}>
+                  <DropdownMenuItem
+                    onClick={() => handleExportPDF('all')}
+                    disabled={exporting}
+                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                  >
+                    <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Export All Classes (PDF)</div>
+                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                        All generated classes &amp; sections combined
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => handleExportPDF('year')}
+                    disabled={exporting}
+                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                  >
+                    <Layers className="h-4 w-4 text-purple-400 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Export Year {activeTab} (All Sections)</div>
+                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                        Combined PDF of all Year {activeTab} sections
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem
+                    onClick={() => handleExportPDF('current')}
+                    disabled={exporting}
+                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                  >
+                    <Printer className="h-4 w-4 text-sky-400 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-xs">Export Current Class (PDF)</div>
+                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                        Year {activeTab} — Section {activeSection}
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Image 4: Publish Timetables Button */}
+              <Button
+                size="sm"
+                onClick={handlePublish}
+                disabled={publishing || exporting || generatedResults.filter(r => r.status === 'ok').length === 0}
+                className="h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-lg gap-1.5 font-bold px-3 sm:px-3.5 shadow-md shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/35 text-xs shrink-0"
+              >
+                {publishing ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span className="hidden sm:inline">Publishing...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <span>Publish Timetables</span>
+                  </>
+                )}
+              </Button>
+
+              {/* Discard & Reconfigure */}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => handleExportPDF("current")}
-                disabled={exporting || activeResult?.status !== "ok"}
-                className="h-8 px-2.5 rounded-lg text-xs gap-1 font-semibold shadow-sm"
+                onClick={() => {
+                  setIsFullScreen(false);
+                  setGeneratedResults([]);
+                }}
+                className={`h-8 px-2 sm:px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
+                  isDark
+                    ? 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'
+                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm'
+                }`}
+                title="Discard generation and return to configuration"
               >
-                <FileDown className="h-3.5 w-3.5 text-emerald-500" />
-                PDF
+                <RotateCcw className="h-3.5 w-3.5 text-amber-500" />
+                <span className="hidden xl:inline">Discard</span>
               </Button>
 
-              {/* Exit Full Screen */}
+              {/* Exit to Dashboard */}
               <Button
                 size="sm"
-                onClick={() => setIsFullScreen(false)}
-                className="h-8 px-3 rounded-lg text-xs gap-1.5 font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 shadow-sm"
-                title="Exit full screen (Esc)"
+                onClick={() => navigate('/admin')}
+                className="h-8 px-2.5 sm:px-3 rounded-lg text-xs gap-1.5 font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 shadow-sm"
+                title="Back to Dashboard"
               >
-                <Minimize2 className="h-3.5 w-3.5" />
-                Exit [Esc]
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Dashboard</span>
               </Button>
             </div>
           </header>
 
-          {/* Main View Area: Unified Single Page - Zero Scrolling */}
-          <div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col gap-2 mt-2">
-            {/* Top 56%: Timetable Grid */}
-            <div className="h-[56%] min-h-0 w-full overflow-hidden">
-              <FullScreenGrid
-                grid={activeResult.grid}
-                onSwapSlots={handleSwapSlots}
-                getFaculty={getFacultyNamesForCell}
-                showFaculty={showFacultyInGrid}
-              />
-            </div>
+          {/* Slide Presentation Container: Zero Document Scroll, Pure Up/Down Motion */}
+          <div
+            className="flex-1 min-h-0 w-full overflow-hidden relative mt-1.5"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onWheel={handleWheelSlide}
+          >
+            <div
+              className={`w-full h-full flex flex-col transition-transform duration-500 ease-in-out ${
+                fullScreenPage === 'timetable' ? 'translate-y-0' : '-translate-y-full'
+              }`}
+            >
+              {/* ── PAGE 1: FULL VIEWPORT TIMETABLE ── */}
+              <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pb-1">
+                <div className="flex-1 min-h-0 w-full overflow-hidden">
+                  <FullScreenGrid
+                    grid={activeResult.grid}
+                    onSwapSlots={handleSwapSlots}
+                    getFaculty={getFacultyNamesForCell}
+                    showFaculty={showFacultyInGrid}
+                  />
+                </div>
+              </div>
 
-            {/* Bottom 44%: All Subjects & Faculty Allocation */}
-            <div className="h-[44%] min-h-0 w-full overflow-hidden">
-              <FullScreenAllocationTable
-                rows={allocationRows}
-                isDark={isDark}
-              />
+              {/* ── PAGE 2: FULL VIEWPORT SUBJECT STAFFS ALLOCATION ── */}
+              <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pt-1">
+                <div className="flex-1 min-h-0 w-full overflow-hidden">
+                  <FullScreenAllocationTable
+                    rows={allocationRows}
+                    isDark={isDark}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

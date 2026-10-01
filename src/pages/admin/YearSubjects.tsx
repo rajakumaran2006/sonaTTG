@@ -93,7 +93,7 @@ const YearSubjects = () => {
   const [oeConfigHoursInput, setOeConfigHoursInput] = useState<number>(5);
   const [oeGroupName, setOeGroupName] = useState<string>("Open elective");
   const [oeIsSharedSlot, setOeIsSharedSlot] = useState<boolean>(true);
-  const [oeSelectedSlots, setOeSelectedSlots] = useState<string[]>(['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2']);
+  const [oeSelectedSlots, setOeSelectedSlots] = useState<string[]>(['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2']);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
@@ -1450,7 +1450,7 @@ const YearSubjects = () => {
                     size="sm"
                     className="h-6 px-2 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-semibold"
                     onClick={() => {
-                      const defs = ['Mon-1', 'Wed-1', 'Thu-1', 'Sat-1', 'Sat-2'];
+                      const defs = ['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2'];
                       setOeSelectedSlots(defs);
                       setOeConfigHoursInput(defs.length);
                     }}
