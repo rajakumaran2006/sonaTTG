@@ -27,6 +27,8 @@ import {
   ArrowLeftRight,
   GripVertical,
   AlertCircle,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   checkSwapFacultyConflict,
@@ -68,12 +70,35 @@ import { SpecialHoursManager } from "@/components/SpecialHoursManager";
 import { useTimetableStore } from "@/store/timetableStore";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+interface GridColumnDef {
+  key: string;
+  label: string;
+  time: string;
+  isDivider: boolean;
+  periodIdx: number | null;
+}
+
+const GRID_COLUMNS: GridColumnDef[] = [
+  { key: 'p1', label: 'P1', time: '(9:00–9:55)', isDivider: false, periodIdx: 0 },
+  { key: 'p2', label: 'P2', time: '(9:55–10:50)', isDivider: false, periodIdx: 1 },
+  { key: 'break1', label: 'BREAK', time: '(10:50–11:05)', isDivider: true, periodIdx: null },
+  { key: 'p3', label: 'P3', time: '(11:05–12:00)', isDivider: false, periodIdx: 2 },
+  { key: 'p4', label: 'P4', time: '(12:00–12:55)', isDivider: false, periodIdx: 3 },
+  { key: 'lunch', label: 'LUNCH', time: '(12:55–1:55)', isDivider: true, periodIdx: null },
+  { key: 'p5', label: 'P5', time: '(1:55–2:50)', isDivider: false, periodIdx: 4 },
+  { key: 'p6', label: 'P6', time: '(2:50–3:45)', isDivider: false, periodIdx: 5 },
+  { key: 'break2', label: 'BREAK', time: '(3:45–3:55)', isDivider: true, periodIdx: null },
+  { key: 'p7', label: 'P7', time: '(3:55–4:50)', isDivider: false, periodIdx: 6 },
+];
+
 const DISPLAY_COLUMNS = [
   'PERIOD 1', 'PERIOD 2', 'BREAK', 'PERIOD 3', 'PERIOD 4', 'LUNCH',
   'PERIOD 5', 'PERIOD 6', 'BREAK', 'PERIOD 7'
 ] as const;
+
 const TIME_LABELS: Record<string, string> = {
-  'PERIOD 1': '9:00–9:55', 'PERIOD 2': '9:55–10:50', 'BREAK': '',
+  'PERIOD 1': '9:00–9:55', 'PERIOD 2': '9:55–10:50', 'BREAK': '10:50–11:05',
   'PERIOD 3': '11:05–12:00', 'PERIOD 4': '12:00–12:55', 'LUNCH': '12:55–1:55',
   'PERIOD 5': '1:55–2:50', 'PERIOD 6': '2:50–3:45', 'PERIOD 7': '3:55–4:50',
 };
@@ -82,32 +107,19 @@ const SUBJECT_TYPES = ['all', 'theory', 'lab', 'elective', 'open elective'];
 function getCellStyle(cell: string, isDark: boolean): string {
   if (!cell) {
     return isDark 
-      ? 'bg-white/3 text-slate-700 border border-dashed border-white/5' 
-      : 'bg-slate-50 text-slate-350 border border-dashed border-slate-200';
+      ? 'bg-white/[0.02] text-slate-500 border border-dashed border-white/10 hover:border-white/20' 
+      : 'bg-slate-50/70 text-slate-400 border border-dashed border-slate-200 hover:border-slate-300';
   }
   if (cell === 'BREAK' || cell === 'LUNCH') {
     return isDark 
-      ? 'bg-white/4 text-white/20 text-[9px] font-bold uppercase tracking-widest' 
-      : 'bg-slate-100 text-slate-450 text-[9px] font-bold uppercase tracking-widest';
+      ? 'bg-white/[0.02] text-slate-400 font-extrabold uppercase tracking-widest' 
+      : 'bg-slate-100/90 text-slate-500 font-extrabold uppercase tracking-widest';
   }
-  if (cell.toUpperCase().includes('LAB') || cell.endsWith(' L')) {
-    return isDark 
-      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25' 
-      : 'bg-emerald-50 text-emerald-700 border border-emerald-250';
-  }
-  if (/seminar|library|counsell/i.test(cell)) {
-    return isDark 
-      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25' 
-      : 'bg-amber-50 text-amber-700 border border-amber-250';
-  }
-  if (cell.includes(' / ')) {
-    return isDark 
-      ? 'bg-purple-500/15 text-purple-300 border border-purple-500/25' 
-      : 'bg-purple-50 text-purple-700 border border-purple-250';
-  }
+
+  // All subjects have the exact same clean, uniform, professional styling
   return isDark 
-    ? 'bg-white/7 text-slate-200 border border-white/9' 
-    : 'bg-white text-slate-800 border border-slate-200 shadow-sm';
+    ? 'bg-[#121222] text-slate-100 border border-white/10 hover:border-emerald-500/50 hover:bg-[#16162a] shadow-sm' 
+    : 'bg-white text-slate-900 border border-slate-200/90 hover:border-emerald-500/60 hover:bg-slate-50/80 shadow-sm';
 }
 
 function matchesFilter(cell: string, search: string, filterType: string): boolean {
@@ -129,7 +141,7 @@ function MiniGrid({
   compact = false,
   onSwapSlots,
   getFaculty,
-  showFaculty = false,
+  showFaculty = true,
 }: {
   grid: string[][];
   search: string;
@@ -146,48 +158,91 @@ function MiniGrid({
   const [dragOverTarget, setDragOverTarget] = useState<{ day: number; period: number } | null>(null);
 
   return (
-    <div className={`overflow-auto rounded-xl ${compact ? 'max-h-[230px]' : ''}`}>
-      <table className="w-full border-collapse" style={{ minWidth: compact ? 500 : 720 }}>
+    <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm bg-white dark:bg-[#0c0c18] ${compact ? 'max-h-[300px]' : ''}`}>
+      <table className="w-full border-collapse" style={{ minWidth: compact ? 650 : 1180 }}>
         <thead>
-          <tr className={isDark ? "bg-white/3" : "bg-slate-100"}>
-            <th className={`py-1.5 px-2 text-left font-semibold text-[10px] w-10 ${isDark ? "text-white/30" : "text-slate-500"}`}>Day</th>
-            {DISPLAY_COLUMNS.map((col, i) => (
-              <th key={i} className={`py-1.5 px-1 text-center font-semibold text-[10px] ${isDark ? "text-white/30" : "text-slate-500"}`}>
-                <div className="flex flex-col gap-0.5 items-center">
-                  <span className={(col === 'BREAK' || col === 'LUNCH') ? (isDark ? 'text-white/15' : 'text-slate-350') : ''}>{col.replace('PERIOD ', 'P')}</span>
-                  {TIME_LABELS[col] && <span className={`text-[8px] font-normal ${isDark ? "text-white/15" : "text-slate-400"}`}>{TIME_LABELS[col]}</span>}
+          <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
+            <th className="py-3 px-3 text-center font-bold text-xs sm:text-[13px] uppercase tracking-wider w-20 border-r border-emerald-700/60 sticky left-0 z-20 bg-[#064e3b]">
+              Day
+            </th>
+            {GRID_COLUMNS.map((col) => (
+              <th
+                key={col.key}
+                className={`py-2.5 px-2 text-center border-r border-emerald-700/60 last:border-r-0 ${
+                  col.isDivider ? "w-20 sm:w-24 bg-[#053d2e]" : "min-w-[125px]"
+                }`}
+              >
+                <div className="flex flex-col items-center justify-center">
+                  <span className="text-xs sm:text-[13px] font-bold text-white tracking-wide">
+                    {col.label}
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] font-mono text-emerald-100/90 mt-0.5">
+                    {col.time}
+                  </span>
                 </div>
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
           {safeGrid.map((row, dayIdx) => {
             const r = Array.isArray(row) ? row : [];
-            const displayRow: string[] = [r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''];
+            const displayRow: string[] = [
+              r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''
+            ];
+
             return (
-              <tr key={dayIdx} className={`border-t transition-colors ${isDark ? "border-white/4 hover:bg-white/2" : "border-slate-200 hover:bg-slate-50/50"}`}>
-                <td className={`py-1 px-2 font-bold text-[10px] ${isDark ? "text-white/40" : "text-slate-500"}`}>{DAYS[dayIdx]}</td>
+              <tr
+                key={dayIdx}
+                className={`transition-colors ${
+                  isDark ? "hover:bg-white/[0.02]" : "hover:bg-slate-50/50"
+                }`}
+              >
+                {/* Day Header Cell */}
+                <td className={`py-2 px-3 text-center border-r font-semibold select-none sticky left-0 z-10 ${
+                  isDark ? "bg-[#0e0e1b] border-white/10" : "bg-slate-50 border-slate-200"
+                }`}>
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                      {DAYS[dayIdx]}
+                    </span>
+                  </div>
+                </td>
+
                 {displayRow.map((cell, colIdx) => {
-                  const pIdx = DISPLAY_COL_TO_PERIOD[colIdx];
-                  const isPeriodCell = pIdx !== null;
-                  const isDivider = cell === 'BREAK' || cell === 'LUNCH';
+                  const colInfo = GRID_COLUMNS[colIdx];
+                  const pIdx = colInfo.periodIdx;
+                  const isDivider = colInfo.isDivider;
                   const highlight = (search || filterType !== 'all') ? matchesFilter(cell, search, filterType) : false;
                   const isDimmed = (search || filterType !== 'all') && cell && !isDivider && !matchesFilter(cell, search, filterType);
 
-                  const canDrag = !compact && !!onSwapSlots && isPeriodCell && !isDivider && !!cell && cell.trim() !== '';
-                  const canDrop = !compact && !!onSwapSlots && isPeriodCell && !isDivider;
+                  if (isDivider) {
+                    return (
+                      <td
+                        key={colIdx}
+                        className="p-1 border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] text-center select-none"
+                      >
+                        <div className="h-full min-h-[78px] sm:min-h-[86px] flex items-center justify-center">
+                          <span className="text-xs font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
+                            {cell}
+                          </span>
+                        </div>
+                      </td>
+                    );
+                  }
 
+                  const canDrag = !compact && !!onSwapSlots && pIdx !== null && !!cell && cell.trim() !== '';
+                  const canDrop = !compact && !!onSwapSlots && pIdx !== null;
                   const isDraggingThis = dragSource?.day === dayIdx && dragSource?.period === pIdx;
                   const isTargetThis = dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx;
 
-                  const faculties = (getFaculty && cell && !isDivider) ? getFaculty(cell) : [];
+                  const faculties = (getFaculty && cell) ? getFaculty(cell) : [];
                   const facultyLabel = faculties.join(' / ');
 
                   return (
                     <td
                       key={colIdx}
-                      className="p-0.5"
+                      className="p-1 sm:p-1.5 border-r border-slate-200 dark:border-white/5 last:border-r-0 align-middle"
                       onDragOver={(e) => {
                         if (!canDrop || pIdx === null) return;
                         e.preventDefault();
@@ -227,32 +282,34 @@ function MiniGrid({
                           setDragOverTarget(null);
                         }}
                         title={
-                          isDivider 
-                            ? cell 
-                            : cell 
-                              ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag to swap)' : ''}`
-                              : canDrop ? 'Empty Period (Drop here to move)' : ''
+                          cell
+                            ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag to swap period)' : ''}`
+                            : canDrop
+                            ? 'Empty Period (Drop subject here to reschedule)'
+                            : ''
                         }
                         className={`
-                          rounded-lg flex flex-col items-center justify-center text-center transition-all relative select-none group
-                          ${compact ? 'h-8 min-w-[52px]' : showFaculty ? 'min-h-[48px] py-1 min-w-[78px]' : 'h-11 min-w-[76px]'}
+                          rounded-xl flex flex-col justify-center items-center p-2 sm:p-2.5 transition-all duration-200 relative select-none
+                          ${compact ? 'h-12' : showFaculty ? 'min-h-[78px] sm:min-h-[86px]' : 'min-h-[64px] sm:min-h-[72px]'}
                           ${getCellStyle(cell, isDark)}
-                          ${canDrag ? 'cursor-grab active:cursor-grabbing hover:scale-[1.02] hover:shadow-md' : ''}
+                          ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5' : ''}
                           ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
-                          ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-lg' : ''}
-                          ${highlight ? (isDark ? 'ring-2 ring-white/25 scale-105 z-10 relative' : 'ring-2 ring-emerald-500/50 scale-105 z-10 relative') : ''}
-                          ${isDimmed ? 'opacity-20' : ''}
+                          ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
+                          ${highlight ? 'ring-2 ring-emerald-500 scale-105 z-10' : ''}
+                          ${isDimmed ? 'opacity-25' : ''}
                         `}
                       >
-                        {canDrag && !isDivider && (
-                          <GripVertical className="h-2.5 w-2.5 opacity-0 group-hover:opacity-40 absolute right-0.5 top-0.5 pointer-events-none text-slate-400" />
-                        )}
-                        <span className="px-1 truncate max-w-full font-semibold leading-tight pointer-events-none" style={{ fontSize: '9px' }}>
-                          {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
-                        </span>
-                        {showFaculty && facultyLabel && !isDivider && (
+                        {/* Subject Name */}
+                        <div className="flex-1 flex items-center justify-center text-center my-0.5 w-full">
+                          <span className="text-xs sm:text-[13px] font-bold tracking-tight leading-snug line-clamp-2 text-slate-900 dark:text-slate-100">
+                            {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
+                          </span>
+                        </div>
+
+                        {/* Faculty name if enabled */}
+                        {showFaculty && facultyLabel && (
                           <span
-                            className="px-1 truncate max-w-full font-medium leading-none mt-0.5 pointer-events-none text-[7.5px] text-emerald-600 dark:text-emerald-400 opacity-85"
+                            className="text-[10px] sm:text-[11px] font-semibold text-slate-600 dark:text-slate-300 text-center uppercase tracking-wide truncate w-full mt-1 opacity-90"
                             title={`Staff: ${facultyLabel}`}
                           >
                             {facultyLabel}
@@ -294,21 +351,377 @@ function ListView({ grid, search, filterType }: { grid: string[][]; search: stri
   );
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {items.map((item, i) => (
-        <div key={i} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-colors ${
+        <div key={i} className={`flex items-center gap-3.5 px-4 py-3 rounded-xl border transition-all ${
           isDark 
-            ? "bg-white/4 border-white/6 hover:bg-white/7 text-white" 
+            ? "bg-white/[0.03] border-white/8 hover:bg-white/[0.05] text-white" 
             : "bg-white border-slate-200 hover:bg-slate-50 text-slate-800 shadow-sm"
         }`}>
-          <span className={`text-[10px] font-bold w-8 shrink-0 ${isDark ? "text-white/30" : "text-slate-400"}`}>{item.day}</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-            isDark ? "text-white/30 bg-white/6" : "text-slate-600 bg-slate-100 border border-slate-200"
-          }`}>{item.label}</span>
-          {item.time && <span className={`text-[9px] shrink-0 hidden sm:inline ${isDark ? "text-white/20" : "text-slate-400"}`}>{item.time}</span>}
-          <span className={`text-sm font-semibold flex-1 truncate ${isDark ? "text-white/80" : "text-slate-700"}`}>{item.cell}</span>
+          <span className="text-xs font-extrabold uppercase w-10 text-slate-500 shrink-0">{item.day}</span>
+          <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+            {item.label}
+          </span>
+          {item.time && (
+            <span className="text-xs font-mono text-muted-foreground shrink-0 hidden sm:inline">
+              {item.time}
+            </span>
+          )}
+          <span className="text-sm font-semibold flex-1 truncate text-slate-900 dark:text-slate-100">
+            {item.cell}
+          </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FullScreenGrid({
+  grid,
+  onSwapSlots,
+  getFaculty,
+  showFaculty = true,
+}: {
+  grid: string[][];
+  onSwapSlots?: (source: { day: number; period: number }, target: { day: number; period: number }) => void;
+  getFaculty?: (subject: string) => string[];
+  showFaculty?: boolean;
+}) {
+  const { isDark } = useDarkMode();
+  const safeGrid = Array.isArray(grid) ? grid : [];
+
+  const [dragSource, setDragSource] = useState<{ day: number; period: number; subject: string } | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ day: number; period: number } | null>(null);
+
+  const cols = [
+    { key: 'day', label: 'Day', time: '', widthPercent: '5.2%', isDivider: false, pIdx: null },
+    { key: 'p1', label: 'P1', time: '9:00–9:55', widthPercent: '11.4%', isDivider: false, pIdx: 0 },
+    { key: 'p2', label: 'P2', time: '9:55–10:50', widthPercent: '11.4%', isDivider: false, pIdx: 1 },
+    { key: 'b1', label: 'BREAK', time: '10:50–11:05', widthPercent: '4.5%', isDivider: true, pIdx: null },
+    { key: 'p3', label: 'P3', time: '11:05–12:00', widthPercent: '11.4%', isDivider: false, pIdx: 2 },
+    { key: 'p4', label: 'P4', time: '12:00–12:55', widthPercent: '11.4%', isDivider: false, pIdx: 3 },
+    { key: 'lunch', label: 'LUNCH', time: '12:55–1:55', widthPercent: '6.0%', isDivider: true, pIdx: null },
+    { key: 'p5', label: 'P5', time: '1:55–2:50', widthPercent: '11.4%', isDivider: false, pIdx: 4 },
+    { key: 'p6', label: 'P6', time: '2:50–3:45', widthPercent: '11.4%', isDivider: false, pIdx: 5 },
+    { key: 'b2', label: 'BREAK', time: '3:45–3:55', widthPercent: '4.5%', isDivider: true, pIdx: null },
+    { key: 'p7', label: 'P7', time: '3:55–4:50', widthPercent: '11.4%', isDivider: false, pIdx: 6 },
+  ];
+
+  return (
+    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
+      {/* Header: fixed height 32px */}
+      <div className="h-8 shrink-0 bg-[#064e3b] dark:bg-[#064e3b] text-white grid grid-cols-[5.2%_11.4%_11.4%_4.5%_11.4%_11.4%_6.0%_11.4%_11.4%_4.5%_11.4%] border-b border-emerald-800">
+        {cols.map((col) => (
+          <div
+            key={col.key}
+            className={`flex flex-col items-center justify-center leading-none border-r border-emerald-700/60 last:border-r-0 ${
+              col.isDivider ? "bg-[#053d2e]" : ""
+            }`}
+          >
+            <span className="text-xs font-bold text-white tracking-wide">
+              {col.label}
+            </span>
+            {col.time && (
+              <span className="text-[9.5px] font-mono text-emerald-100/90 mt-0.5">
+                ({col.time})
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Body: exactly 6 equal rows via grid-rows-6 (every day strictly identical in height) */}
+      <div className="flex-1 min-h-0 grid grid-rows-6 divide-y divide-slate-100 dark:divide-white/5">
+        {safeGrid.map((row, dayIdx) => {
+          const r = Array.isArray(row) ? row : [];
+          const displayRow: string[] = [
+            r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''
+          ];
+
+          return (
+            <div
+              key={dayIdx}
+              className="grid grid-cols-[5.2%_11.4%_11.4%_4.5%_11.4%_11.4%_6.0%_11.4%_11.4%_4.5%_11.4%] h-full min-h-0 transition-colors hover:bg-slate-50/50 dark:hover:bg-white/[0.01]"
+            >
+              {/* Day column */}
+              <div className="flex items-center justify-center border-r border-slate-200 dark:border-white/10 font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0e0e1b]">
+                {DAYS[dayIdx]}
+              </div>
+
+              {/* 10 period & divider columns */}
+              {displayRow.map((cell, colIdx) => {
+                const colDef = cols[colIdx + 1];
+                const pIdx = colDef.pIdx;
+                const isDivider = colDef.isDivider;
+
+                if (isDivider) {
+                  return (
+                    <div
+                      key={colIdx}
+                      className="border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] flex items-center justify-center select-none"
+                    >
+                      <span className="text-xs font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
+                        {cell}
+                      </span>
+                    </div>
+                  );
+                }
+
+                const canDrag = !!onSwapSlots && pIdx !== null && !!cell && cell.trim() !== '';
+                const canDrop = !!onSwapSlots && pIdx !== null;
+                const isDraggingThis = dragSource?.day === dayIdx && dragSource?.period === pIdx;
+                const isTargetThis = dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx;
+                const faculties = (getFaculty && cell) ? getFaculty(cell) : [];
+                const facultyLabel = faculties.join(' / ');
+
+                return (
+                  <div
+                    key={colIdx}
+                    className="p-1 border-r border-slate-200 dark:border-white/5 last:border-r-0 h-full min-h-0 overflow-hidden flex items-center justify-center"
+                    onDragOver={(e) => {
+                      if (!canDrop || pIdx === null) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverTarget?.day !== dayIdx || dragOverTarget?.period !== pIdx) {
+                        setDragOverTarget({ day: dayIdx, period: pIdx });
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverTarget?.day === dayIdx && dragOverTarget?.period === pIdx) {
+                        setDragOverTarget(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (!canDrop || pIdx === null || !dragSource) return;
+                      if (dragSource.day === dayIdx && dragSource.period === pIdx) {
+                        setDragSource(null);
+                        setDragOverTarget(null);
+                        return;
+                      }
+                      onSwapSlots?.(dragSource, { day: dayIdx, period: pIdx });
+                      setDragSource(null);
+                      setDragOverTarget(null);
+                    }}
+                  >
+                    <div
+                      draggable={canDrag}
+                      onDragStart={(e) => {
+                        if (!canDrag || pIdx === null) return;
+                        e.dataTransfer.setData('text/plain', JSON.stringify({ day: dayIdx, period: pIdx }));
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDragSource({ day: dayIdx, period: pIdx, subject: cell });
+                      }}
+                      onDragEnd={() => {
+                        setDragSource(null);
+                        setDragOverTarget(null);
+                      }}
+                      title={
+                        cell
+                          ? `${cell}${facultyLabel ? ` • Staff: ${facultyLabel}` : ''}${canDrag ? ' (Drag to swap period)' : ''}`
+                          : canDrop
+                          ? 'Empty Period (Drop subject here to reschedule)'
+                          : ''
+                      }
+                      className={`
+                        rounded-lg flex flex-col justify-center items-center px-1.5 py-0.5 transition-all duration-150 h-full w-full select-none text-center overflow-hidden
+                        ${getCellStyle(cell, isDark)}
+                        ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:scale-[1.01]' : ''}
+                        ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
+                        ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
+                      `}
+                    >
+                      <span className="text-xs font-bold tracking-tight text-center leading-snug line-clamp-2 w-full text-slate-900 dark:text-slate-100">
+                        {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
+                      </span>
+
+                      {showFaculty && facultyLabel && (
+                        <span
+                          className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 text-center uppercase tracking-wide truncate w-full mt-0.5 opacity-90 leading-tight"
+                          title={`Staff: ${facultyLabel}`}
+                        >
+                          {facultyLabel}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FullScreenAllocationTable({
+  rows,
+  isDark,
+}: {
+  rows: { code: string; title: string; category: string; hours: number; faculty: string }[];
+  isDark: boolean;
+}) {
+  const [layoutMode, setLayoutMode] = useState<'single' | 'split'>(rows.length > 8 ? 'split' : 'single');
+  const rowCount = rows.length;
+
+  const mid = Math.ceil(rows.length / 2);
+  const leftRows = rows.slice(0, mid);
+  const rightRows = rows.slice(mid);
+
+  const renderSingleTable = () => (
+    <div className="w-full h-full overflow-y-auto rounded-lg border border-slate-200/80 dark:border-white/5">
+      <table className="w-full text-left border-collapse table-fixed">
+        <colgroup>
+          <col style={{ width: '15%' }} />
+          <col style={{ width: '38%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '27%' }} />
+        </colgroup>
+        <thead>
+          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7.5 shrink-0 sticky top-0 z-10">
+            <th className="px-3 border-r border-emerald-700/60 py-1.5">Course Code</th>
+            <th className="px-3 border-r border-emerald-700/60 py-1.5">Course Title</th>
+            <th className="px-2 text-center border-r border-emerald-700/60 py-1.5">Category</th>
+            <th className="px-2 text-center border-r border-emerald-700/60 py-1.5">Hrs/Wk</th>
+            <th className="px-3 py-1.5">Faculty In-Charge</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+          {rows.map((row, idx) => (
+            <tr
+              key={idx}
+              className={`h-7 transition-colors ${
+                isDark
+                  ? idx % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
+                  : idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+              } hover:bg-emerald-500/5`}
+            >
+              <td className="px-3 font-mono font-bold text-xs text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.code}
+              </td>
+              <td className="px-3 font-bold text-xs text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.title}
+              </td>
+              <td className="px-2 text-center font-medium text-xs text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.category}
+              </td>
+              <td className="px-2 text-center font-bold text-xs text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5 align-middle">
+                {row.hours}
+              </td>
+              <td className="px-3 font-semibold text-xs text-slate-800 dark:text-slate-200 truncate align-middle">
+                {row.faculty}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderSplitTable = (subRows: typeof rows, startIdx: number) => (
+    <div className="w-full h-full overflow-hidden rounded-lg border border-slate-200/80 dark:border-white/5">
+      <table className="w-full h-full table-fixed border-collapse text-left">
+        <colgroup>
+          <col style={{ width: '18%' }} />
+          <col style={{ width: '42%' }} />
+          <col style={{ width: '13%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '19%' }} />
+        </colgroup>
+        <thead>
+          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7 shrink-0">
+            <th className="px-2.5 border-r border-emerald-700/60 py-1">Code</th>
+            <th className="px-2.5 border-r border-emerald-700/60 py-1">Course Title</th>
+            <th className="px-1 text-center border-r border-emerald-700/60 py-1">Category</th>
+            <th className="px-1 text-center border-r border-emerald-700/60 py-1">Hrs</th>
+            <th className="px-2.5 py-1">Faculty</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/5 h-[calc(100%-28px)]">
+          {subRows.map((row, idx) => (
+            <tr
+              key={idx}
+              style={{ height: `${100 / Math.max(subRows.length, 1)}%` }}
+              className={`transition-colors ${
+                isDark
+                  ? (startIdx + idx) % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
+                  : (startIdx + idx) % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+              } hover:bg-emerald-500/5`}
+            >
+              <td className="px-2.5 font-mono font-bold text-xs text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.code}
+              </td>
+              <td className="px-2.5 font-bold text-xs text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.title}
+              </td>
+              <td className="px-1 text-center font-medium text-xs text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5 truncate align-middle">
+                {row.category}
+              </td>
+              <td className="px-1 text-center font-bold text-xs text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5 align-middle">
+                {row.hours}
+              </td>
+              <td className="px-2.5 font-semibold text-xs text-slate-800 dark:text-slate-200 truncate align-middle">
+                {row.faculty}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
+      <div className="bg-[#064e3b] text-white px-3 py-1.5 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-extrabold uppercase tracking-wider">
+            Subjects &amp; Faculty Allocation
+          </span>
+          <span className="text-[10px] font-mono text-emerald-200 font-semibold px-2 py-0.5 rounded-md bg-emerald-900/60 border border-emerald-500/30">
+            {rows.length} total subjects configured
+          </span>
+        </div>
+
+        {rows.length > 8 && (
+          <div className="flex items-center gap-0.5 bg-black/20 p-0.5 rounded-lg border border-white/10">
+            <button
+              onClick={() => setLayoutMode('split')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                layoutMode === 'split'
+                  ? 'bg-white/20 text-white shadow-sm'
+                  : 'text-emerald-200 hover:text-white'
+              }`}
+              title="2-Column Side-by-Side Table (Fits all subjects on single page)"
+            >
+              2 Columns
+            </button>
+            <button
+              onClick={() => setLayoutMode('single')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                layoutMode === 'single'
+                  ? 'bg-white/20 text-white shadow-sm'
+                  : 'text-emerald-200 hover:text-white'
+              }`}
+              title="Full Width Table"
+            >
+              Full Table
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 w-full overflow-hidden p-1 flex flex-col">
+        {layoutMode === 'single' ? (
+          renderSingleTable()
+        ) : (
+          <div className="w-full h-full overflow-hidden grid grid-cols-2 gap-1.5">
+            {renderSplitTable(leftRows, 0)}
+            {renderSplitTable(rightRows, mid)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -384,14 +797,8 @@ export default function GenerateReviewPage() {
 
   const rawSelections = stateData?.selections || [];
   const selections = useMemo(() => {
-    if (semesterType === 'even') {
-      return rawSelections.map(d => ({
-        ...d,
-        selectedYears: d.selectedYears.filter(y => y.year !== 'IV')
-      })).filter(d => d.selectedYears.length > 0);
-    }
     return rawSelections;
-  }, [rawSelections, semesterType]);
+  }, [rawSelections]);
 
   const [activeDept, setActiveDept] = useState<string>("");
   const [activeTab, setActiveTab] = useState<string>("");
@@ -426,12 +833,35 @@ export default function GenerateReviewPage() {
 
   // Drag & drop slot swap and staff conflict states
   const [showFacultyInGrid, setShowFacultyInGrid] = useState(true);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [conflictData, setConflictData] = useState<{
     conflicts: FacultyConflict[];
     source: { day: number; period: number; subject: string };
     target: { day: number; period: number; subject: string };
   } | null>(null);
+
+  // Escape key and scroll lock handler for Full Screen View
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullScreen) {
+        setIsFullScreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen]);
+
+  useEffect(() => {
+    if (isFullScreen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isFullScreen]);
 
   const getFacultyNamesForCell = (cell: string) => {
     return getFacultyForSubject(
@@ -529,6 +959,107 @@ export default function GenerateReviewPage() {
     setConflictData(null);
   };
 
+  const allocationRows = useMemo(() => {
+    const currentKey = `${activeDept}_${activeTab}`;
+    const subjects = subjectsData[currentKey] || [];
+    const specialList = specialHoursData[currentKey] || [];
+    const sectionKey = `${activeDept}_${activeTab}`;
+    const mappedSet = sectionSubjectsData[sectionKey]?.[activeSection];
+
+    const rows: {
+      code: string;
+      title: string;
+      category: string;
+      hours: number;
+      faculty: string;
+    }[] = [];
+
+    // Add curriculum subjects
+    subjects.forEach((sub) => {
+      const isMapped = !mappedSet || mappedSet.size === 0 || mappedSet.has(sub.id);
+      if (!isMapped) return;
+
+      const fac = sub.facultyBySection[activeSection] || '—';
+      const cat = sub.type ? (sub.type.charAt(0).toUpperCase() + sub.type.slice(1)) : 'Theory';
+
+      rows.push({
+        code: sub.code || '—',
+        title: sub.name,
+        category: cat,
+        hours: sub.hoursPerWeek,
+        faculty: fac,
+      });
+    });
+
+    // Add active special hours (e.g. Library, Seminar, Counselling)
+    specialList
+      .filter((sp: any) => sp.is_active && (sp.total_hours || 0) > 0)
+      .forEach((sp: any) => {
+        const exists = rows.some((r) => r.title.toLowerCase() === sp.special_type.toLowerCase());
+        if (!exists) {
+          rows.push({
+            code: '—',
+            title: sp.special_type,
+            category: 'Special',
+            hours: sp.total_hours,
+            faculty: sp.faculty_name || '—',
+          });
+        }
+      });
+
+    // Also guarantee any subject present in current timetable grid is included
+    const activeRes = generatedResults.find(
+      (r) => r.departmentName === activeDept && r.year === activeTab && r.section === activeSection
+    );
+    if (activeRes?.grid && Array.isArray(activeRes.grid)) {
+      const gridSubjectCounts = new Map<string, number>();
+      activeRes.grid.forEach((row) => {
+        if (Array.isArray(row)) {
+          row.forEach((cell) => {
+            if (cell && typeof cell === 'string' && cell.trim() && cell !== 'BREAK' && cell !== 'LUNCH') {
+              const name = cell.trim();
+              gridSubjectCounts.set(name, (gridSubjectCounts.get(name) || 0) + 1);
+            }
+          });
+        }
+      });
+
+      gridSubjectCounts.forEach((count, subName) => {
+        const found = rows.some(
+          (r) =>
+            r.title.toLowerCase() === subName.toLowerCase() ||
+            (r.code && r.code !== '—' && r.code.toLowerCase() === subName.toLowerCase())
+        );
+        if (!found) {
+          const faculties = getFacultyForSubject(
+            subName,
+            activeDept,
+            activeTab,
+            activeSection,
+            subjectsData,
+            specialHoursData
+          );
+          const fac = faculties.length > 0 ? faculties.join(' / ') : '—';
+          const isLab = subName.toLowerCase().includes('lab');
+          const isElective = subName.toLowerCase().includes('elective');
+          const isSpecial = ['library', 'seminar', 'counselling', 'mentor', 'project'].some((k) =>
+            subName.toLowerCase().includes(k)
+          );
+
+          rows.push({
+            code: '—',
+            title: subName,
+            category: isSpecial ? 'Special' : isLab ? 'Lab' : isElective ? 'Elective' : 'Theory',
+            hours: count,
+            faculty: fac,
+          });
+        }
+      });
+    }
+
+    return rows;
+  }, [subjectsData, specialHoursData, sectionSubjectsData, activeDept, activeTab, activeSection, generatedResults]);
+
   useEffect(() => {
     if (selections.length === 0) {
       toast.error("No generation parameters specified. Please start from the dashboard.");
@@ -563,6 +1094,14 @@ export default function GenerateReviewPage() {
     selections.forEach((deptSel) => {
       deptSel.selectedYears.forEach(({ year, sections }) => {
         const key = `${deptSel.departmentName}_${year}`;
+        if (year === 'IV' && semesterType === 'even') {
+          const sectionHours: Record<string, number> = {};
+          sections.forEach((sec) => {
+            sectionHours[sec] = 42;
+          });
+          updatedSecHoursMap[key] = sectionHours;
+          return;
+        }
         const subjects = subjectsData[key] || [];
         const sectionToSubjectIds = sectionSubjectsData[key] || {};
         // Sum total_hours from all active special hours configs for this year
@@ -613,9 +1152,31 @@ export default function GenerateReviewPage() {
           deptSel.selectedYears.map(async ({ year, sections }) => {
             const key = `${deptSel.departmentName}_${year}`;
             
-            const subjects = await getSubjectsForYear(dept.id, year, semesterType).catch(() => []);
-            const specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
+            let subjects = await getSubjectsForYear(dept.id, year, semesterType).catch(() => []);
+            let specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
             const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
+
+            if (year === 'IV' && semesterType === 'even') {
+              if (subjects.length === 0) {
+                subjects = [{
+                  id: `static_proj_${dept.id}`,
+                  name: 'Project',
+                  code: 'PROJ',
+                  type: 'theory',
+                  hoursPerWeek: 37,
+                  credits: 10,
+                  abbreviation: 'PROJECT',
+                  tags: ['even_sem']
+                } as any];
+              }
+              if (specialHours.length === 0) {
+                specialHours = [
+                  { special_type: 'Seminar', total_hours: 2, saturday_hours: 2, is_active: true },
+                  { special_type: 'Library', total_hours: 1, saturday_hours: 1, is_active: true },
+                  { special_type: 'Counselling', total_hours: 2, saturday_hours: 2, is_active: true },
+                ];
+              }
+            }
 
             const sectionToSubjectIds: Record<string, Set<string>> = {};
             await Promise.all(
@@ -633,13 +1194,17 @@ export default function GenerateReviewPage() {
 
             const sectionHours: Record<string, number> = {};
             sections.forEach((sec) => {
-              const mappedIds = sectionToSubjectIds[sec] || new Set();
-              const sectionSpecificSubjects = mappedIds.size > 0
-                ? subjects.filter((s) => mappedIds.has(s.id))
-                : subjects;
-              // Add special_hours_config totals — these are real occupied timetable periods
-              // (e.g. Counselling=2h, Library=1h, Seminar=2h) that count toward the 42h limit.
-              sectionHours[sec] = calculateTotalHours(sectionSpecificSubjects) + specialConfigHoursTotal;
+              if (year === 'IV' && semesterType === 'even') {
+                sectionHours[sec] = 42;
+              } else {
+                const mappedIds = sectionToSubjectIds[sec] || new Set();
+                const sectionSpecificSubjects = mappedIds.size > 0
+                  ? subjects.filter((s) => mappedIds.has(s.id))
+                  : subjects;
+                // Add special_hours_config totals — these are real occupied timetable periods
+                // (e.g. Counselling=2h, Library=1h, Seminar=2h) that count toward the 42h limit.
+                sectionHours[sec] = calculateTotalHours(sectionSpecificSubjects) + specialConfigHoursTotal;
+              }
             });
             secHoursMap[key] = sectionHours;
 
@@ -971,7 +1536,7 @@ export default function GenerateReviewPage() {
                     ? "bg-amber-500/15 text-amber-500 border border-amber-500/30"
                     : "bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
                 }`}>
-                  {semesterType === 'even' ? "Even Semester (Years II & III)" : "Odd Semester"}
+                  {semesterType === 'even' ? "Even Semester (Years II, III & IV)" : "Odd Semester"}
                 </Badge>
               </div>
               <p className={`text-sm mt-1 ${isDark ? "text-slate-400" : "text-slate-650"}`}>
@@ -1071,210 +1636,204 @@ export default function GenerateReviewPage() {
 
           {viewTab === 'timetable' ? (
             <div className="space-y-6">
-              <Card className={`rounded-2xl shadow-lg border overflow-hidden transition-colors duration-300 ${
-                isDark ? "bg-[#0e0e1b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
-              }`}
-                style={isDark ? { backgroundImage: 'radial-gradient(ellipse at 15% 15%, rgba(16,185,129,0.07) 0%, transparent 55%)' } : {}}
-              >
-                {/* Search, Filter, Section Tabs, View mode */}
-                <div className={`p-6 border-b flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between ${
-                  isDark ? "border-white/5" : "border-slate-100"
+              <Card className={`rounded-2xl shadow-xl border overflow-hidden transition-colors duration-300 ${
+                isDark ? "bg-[#0c0c18] border-white/10 text-white" : "bg-white border-slate-200/90 text-slate-900"
+              }`}>
+                {/* ── Unified Executive Workspace Header ── */}
+                <div className={`p-5 sm:p-6 border-b flex flex-col gap-4 ${
+                  isDark ? "border-white/10 bg-white/[0.015]" : "border-slate-100 bg-slate-50/50"
                 }`}>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    {/* Section nested tabs inside Year */}
-                    {currentYearResults.length > 0 && (
-                      <div className={`flex p-1 rounded-xl border gap-1 self-start sm:self-auto ${
-                        isDark ? "bg-white/3 border-white/6" : "bg-slate-100 border-slate-200"
-                      }`}>
-                        {currentYearResults.map((r) => (
-                          <button
-                            key={r.section}
-                            onClick={() => setActiveSection(r.section)}
-                            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                              activeSection === r.section
-                                ? (isDark ? "bg-white/15 text-white shadow-sm" : "bg-white text-slate-800 shadow-sm")
-                                : (isDark ? "text-white/40 hover:text-white/70" : "text-slate-500 hover:text-slate-800")
-                            }`}
-                          >
-                            Section {r.section}
-                            {r.status === 'ok' ? (
+                  {/* Top Row: Class Identity, Section Tabs & Key Actions */}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <h2 className={`text-lg sm:text-xl font-extrabold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                            Year {activeResult?.year || activeTab} • Section {activeResult?.section || activeSection}
+                          </h2>
+                          <Badge variant="outline" className={`text-xs px-2.5 py-0.5 font-bold ${
+                            isDark
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                              : "bg-emerald-50 border-emerald-300 text-emerald-700"
+                          }`}>
+                            Active Class
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {activeDept} Department • {semesterType === 'even' ? 'Even Semester' : 'Odd Semester'} Schedule
+                        </p>
+                      </div>
+
+                      {/* Section Tabs right in header */}
+                      {currentYearResults.length > 0 && (
+                        <div className={`flex p-1 rounded-xl border gap-1 ml-0 sm:ml-2 shadow-sm ${
+                          isDark ? "bg-white/5 border-white/10" : "bg-slate-200/60 border-slate-200"
+                        }`}>
+                          {currentYearResults.map((r) => (
+                            <button
+                              key={r.section}
+                              onClick={() => setActiveSection(r.section)}
+                              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                activeSection === r.section
+                                  ? isDark
+                                    ? "bg-white/15 text-white shadow-sm"
+                                    : "bg-white text-slate-900 shadow-sm"
+                                  : isDark
+                                  ? "text-slate-400 hover:text-white"
+                                  : "text-slate-600 hover:text-slate-950"
+                              }`}
+                            >
+                              Section {r.section}
                               <span
                                 className={`h-1.5 w-1.5 rounded-full ${
                                   r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
                                 }`}
-                                title={
-                                  r.hourVerification?.isValid ?? true
-                                    ? "Hours verified 100% exact"
-                                    : "Subject hour mismatch detected"
-                                }
                               />
-                            ) : (
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" title="Generation error" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Search input */}
-                    <div className="relative flex-1 max-w-xs min-w-[200px]">
-                      <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${
-                        isDark ? "text-white/25" : "text-slate-400"
-                      }`} />
-                      <Input
-                        value={search} onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search subjects..."
-                        className={`pl-8 h-9 text-xs rounded-xl transition-colors ${
-                          isDark 
-                            ? "bg-white/5 border-white/9 text-white placeholder:text-white/20 focus-visible:ring-emerald-500 focus-visible:ring-1" 
-                            : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:ring-1"
-                        }`}
-                      />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Type Select */}
-                    <Select value={filterType} onValueChange={setFilterType}>
-                      <SelectTrigger className={`h-9 w-36 text-xs rounded-xl transition-colors ${
-                        isDark 
-                          ? "bg-white/5 border-white/9 text-white/60" 
-                          : "bg-white border-slate-200 text-slate-700"
-                      }`}>
-                        <SelectValue placeholder="All Types" />
-                      </SelectTrigger>
-                      <SelectContent className={`${
-                        isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
-                      }`}>
-                        {SUBJECT_TYPES.map((t) => (
-                          <SelectItem key={t} value={t} className="capitalize">
-                            {t === 'all' ? 'All Types' : t.charAt(0).toUpperCase() + t.slice(1)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {/* Right action controls */}
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
+                        className={`h-9 px-3 rounded-xl text-xs gap-1.5 font-bold border transition-all ${
+                          showFacultyInGrid
+                            ? isDark
+                              ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                            : isDark
+                            ? "border-white/10 bg-white/5 text-slate-300 hover:text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Users className="h-3.5 w-3.5 text-emerald-500" />
+                        {showFacultyInGrid ? "Hide Faculty" : "Show Faculty"}
+                      </Button>
 
-                    {/* View Toggle */}
-                    <div className={`flex p-1 rounded-xl border ${
-                      isDark ? "bg-white/5 border-white/8" : "bg-slate-100 border-slate-200"
-                    }`}>
-                      <button onClick={() => setViewMode('table')} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                        viewMode === 'table' 
-                          ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-slate-800 shadow-sm border border-slate-200') 
-                          : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-slate-850')
+                      <div className={`flex p-0.5 rounded-xl border ${
+                        isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
                       }`}>
-                        <LayoutGrid className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                        viewMode === 'list' 
-                          ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-slate-800 shadow-sm border border-slate-200') 
-                          : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-slate-850')
-                      }`}>
-                        <List className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          onClick={() => setViewMode("table")}
+                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            viewMode === "table"
+                              ? isDark
+                                ? "bg-white/15 text-white shadow-sm"
+                                : "bg-white text-slate-900 shadow-sm"
+                              : isDark
+                              ? "text-slate-400 hover:text-white"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                          title="Grid View"
+                        >
+                          <LayoutGrid className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Grid</span>
+                        </button>
+                        <button
+                          onClick={() => setViewMode("list")}
+                          className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            viewMode === "list"
+                              ? isDark
+                                ? "bg-white/15 text-white shadow-sm"
+                                : "bg-white text-slate-900 shadow-sm"
+                              : isDark
+                              ? "text-slate-400 hover:text-white"
+                              : "text-slate-500 hover:text-slate-900"
+                          }`}
+                          title="List View"
+                        >
+                          <List className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">List</span>
+                        </button>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleExportPDF("current")}
+                        disabled={exporting || activeResult?.status !== "ok"}
+                        className="h-9 px-3.5 rounded-xl text-xs gap-1.5 font-bold shadow-sm"
+                      >
+                        {exporting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                        ) : (
+                          <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                        )}
+                        Export PDF
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={() => setIsFullScreen(true)}
+                        className="h-9 px-3.5 rounded-xl text-xs gap-1.5 font-bold shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-all hover:scale-[1.02]"
+                        title="Open timetable in clear, full-width distraction-free view"
+                      >
+                        <Maximize2 className="h-3.5 w-3.5" />
+                        Full Screen View
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Sub-row: Search, Filter & Drag Hint */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-200/60 dark:border-white/5">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <div className="relative w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Search subject in grid..."
+                          className="pl-8 h-8 text-xs rounded-xl"
+                        />
+                      </div>
+
+                      <Select value={filterType} onValueChange={setFilterType}>
+                        <SelectTrigger className="h-8 w-36 text-xs rounded-xl">
+                          <SelectValue placeholder="All Types" />
+                        </SelectTrigger>
+                        <SelectContent className={isDark ? "bg-[#141424] border-white/10 text-white" : "bg-white border-slate-200"}>
+                          {SUBJECT_TYPES.map((t) => (
+                            <SelectItem key={t} value={t} className="capitalize text-xs">
+                              {t === "all" ? "All Types" : t.charAt(0).toUpperCase() + t.slice(1)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-slate-100/60 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/5 px-3 py-1.5 rounded-xl self-start sm:self-auto select-none">
+                      <ArrowLeftRight className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                      <span>Drag any period cell to swap hours</span>
+                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold ml-1.5 px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20">
+                        Shield Active
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Grid Content */}
-                <div className="p-6">
+                <div className="p-5 sm:p-6 space-y-6">
                   {!activeResult ? (
-                    <div className={`flex flex-col items-center justify-center h-60 italic gap-2 ${
-                      isDark ? "text-white/25" : "text-slate-400"
-                    }`}>
-                      <AlertTriangle className={`h-8 w-8 ${isDark ? "text-white/10" : "text-slate-300"}`} />
+                    <div className="flex flex-col items-center justify-center h-60 italic gap-2 text-muted-foreground">
+                      <AlertTriangle className="h-8 w-8 text-muted-foreground/40" />
                       No timetables generated for this selection
                     </div>
-                  ) : activeResult.status === 'error' ? (
-                    <div className={`flex flex-col items-center justify-center h-60 border rounded-2xl p-6 text-center ${
-                      isDark ? "border-red-500/20 bg-red-500/5" : "border-red-200 bg-red-50/30"
-                    }`}>
-                      <AlertTriangle className="h-10 w-10 text-red-555 mb-3" />
-                      <h3 className={`text-base font-bold mb-1 ${isDark ? "text-white" : "text-red-700"}`}>Generation Failed</h3>
-                      <p className={`text-sm max-w-md leading-relaxed ${isDark ? "text-red-400/85" : "text-red-650"}`}>{activeResult.error}</p>
+                  ) : activeResult.status === "error" ? (
+                    <div className="flex flex-col items-center justify-center h-60 border border-red-500/20 bg-red-500/5 rounded-2xl p-6 text-center">
+                      <AlertTriangle className="h-10 w-10 text-red-500 mb-3" />
+                      <h3 className="text-base font-bold text-red-600 dark:text-red-400 mb-1">
+                        Generation Failed
+                      </h3>
+                      <p className="text-sm max-w-md text-red-500/80">{activeResult.error}</p>
                     </div>
                   ) : (
-                    <div className={`rounded-2xl p-5 shadow-inner border transition-colors duration-300 ${
-                      isDark 
-                        ? "bg-[#0c0c17] border-white/6" 
-                        : "bg-white border-slate-200"
-                    }`}>
-                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 border-b pb-3 ${
-                        isDark ? "border-white/5" : "border-slate-100"
-                      }`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
-                            Timetable Grid: Year {activeResult.year} — Section {activeResult.section}
-                          </span>
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            isDark 
-                              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' 
-                              : 'bg-emerald-50 border-emerald-250 text-emerald-700'
-                          }`}>
-                            <ArrowLeftRight className="h-2.5 w-2.5" />
-                            Drag & Drop Enabled
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
-                            className={`h-7 px-2.5 rounded-lg text-xs gap-1.5 font-semibold border transition-all ${
-                              showFacultyInGrid
-                                ? isDark
-                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
-                                  : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                                : isDark
-                                  ? 'border-white/10 bg-white/5 text-white/60 hover:text-white'
-                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                            }`}
-                          >
-                            <Users className="h-3 w-3 text-emerald-500" />
-                            {showFacultyInGrid ? "Hide Faculty" : "Show Faculty"}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleExportPDF('current')}
-                            disabled={exporting || activeResult.status !== 'ok'}
-                            className={`h-7 px-2.5 rounded-lg text-xs gap-1.5 font-semibold border transition-all ${
-                              isDark
-                                ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
-                                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm'
-                            }`}
-                          >
-                            {exporting ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-                            ) : (
-                              <FileDown className="h-3.5 w-3.5 text-emerald-500" />
-                            )}
-                            Export Class PDF
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Informative Drag and Drop Instruction Banner */}
-                      <div className={`mb-3.5 px-3 py-2 rounded-xl border flex items-center justify-between text-xs transition-colors ${
-                        isDark 
-                          ? 'bg-white/3 border-white/6 text-slate-300' 
-                          : 'bg-emerald-50/50 border-emerald-150 text-slate-700'
-                      }`}>
-                        <div className="flex items-center gap-2">
-                          <span className="p-1 rounded-md bg-emerald-500/15 text-emerald-500 shrink-0">
-                            <ArrowLeftRight className="h-3.5 w-3.5" />
-                          </span>
-                          <span className="leading-snug">
-                            <strong className="font-semibold text-emerald-600 dark:text-emerald-400">Drag & Drop Hours:</strong> Drag any period cell to another hour to swap them. Background staff availability is verified automatically.
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-mono opacity-65 shrink-0 hidden md:inline">
-                          Conflict Shield Active
-                        </span>
-                      </div>
-
-                      {viewMode === 'table' ? (
+                    <>
+                      {viewMode === "table" ? (
                         <MiniGrid
                           grid={activeResult.grid}
                           search={search}
@@ -1288,15 +1847,94 @@ export default function GenerateReviewPage() {
                         <ListView grid={activeResult.grid} search={search} filterType={filterType} />
                       )}
 
-                      {/* Subject Hours Allocation Verification Component */}
-                      <div className="mt-5">
-                        <SubjectHoursVerificationCard
-                          verification={currentVerification}
-                          isDark={isDark}
-                          defaultExpanded={true}
-                        />
+                      {/* ── SUBJECTS & FACULTY ALLOCATION (Official Institutional Format) ── */}
+                      <div className="space-y-3 pt-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <h3 className="text-sm sm:text-base font-extrabold uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                              Subjects &amp; Faculty Allocation
+                            </h3>
+                            <span className="text-xs text-muted-foreground hidden sm:inline">
+                              ({allocationRows.length} Course{allocationRows.length !== 1 ? 's' : ''})
+                            </span>
+                          </div>
+                          <Badge variant="outline" className={`text-xs px-2.5 py-0.5 font-bold ${
+                            isDark
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                              : "bg-emerald-50 border-emerald-300 text-emerald-800"
+                          }`}>
+                            Year {activeResult.year} • Section {activeResult.section}
+                          </Badge>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm bg-white dark:bg-[#0c0c18]">
+                          <table className="w-full border-collapse text-left" style={{ minWidth: 900 }}>
+                            <thead>
+                              <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
+                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-36 border-r border-emerald-700/60">
+                                  Course Code
+                                </th>
+                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider border-r border-emerald-700/60">
+                                  Course Title
+                                </th>
+                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-32 text-center border-r border-emerald-700/60">
+                                  Category
+                                </th>
+                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-24 text-center border-r border-emerald-700/60">
+                                  Hrs/Wk
+                                </th>
+                                <th className="py-3 px-4 font-bold text-xs uppercase tracking-wider w-64">
+                                  Faculty In-Charge
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                              {allocationRows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="py-8 text-center text-sm italic text-muted-foreground">
+                                    No subjects configured for Year {activeResult.year} Section {activeResult.section}.
+                                  </td>
+                                </tr>
+                              ) : (
+                                allocationRows.map((row, idx) => (
+                                  <tr
+                                    key={idx}
+                                    className={`transition-colors border-b border-slate-100 dark:border-white/5 ${
+                                      isDark
+                                        ? idx % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
+                                        : idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
+                                    } hover:bg-emerald-500/5`}
+                                  >
+                                    <td className="py-3 px-4 font-mono font-bold text-xs sm:text-[13px] text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5">
+                                      {row.code}
+                                    </td>
+                                    <td className="py-3 px-4 font-bold text-xs sm:text-[13px] text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5">
+                                      {row.title}
+                                    </td>
+                                    <td className="py-3 px-4 text-xs sm:text-[13px] text-center font-medium text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5">
+                                      {row.category}
+                                    </td>
+                                    <td className="py-3 px-4 text-xs sm:text-[13px] text-center font-bold text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5">
+                                      {row.hours}
+                                    </td>
+                                    <td className="py-3 px-4 text-xs sm:text-[13px] font-semibold text-slate-800 dark:text-slate-200">
+                                      {row.faculty}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
+
+                      {/* Subject Hours Allocation Verification Component */}
+                      <SubjectHoursVerificationCard
+                        verification={currentVerification}
+                        isDark={isDark}
+                        defaultExpanded={!currentVerification?.isValid}
+                      />
+                    </>
                   )}
                 </div>
               </Card>
@@ -1418,7 +2056,9 @@ export default function GenerateReviewPage() {
                         Curriculum &amp; Section Allocations
                       </CardTitle>
                       <p className={`text-xs mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                        Check subject type, hour load, and faculty names per section.
+                        {activeTab === 'IV' && semesterType === 'even'
+                          ? "Final Year (Year IV) Even Semester uses a static timetable: All weekday periods & Saturday P1-P2 are Project (37h), followed by Seminar (P3-P4), Library (P5), and Counselling (P6-P7)."
+                          : "Check subject type, hour load, and faculty names per section."}
                       </p>
                     </div>
                     <Button
@@ -1914,7 +2554,7 @@ export default function GenerateReviewPage() {
       </Dialog>
       {/* Faculty Conflict Dialog */}
       <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
-        <DialogContent className={`max-w-xl rounded-2xl p-6 shadow-2xl transition-colors ${
+        <DialogContent className={`max-w-xl rounded-2xl p-6 shadow-2xl transition-colors z-[70] ${
           isDark ? 'bg-[#0f0f1c] text-white border-white/10' : 'bg-white text-slate-900 border-slate-200'
         }`}>
           <DialogHeader className="pb-3 border-b border-slate-100 dark:border-white/10">
@@ -2006,6 +2646,126 @@ export default function GenerateReviewPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── FULL SCREEN TIMETABLE WORKSPACE (SINGLE PAGE - ZERO SCROLL) ── */}
+      {isFullScreen && activeResult && (
+        <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-[#07070f] text-slate-900 dark:text-slate-100 p-2 sm:p-3 select-none animate-in fade-in duration-150">
+          {/* Top Compact Command Bar */}
+          <header className="h-11 shrink-0 bg-white dark:bg-[#0d0d1a] rounded-xl border border-slate-200 dark:border-white/10 px-3.5 flex items-center justify-between shadow-sm gap-2">
+            {/* Left: Class Identity & Section Switcher */}
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-1.5">
+                <Badge className="bg-emerald-600 text-white font-extrabold text-[11px] px-2 py-0.5 rounded-lg shadow-sm">
+                  Yr {activeResult.year} • Sec {activeResult.section}
+                </Badge>
+                <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white">
+                  {activeDept}
+                </span>
+              </div>
+
+              {/* Section switcher pills */}
+              {currentYearResults.length > 0 && (
+                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm ${
+                  isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
+                }`}>
+                  {currentYearResults.map((r) => (
+                    <button
+                      key={r.section}
+                      onClick={() => setActiveSection(r.section)}
+                      className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 ${
+                        activeSection === r.section
+                          ? isDark
+                            ? "bg-white/20 text-white shadow-sm"
+                            : "bg-white text-slate-900 shadow-sm"
+                          : isDark
+                          ? "text-slate-400 hover:text-white"
+                          : "text-slate-600 hover:text-slate-950"
+                      }`}
+                    >
+                      {r.section}
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Center: Realtime Interactive Hint Banner */}
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-semibold select-none">
+              <Zap className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+              <span>Interactive Timetable • Drag period cells to swap hours • Conflict protection active</span>
+            </div>
+
+            {/* Right: Controls & Exit button */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
+                className={`h-8 px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
+                  showFacultyInGrid
+                    ? isDark
+                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+                      : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                    : isDark
+                    ? "border-white/10 bg-white/5 text-slate-300"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                <Users className="h-3.5 w-3.5 text-emerald-500" />
+                {showFacultyInGrid ? "Hide Staff" : "Show Staff"}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExportPDF("current")}
+                disabled={exporting || activeResult?.status !== "ok"}
+                className="h-8 px-2.5 rounded-lg text-xs gap-1 font-semibold shadow-sm"
+              >
+                <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                PDF
+              </Button>
+
+              {/* Exit Full Screen */}
+              <Button
+                size="sm"
+                onClick={() => setIsFullScreen(false)}
+                className="h-8 px-3 rounded-lg text-xs gap-1.5 font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 shadow-sm"
+                title="Exit full screen (Esc)"
+              >
+                <Minimize2 className="h-3.5 w-3.5" />
+                Exit [Esc]
+              </Button>
+            </div>
+          </header>
+
+          {/* Main View Area: Unified Single Page - Zero Scrolling */}
+          <div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col gap-2 mt-2">
+            {/* Top 56%: Timetable Grid */}
+            <div className="h-[56%] min-h-0 w-full overflow-hidden">
+              <FullScreenGrid
+                grid={activeResult.grid}
+                onSwapSlots={handleSwapSlots}
+                getFaculty={getFacultyNamesForCell}
+                showFaculty={showFacultyInGrid}
+              />
+            </div>
+
+            {/* Bottom 44%: All Subjects & Faculty Allocation */}
+            <div className="h-[44%] min-h-0 w-full overflow-hidden">
+              <FullScreenAllocationTable
+                rows={allocationRows}
+                isDark={isDark}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

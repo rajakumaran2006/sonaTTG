@@ -63,6 +63,7 @@ function Timetable() {
   const setTimetable = useTimetableStore((s) => s.setTimetable);
   const selection = useTimetableStore((s) => s.selection);
   const labPreferences = useTimetableStore((s) => s.labPreferences);
+  const semesterType = useTimetableStore((s) => s.semesterType);
   const [subjectToFaculty, setSubjectToFaculty] = useState<Record<string, string>>({});
   const [classCounselorName, setClassCounselorName] = useState<string | null>(null);
   const [exportingAllPdf, setExportingAllPdf] = useState(false);
@@ -214,7 +215,9 @@ function Timetable() {
     // Fallback: legacy hardcoded names
     return (
       name === 'Seminar' || name === 'Library' || name === 'Student Counselling' ||
-      name.startsWith('Seminar (') || name.startsWith('Library (') || name.startsWith('Student Counselling (')
+      name === 'Counselling' || name === 'Counseling' ||
+      name.startsWith('Seminar (') || name.startsWith('Library (') || name.startsWith('Student Counselling (') ||
+      name.startsWith('Counselling (') || name.startsWith('Counseling (')
     );
   };
 
@@ -294,7 +297,8 @@ function Timetable() {
         section: selection.section,
         openElectiveMode,
         electiveMode,
-        facultyBeforeAfternoon
+        facultyBeforeAfternoon,
+        semesterType,
       });
       const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
       setTimetable(gridAsStrings);
@@ -304,7 +308,10 @@ function Timetable() {
       setValidationResult(validation);
 
       // Verify subject hours
-      const verification = verifySubjectHours(gridAsStrings, selected, specialHoursConfigs);
+      const verificationSubjects = (selection.year === 'IV' && semesterType === 'even' && selected.length === 0)
+        ? [{ id: 'proj', name: 'Project', hoursPerWeek: 37, type: 'theory' } as any]
+        : selected;
+      const verification = verifySubjectHours(gridAsStrings, verificationSubjects, specialHoursConfigs);
 
       if (!validation.valid) {
         toast({

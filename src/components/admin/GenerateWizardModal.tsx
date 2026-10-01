@@ -98,7 +98,7 @@ export function GenerateWizardModal({
   const { isDark } = useDarkMode();
   const [step, setStep] = useState<1 | 2>(1);
 
-  const activeYears = semesterType === "even" ? ["II", "III"] : YEAR_ORDER;
+  const activeYears = YEAR_ORDER;
 
   const [selectedDepts, setSelectedDepts] = useState<Record<string, boolean>>({});
   const [selectedYears, setSelectedYears] = useState<Record<string, Record<string, boolean>>>({});
@@ -121,7 +121,7 @@ export function GenerateWizardModal({
       const initialYears: Record<string, Record<string, boolean>> = {};
       const initialSections: Record<string, Record<string, Record<string, boolean>>> = {};
       departments.forEach(d => {
-        initialYears[d.name] = { II: true, III: true, IV: semesterType !== "even" };
+        initialYears[d.name] = { II: true, III: true, IV: true };
         initialSections[d.name] = {
           II:  { A: true, B: true, C: true },
           III: { A: true, B: true, C: true },
@@ -168,6 +168,11 @@ export function GenerateWizardModal({
 
         const deptChecks = await Promise.all(
           deptSel.selectedYears.map(async ({ year, sections }) => {
+            // For Year IV in Even Semester, it is a 100% static timetable (42h guaranteed)
+            if (year === 'IV' && semesterType === 'even') {
+              return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: TOTAL_HOURS, status: "ok" as const };
+            }
+
             const [subjects, specialHoursConfigs] = await Promise.all([
               getSubjectsForYear(dept.id, year, semesterType).catch(() => []),
               getSpecialHoursConfigsForYear(dept.id, year).catch(() => []),

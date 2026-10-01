@@ -40,6 +40,7 @@ export default function UploadCSV() {
   const [activeTab, setActiveTab] = useState<string>("faculty");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [dragOver, setDragOver] = useState<boolean>(false);
+  const [subjectSemesterType, setSubjectSemesterType] = useState<"odd" | "even">("odd");
 
   // Template generators
   const downloadTemplate = (type: string) => {
@@ -53,8 +54,20 @@ export default function UploadCSV() {
       filename = "faculty_template.csv";
     } else if (type === "subjects") {
       headers = "code,name,abbreviation,type,hours_per_week,credits,department,year\n";
-      sampleData = "U23IT301,Data Structures,DS,theory,4,4,Information Technology,II\nU23IT305,Data Structures Laboratory,DS LAB,lab,3,2,Information Technology,II\n";
-      filename = "subjects_template.csv";
+      if (subjectSemesterType === "even") {
+        sampleData =
+          "U23ADS401,Design and Analysis of Algorithms,DAA,theory,4,3,AIDS,II\n" +
+          "U23ADS405,Algorithms Laboratory,DAA LAB,lab,4,2,AIDS,II\n" +
+          "U23OE601,Open Elective: Smart Technologies and Systems,OE,open elective,5,3,AIDS,III\n" +
+          "U23ADS801,Project Work,PROJECT,theory,37,10,AIDS,IV\n" +
+          "U23IT401,Design and Analysis of Algorithms,DAA,theory,4,3,Information Technology,II\n" +
+          "U23IT601,Mobile Application Development,MAD,theory,4,3,Information Technology,III\n" +
+          "U23IT801,Project Work,PROJECT,theory,37,10,Information Technology,IV\n";
+        filename = "even_semester_subjects_template.csv";
+      } else {
+        sampleData = "U23IT301,Data Structures,DS,theory,4,4,Information Technology,II\nU23IT305,Data Structures Laboratory,DS LAB,lab,3,2,Information Technology,II\n";
+        filename = "subjects_template.csv";
+      }
     } else if (type === "mapping") {
       headers = "faculty_email,subject_code,department,year,section\n";
       sampleData = "krishnaprakash@sonatech.ac.in,U23IT301,Information Technology,II,A\nakilandeswari@sonatech.ac.in,U23IT502,Information Technology,III,A\n";
@@ -229,18 +242,23 @@ export default function UploadCSV() {
       }
 
       // Fetch existing subjects to check duplicates by code
-      const { data: existing, error: fetchError } = await supabase
+      const { data: existing, error: fetchError } = await (supabase as any)
         .from("subjects")
-        .select("code, department_id");
+        .select("code, department_id, tags");
 
       if (fetchError) {
         toast.error("Failed to fetch existing subjects list");
         return;
       }
 
-      // Create a set of composite keys (code-deptId) for duplicate checking
+      // Create a set of composite keys (code-deptId) for duplicate checking within the same semester type
+      const isEven = subjectSemesterType === "even";
       const existingSubjectKeys = new Set(
         (existing || [])
+          .filter((r: any) => {
+            const hasEvenTag = (r.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+            return isEven ? hasEvenTag : !hasEvenTag;
+          })
           .map((r: any) => `${(r.code || "").toString().trim().toLowerCase()}-${r.department_id}`)
           .filter(Boolean)
       );
@@ -256,7 +274,14 @@ export default function UploadCSV() {
           const hours = parseInt(rec.hours_per_week) || 3;
           const credits = parseInt(rec.credits) || 3;
           const typeNormalized = (rec.type || "").toString().trim().toLowerCase();
-          const finalType = typeNormalized.includes("lab") || typeNormalized.includes("practical") ? "lab" : "theory";
+          const finalType =
+            typeNormalized.includes("lab") || typeNormalized.includes("practical")
+              ? "lab"
+              : typeNormalized.includes("open") || typeNormalized.includes("oe")
+              ? "open elective"
+              : typeNormalized.includes("elect")
+              ? "elective"
+              : "theory";
 
           return {
             code: (rec.code || "").toString().trim().toUpperCase() || null,
@@ -267,6 +292,7 @@ export default function UploadCSV() {
             credits: credits,
             department_id: resolvedDeptId,
             year: (rec.year || "").toString().trim() || "II",
+            tags: isEven ? ["even_sem"] : null,
           };
         })
         .filter((r) => r.name && r.department_id);
@@ -281,7 +307,7 @@ export default function UploadCSV() {
 
       let insertedCount = 0;
       if (uniqueRecords.length > 0) {
-        const { error: insertError } = await supabase
+        const { error: insertError } = await (supabase as any)
           .from("subjects")
           .insert(uniqueRecords)
           .select('id');
@@ -290,7 +316,7 @@ export default function UploadCSV() {
           toast.error("Insert failed: " + insertError.message);
         } else {
           insertedCount += uniqueRecords.length;
-          toast.success(`${uniqueRecords.length} subjects added successfully!`);
+          toast.success(`${uniqueRecords.length} ${isEven ? "Even Semester" : "Odd Semester"} subjects added successfully!`);
         }
       }
 
@@ -629,6 +655,44 @@ export default function UploadCSV() {
               </div>
             </CardHeader>
             <CardContent className="p-6 space-y-4">
+              {/* Semester Selector */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-muted/30 border border-border/50 rounded-xl">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xs font-bold text-foreground">Target Semester:</span>
+                  <div className="flex items-center bg-muted/80 p-0.5 rounded-lg border border-border/60">
+                    <button
+                      type="button"
+                      onClick={() => setSubjectSemesterType("odd")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                        subjectSemesterType === "odd"
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Odd Semester (Sem III, V, VII)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSubjectSemesterType("even")}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                        subjectSemesterType === "even"
+                          ? "bg-emerald-500 text-white shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      Even Semester (Sem IV, VI, VIII)
+                    </button>
+                  </div>
+                </div>
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                  subjectSemesterType === "even"
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30"
+                }`}>
+                  {subjectSemesterType === "even" ? "Tags: even_sem (Years II, III, IV)" : "Standard Odd Curriculum"}
+                </span>
+              </div>
+
               {/* CSV Columns Info */}
               <div className="bg-muted/20 border border-border/40 rounded-xl p-4 text-xs space-y-2">
                 <p className="font-bold text-muted-foreground">Required CSV Columns:</p>

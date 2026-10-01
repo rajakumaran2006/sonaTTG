@@ -649,7 +649,7 @@ const SubjectManagement = () => {
             </div>
             {semesterType === "even" && (
               <Badge variant="outline" className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25">
-                Even Semester (Years II &amp; III)
+                Even Semester (Years II, III &amp; IV)
               </Badge>
             )}
           </div>

@@ -18,7 +18,7 @@ type DbSubject = {
   elective_group_name?: string | null;
 };
 
-type DbDepartment = { id: string; name: string };
+export type DbDepartment = { id: string; name: string };
 
 type DbTimetable = {
   id: string;

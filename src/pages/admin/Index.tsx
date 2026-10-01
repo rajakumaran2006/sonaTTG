@@ -357,7 +357,7 @@ const Index = () => {
                   <div className="flex items-center justify-between">
                     <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Academic Semester</label>
                     <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III only)"}
+                      {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III, IV)"}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -395,8 +395,8 @@ const Index = () => {
                         <div className="space-y-1">
                           <p className="font-bold text-emerald-700 dark:text-emerald-300">Even Semester Configuration Active:</p>
                           <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-700 dark:text-slate-300">
-                            <li><strong>3rd Year:</strong> Open Elective (OE) is added to <strong>Mon-1, Wed-1, Fri-1, Sat-1 & Sat-2</strong>.</li>
-                            <li><strong>4th Year:</strong> Timetable generation is omitted (Years II & III only).</li>
+                            <li><strong>3rd Year:</strong> Open Elective (OE) is added to <strong>Mon-1, Wed-1, Fri-1, Sat-1 &amp; Sat-2</strong>.</li>
+                            <li><strong>4th Year:</strong> Static timetable: All hours Project, Saturday 3rd &amp; 4th hr Seminar, 5th hr Library, 6th &amp; 7th hr Counselling.</li>
                           </ul>
                         </div>
                         <button

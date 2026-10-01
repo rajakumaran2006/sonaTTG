@@ -25,35 +25,41 @@ const YEAR_COLORS: Record<string, { tab: string; accent: string; glow: string }>
   'IV':  { tab: 'from-rose-500 to-pink-600',      accent: 'border-rose-400/40 bg-rose-500/8',    glow: 'shadow-rose-500/15'   },
 };
 
+interface GridColumnDef {
+  key: string;
+  label: string;
+  time: string;
+  isDivider: boolean;
+  periodIdx: number | null;
+}
+
+const GRID_COLUMNS: GridColumnDef[] = [
+  { key: 'p1', label: 'P1', time: '(9:00–9:55)', isDivider: false, periodIdx: 0 },
+  { key: 'p2', label: 'P2', time: '(9:55–10:50)', isDivider: false, periodIdx: 1 },
+  { key: 'break1', label: 'BREAK', time: '(10:50–11:05)', isDivider: true, periodIdx: null },
+  { key: 'p3', label: 'P3', time: '(11:05–12:00)', isDivider: false, periodIdx: 2 },
+  { key: 'p4', label: 'P4', time: '(12:00–12:55)', isDivider: false, periodIdx: 3 },
+  { key: 'lunch', label: 'LUNCH', time: '(12:55–1:55)', isDivider: true, periodIdx: null },
+  { key: 'p5', label: 'P5', time: '(1:55–2:50)', isDivider: false, periodIdx: 4 },
+  { key: 'p6', label: 'P6', time: '(2:50–3:45)', isDivider: false, periodIdx: 5 },
+  { key: 'break2', label: 'BREAK', time: '(3:45–3:55)', isDivider: true, periodIdx: null },
+  { key: 'p7', label: 'P7', time: '(3:55–4:50)', isDivider: false, periodIdx: 6 },
+];
+
 function getCellStyle(cell: string, isDark: boolean): string {
   if (!cell) {
     return isDark 
-      ? 'bg-white/3 text-slate-700 border border-dashed border-white/5' 
-      : 'bg-slate-50 text-slate-350 border border-dashed border-slate-200';
+      ? 'bg-white/[0.02] text-slate-500 border border-dashed border-white/10' 
+      : 'bg-slate-50/70 text-slate-400 border border-dashed border-slate-200';
   }
   if (cell === 'BREAK' || cell === 'LUNCH') {
     return isDark 
-      ? 'bg-white/4 text-white/20 text-[9px] font-bold uppercase tracking-widest' 
-      : 'bg-slate-100 text-slate-450 text-[9px] font-bold uppercase tracking-widest';
-  }
-  if (cell.toUpperCase().includes('LAB') || cell.endsWith(' L')) {
-    return isDark 
-      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25' 
-      : 'bg-emerald-50 text-emerald-700 border border-emerald-250';
-  }
-  if (/seminar|library|counsell/i.test(cell)) {
-    return isDark 
-      ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25' 
-      : 'bg-amber-50 text-amber-700 border border-amber-250';
-  }
-  if (cell.includes(' / ')) {
-    return isDark 
-      ? 'bg-purple-500/15 text-purple-300 border border-purple-500/25' 
-      : 'bg-purple-50 text-purple-700 border border-purple-250';
+      ? 'bg-white/[0.02] text-slate-400 font-extrabold uppercase tracking-widest' 
+      : 'bg-slate-100/90 text-slate-500 font-extrabold uppercase tracking-widest';
   }
   return isDark 
-    ? 'bg-white/7 text-slate-200 border border-white/9' 
-    : 'bg-white text-slate-855 border border-slate-200 shadow-sm';
+    ? 'bg-[#121222] text-slate-100 border border-white/10 hover:border-emerald-500/50 shadow-sm' 
+    : 'bg-white text-slate-900 border border-slate-200/90 hover:border-emerald-500/60 shadow-sm';
 }
 
 function matchesFilter(cell: string, search: string, filterType: string): boolean {
@@ -74,41 +80,81 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
   const { isDark } = useDarkMode();
   const safeGrid = Array.isArray(grid) ? grid : [];
   return (
-    <div className={`overflow-auto rounded-xl ${compact ? 'max-h-[230px]' : ''}`}>
-      <table className="w-full border-collapse" style={{ minWidth: compact ? 500 : 680 }}>
+    <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm ${compact ? 'max-h-[250px]' : ''}`}>
+      <table className="w-full border-collapse" style={{ minWidth: compact ? 650 : 1080 }}>
         <thead>
-          <tr className={isDark ? "bg-white/3" : "bg-slate-100"}>
-            <th className={`py-1.5 px-2 text-left font-semibold text-[10px] w-10 ${isDark ? "text-white/30" : "text-slate-500"}`}>Day</th>
-            {DISPLAY_COLUMNS.map((col, i) => (
-              <th key={i} className={`py-1.5 px-1 text-center font-semibold text-[10px] ${isDark ? "text-white/30" : "text-slate-500"}`}>
-                <div className="flex flex-col gap-0.5 items-center">
-                  <span className={(col === 'BREAK' || col === 'LUNCH') ? (isDark ? 'text-white/15' : 'text-slate-350') : ''}>{col.replace('PERIOD ', 'P')}</span>
-                  {TIME_LABELS[col] && <span className={`text-[8px] font-normal ${isDark ? "text-white/15" : "text-slate-400"}`}>{TIME_LABELS[col]}</span>}
+          <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
+            <th className={`py-2.5 px-2 text-center font-bold text-xs uppercase tracking-wider w-16 border-r border-emerald-700/60 sticky left-0 z-20 bg-[#064e3b]`}>
+              Day
+            </th>
+            {GRID_COLUMNS.map((col) => (
+              <th
+                key={col.key}
+                className={`py-2 px-1 text-center border-r border-emerald-700/60 last:border-r-0 ${
+                  col.isDivider ? "w-16 sm:w-20 bg-[#053d2e]" : "min-w-[100px]"
+                }`}
+              >
+                <div className="flex flex-col items-center justify-center">
+                  <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
+                    {col.label}
+                  </span>
+                  <span className="text-[9px] font-mono text-emerald-100/90 mt-0.5">
+                    {col.time}
+                  </span>
                 </div>
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
           {safeGrid.map((row, dayIdx) => {
             const r = Array.isArray(row) ? row : [];
-            const displayRow: string[] = [r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''];
+            const displayRow: string[] = [
+              r[0] || '', r[1] || '', 'BREAK', r[2] || '', r[3] || '', 'LUNCH', r[4] || '', r[5] || '', 'BREAK', r[6] || ''
+            ];
             return (
-              <tr key={dayIdx} className={`border-t transition-colors ${isDark ? "border-white/4 hover:bg-white/2" : "border-slate-200 hover:bg-slate-50/50"}`}>
-                <td className={`py-1 px-2 font-bold text-[10px] ${isDark ? "text-white/40" : "text-slate-500"}`}>{DAYS[dayIdx]}</td>
+              <tr
+                key={dayIdx}
+                className={`transition-colors ${
+                  isDark ? "hover:bg-white/[0.02]" : "hover:bg-slate-50/50"
+                }`}
+              >
+                <td className={`py-2 px-2 text-center border-r font-bold text-xs sticky left-0 z-10 ${
+                  isDark ? "bg-[#0e0e1b] text-slate-200 border-white/10" : "bg-slate-50 text-slate-800 border-slate-200"
+                }`}>
+                  {DAYS[dayIdx]}
+                </td>
                 {displayRow.map((cell, i) => {
+                  const colInfo = GRID_COLUMNS[i];
+                  const isDivider = colInfo.isDivider;
                   const highlight = (search || filterType !== 'all') ? matchesFilter(cell, search, filterType) : false;
-                  const isDimmed = (search || filterType !== 'all') && cell && cell !== 'BREAK' && cell !== 'LUNCH' && !matchesFilter(cell, search, filterType);
+                  const isDimmed = (search || filterType !== 'all') && cell && !isDivider && !matchesFilter(cell, search, filterType);
+
+                  if (isDivider) {
+                    return (
+                      <td
+                        key={i}
+                        className="p-1 border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] text-center select-none"
+                      >
+                        <span className="text-[10px] font-bold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
+                          {cell}
+                        </span>
+                      </td>
+                    );
+                  }
+
                   return (
-                    <td key={i} className="p-0.5">
-                      <div className={`
-                        rounded-lg flex items-center justify-center text-center transition-all
-                        ${compact ? 'h-8 min-w-[52px]' : 'h-11 min-w-[76px]'}
-                        ${getCellStyle(cell, isDark)}
-                        ${highlight ? (isDark ? 'ring-2 ring-white/25 scale-105 z-10 relative' : 'ring-2 ring-emerald-500/50 scale-105 z-10 relative') : ''}
-                        ${isDimmed ? 'opacity-20' : ''}
-                      `}>
-                        <span className="px-1 truncate max-w-full font-semibold leading-tight" style={{ fontSize: '9px' }}>
+                    <td key={i} className="p-1 border-r border-slate-100 dark:border-white/5 last:border-r-0">
+                      <div
+                        className={`
+                          rounded-xl flex items-center justify-center p-2 text-center transition-all select-none
+                          ${compact ? 'h-11' : 'min-h-[58px]'}
+                          ${getCellStyle(cell, isDark)}
+                          ${highlight ? 'ring-2 ring-emerald-500 scale-105 z-10' : ''}
+                          ${isDimmed ? 'opacity-25' : ''}
+                        `}
+                      >
+                        <span className="px-1 line-clamp-2 text-xs font-bold leading-snug">
                           {cell || ''}
                         </span>
                       </div>
