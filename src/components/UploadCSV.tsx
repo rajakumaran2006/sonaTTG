@@ -596,7 +596,7 @@ export default function UploadCSV() {
               <div className="flex justify-between items-start gap-4">
                 <div>
                   <CardTitle className="text-lg font-extrabold text-foreground flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-emerald-500" />
+                    <FileText className="h-5 w-5 text-indigo-500" />
                     Faculty Import
                   </CardTitle>
                   <CardDescription className="text-xs text-muted-foreground mt-1">
@@ -636,7 +636,7 @@ export default function UploadCSV() {
               <div className="flex justify-between items-start gap-4">
                 <div>
                   <CardTitle className="text-lg font-extrabold text-foreground flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-emerald-500" />
+                    <FileText className="h-5 w-5 text-indigo-500" />
                     Subjects Import
                   </CardTitle>
                   <CardDescription className="text-xs text-muted-foreground mt-1">
@@ -676,7 +676,7 @@ export default function UploadCSV() {
                       onClick={() => setSubjectSemesterType("even")}
                       className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
                         subjectSemesterType === "even"
-                          ? "bg-emerald-500 text-white shadow-sm"
+                          ? "bg-indigo-600 text-white shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -686,7 +686,7 @@ export default function UploadCSV() {
                 </div>
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
                   subjectSemesterType === "even"
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30"
                     : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30"
                 }`}>
                   {subjectSemesterType === "even" ? "Tags: even_sem (Years II, III, IV)" : "Standard Odd Curriculum"}
@@ -721,7 +721,7 @@ export default function UploadCSV() {
               <div className="flex justify-between items-start gap-4">
                 <div>
                   <CardTitle className="text-lg font-extrabold text-foreground flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-emerald-500" />
+                    <FileText className="h-5 w-5 text-indigo-500" />
                     Faculty Subject Mapping
                   </CardTitle>
                   <CardDescription className="text-xs text-muted-foreground mt-1">
@@ -768,24 +768,24 @@ export default function UploadCSV() {
         className={`
           flex flex-col items-center justify-center border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer transition-all duration-300 min-h-[220px] bg-card
           ${dragOver 
-            ? "border-emerald-500 bg-emerald-500/[0.03] scale-[0.98] shadow-md shadow-emerald-500/5" 
-            : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 hover:shadow-sm"
+            ? "border-indigo-500 bg-indigo-500/[0.08] scale-[0.98] shadow-lg shadow-indigo-500/15 ring-2 ring-indigo-500/20" 
+            : "border-indigo-200/60 dark:border-border hover:border-indigo-500/60 hover:bg-indigo-500/[0.03] hover:shadow-md hover:shadow-indigo-500/5"
           }
         `}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-3">
-            <RefreshCw className="h-10 w-10 text-emerald-500 animate-spin" />
+            <RefreshCw className="h-10 w-10 text-indigo-600 dark:text-indigo-400 animate-spin" />
             <p className="font-bold text-foreground">Processing CSV file...</p>
             <p className="text-xs text-muted-foreground">Validating and writing to database.</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
-            <div className="p-4 bg-muted border border-border/80 rounded-2xl">
-              <Upload className="h-8 w-8 text-muted-foreground" />
+            <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 dark:bg-muted border border-indigo-100 dark:border-border/80 rounded-2xl shadow-sm text-indigo-600 dark:text-muted-foreground">
+              <Upload className="h-8 w-8 text-indigo-600 dark:text-muted-foreground" />
             </div>
             <p className="font-bold text-foreground">
-              Drag & drop your CSV file here, or <span className="text-emerald-600 hover:text-emerald-500 underline underline-offset-4">browse</span>
+              Drag & drop your CSV file here, or <span className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 underline underline-offset-4 font-extrabold">browse</span>
             </p>
             <p className="text-xs text-muted-foreground">
               Only <code>.csv</code> files are supported. Maximum size 5MB.

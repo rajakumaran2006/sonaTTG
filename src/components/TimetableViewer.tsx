@@ -284,15 +284,15 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
       </div>
 
       {/* Timetable Grid */}
-      <Card className="border-olive-100 shadow-sm">
+      <Card className="border-border/60 dark:border-indigo-500/20 dark:bg-[#0f1527] shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 px-6 pt-6">
-          <CardTitle className="text-lg font-bold text-olive-900">Weekly Schedule</CardTitle>
+          <CardTitle className="text-lg font-bold text-foreground dark:text-white">Weekly Schedule</CardTitle>
           <div className="flex bg-muted p-1 rounded-lg border border-border shadow-sm">
             <Button
               variant={viewMode === 'table' ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('table')}
-              className={`h-8 px-3 gap-2 ${viewMode === 'table' ? 'bg-background shadow-sm text-olive-900 font-bold' : 'text-muted-foreground font-medium'}`}
+              className={`h-8 px-3 gap-2 ${viewMode === 'table' ? 'bg-background shadow-sm text-foreground dark:text-white font-bold' : 'text-muted-foreground font-medium'}`}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
               <span className="hidden sm:inline text-xs">Table</span>
@@ -301,7 +301,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
               variant={viewMode === 'list' ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('list')}
-              className={`h-8 px-3 gap-2 ${viewMode === 'list' ? 'bg-background shadow-sm text-olive-900 font-bold' : 'text-muted-foreground font-medium'}`}
+              className={`h-8 px-3 gap-2 ${viewMode === 'list' ? 'bg-background shadow-sm text-foreground dark:text-white font-bold' : 'text-muted-foreground font-medium'}`}
             >
               <List className="h-3.5 w-3.5" />
               <span className="hidden sm:inline text-xs">List</span>
@@ -310,13 +310,13 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
         </CardHeader>
         <CardContent className="px-6 pb-6">
           {viewMode === 'table' ? (
-            <div className="overflow-auto rounded-xl border border-olive-100 bg-white/50 backdrop-blur-sm">
+            <div className="overflow-auto rounded-xl border border-border/60 dark:border-indigo-500/20 bg-white/50 dark:bg-[#080b14] backdrop-blur-sm">
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="bg-olive-50/50">
-                    <th className="text-left p-4 font-bold text-olive-900 min-w-[120px]">Day</th>
+                  <tr className="bg-muted/40 dark:bg-[#0e1428] border-b dark:border-indigo-500/20">
+                    <th className="text-left p-4 font-bold text-foreground dark:text-slate-200 min-w-[120px]">Day</th>
                     {colHeaders.map((header) => (
-                      <th key={header} className="text-center p-4 font-bold text-olive-900 min-w-[90px]">
+                      <th key={header} className="text-center p-4 font-bold text-foreground dark:text-slate-200 min-w-[90px]">
                         {header}
                       </th>
                     ))}
@@ -331,11 +331,11 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                       r[4] || '', r[5] || '', 'BREAK', r[6] || ''
                     ];
                     return (
-                      <tr key={dayIndex} className="border-t border-olive-100/30 hover:bg-olive-50/10 transition-colors">
-                        <td className="p-4 font-bold text-olive-800 bg-olive-50/20 border-r border-olive-100/30">
+                      <tr key={dayIndex} className="border-t border-border/40 dark:border-white/5 hover:bg-muted/10 dark:hover:bg-white/[0.01] transition-colors">
+                        <td className="p-4 font-bold text-foreground dark:text-slate-100 bg-muted/20 dark:bg-[#0f1527] border-r border-border/40 dark:border-indigo-500/20">
                           <div className="flex flex-col">
                             <span className="font-bold">{dayNames[dayIndex] || `Day ${dayIndex + 1}`}</span>
-                            <span className="text-[10px] text-olive-600 font-bold uppercase tracking-widest mt-0.5">
+                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 dark:text-indigo-400 font-bold uppercase tracking-widest mt-0.5">
                               {(dayNames[dayIndex] || `Day ${dayIndex + 1}`).slice(0, 3)}
                             </span>
                           </div>
@@ -349,12 +349,12 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                               <div className={`
                                 h-14 min-w-[80px] rounded-xl px-2 flex items-center justify-center text-center font-semibold transition-all shadow-sm
                                 ${isBreak
-                                  ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                                  ? 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-[#0a0e1c] dark:text-amber-300 dark:border-amber-500/20'
                                   : hasSubject && (subjectTypes[cell?.trim() || ''] === 'open elective' || cell?.trim() === 'Open Elective')
-                                    ? 'bg-purple-100 text-purple-900 border border-purple-200 hover:bg-purple-200'
+                                    ? 'bg-purple-100 text-purple-900 border border-purple-200 hover:bg-purple-200 dark:bg-[#201435] dark:text-purple-200 dark:border-purple-500/30 dark:hover:bg-[#281944]'
                                     : hasSubject
-                                      ? 'bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200'
-                                      : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
+                                      ? 'bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200 dark:bg-[#121a30] dark:text-indigo-200 dark:border-indigo-500/30 dark:hover:bg-[#16213e]'
+                                      : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200 dark:bg-white/[0.02] dark:text-slate-600 dark:border-white/10'
                                 }
                               `}>
                                 <div className="flex flex-col items-center">
@@ -362,7 +362,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                                     {formatCellContent(cell)}
                                   </span>
                                   {hasSubject && (
-                                    <span className="text-[9px] text-black/30 uppercase tracking-tighter mt-0.5 font-bold">
+                                    <span className="text-[9px] text-black/30 dark:text-white/40 uppercase tracking-tighter mt-0.5 font-bold">
                                       Class
                                     </span>
                                   )}
@@ -380,11 +380,11 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
           ) : (
             <div className="grid gap-4">
               {(Array.isArray(grid_data) ? grid_data : []).map((row, dayIndex) => (
-                <Card key={dayIndex} className="overflow-hidden border-olive-100 shadow-sm bg-white/50 backdrop-blur-sm group hover:shadow-md transition-all">
-                  <div className="bg-gradient-to-r from-olive-50 to-transparent py-3 px-6 border-b border-olive-100">
-                    <h3 className="font-bold text-lg text-olive-900 tracking-tight">{dayNames[dayIndex] || `Day ${dayIndex + 1}`}</h3>
+                <Card key={dayIndex} className="overflow-hidden border-border/60 shadow-sm bg-white/50 backdrop-blur-sm group hover:shadow-md transition-all">
+                  <div className="bg-gradient-to-r from-muted/40 to-transparent py-3 px-6 border-b border-border/60">
+                    <h3 className="font-bold text-lg text-foreground tracking-tight">{dayNames[dayIndex] || `Day ${dayIndex + 1}`}</h3>
                   </div>
-                  <div className="divide-y divide-olive-50">
+                  <div className="divide-y divide-border/40">
                     {(() => {
                       const r = Array.isArray(row) ? row : [];
                       const displayRow = [
@@ -397,10 +397,10 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                         const isOpenElective = (subjectTypes[cell?.trim() || ''] === 'open elective' || cell?.trim() === 'Open Elective');
 
                         return (
-                          <div key={i} className="flex items-center justify-between py-4 px-6 bg-white/70 hover:bg-olive-50/30 transition-colors">
+                          <div key={i} className="flex items-center justify-between py-4 px-6 bg-white/70 hover:bg-muted/30 transition-colors">
                             <div className="flex flex-col gap-1 flex-1 pr-4">
                               <div className="flex items-center gap-3">
-                                <span className="text-[10px] font-extrabold text-olive-700 bg-olive-100 px-2 py-0.5 rounded-full uppercase tracking-wider">{colHeaders[i]}</span>
+                                <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full uppercase tracking-wider">{colHeaders[i]}</span>
                               </div>
                               <span className={`text-base font-bold tracking-tight ${isOpenElective ? 'text-purple-700' : 'text-slate-900'}`}>{formatCellContent(cell)}</span>
                             </div>
@@ -423,10 +423,10 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
       </Card>
 
       {/* Faculty Assignments */}
-      <Card className="border-olive-100 shadow-sm">
+      <Card className="border-border/60 shadow-sm">
         <CardHeader className="px-6 pt-6">
-          <CardTitle className="text-lg font-bold text-olive-900 flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-olive-600" />
+          <CardTitle className="text-lg font-bold text-foreground flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
             Subject & Faculty Assignments
           </CardTitle>
         </CardHeader>
@@ -441,11 +441,11 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
               {facultyAssignments.map((assignment, index) => {
                 const isOpenElective = subjectTypes[assignment.subject_name] === 'open elective';
                 return (
-                  <div key={index} className={`border rounded-xl p-4 hover:bg-muted/20 transition-all ${isOpenElective ? 'border-purple-200 bg-purple-50/50' : 'border-olive-100 bg-slate-50/30'
+                  <div key={index} className={`border rounded-xl p-4 hover:bg-muted/20 transition-all ${isOpenElective ? 'border-purple-200 bg-purple-50/50' : 'border-border/60 bg-slate-50/30'
                     }`}>
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        <h4 className={`font-bold text-base ${isOpenElective ? 'text-purple-900' : 'text-olive-900'
+                        <h4 className={`font-bold text-base ${isOpenElective ? 'text-purple-900' : 'text-foreground'
                           }`}>
                           {isOpenElective ? 'Open Elective' : assignment.subject_name}
                         </h4>
@@ -455,11 +455,11 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                           </p>
                         )}
                         <div className="flex items-center gap-2 text-slate-500 mt-1">
-                          <User className="h-3.5 w-3.5 text-olive-500" />
+                          <User className="h-3.5 w-3.5 text-indigo-500" />
                           <span className="text-sm font-semibold">{assignment.faculty_name}</span>
                         </div>
                       </div>
-                      <Badge variant="secondary" className="flex items-center gap-1 bg-olive-100 text-olive-700 border-none">
+                      <Badge variant="secondary" className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border-none">
                         <Clock className="h-3 w-3" />
                         <span className="text-[10px] font-bold uppercase tracking-tight">{assignment.total_hours} {assignment.total_hours === 1 ? 'hr' : 'hrs'}</span>
                       </Badge>
@@ -471,7 +471,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
                           <Badge
                             key={periodIndex}
                             variant="outline"
-                            className="text-[9px] font-bold bg-white border-olive-100 text-olive-600 uppercase tracking-tighter"
+                            className="text-[9px] font-bold bg-white border-border/60 text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter"
                           >
                             {period.day.slice(0, 3)} • {period.period}
                           </Badge>
@@ -483,28 +483,28 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
               })}
 
               {/* Summary Stats */}
-              <div className="mt-6 p-4 bg-olive-50/30 rounded-xl border border-olive-100/50">
-                <h4 className="text-xs font-bold uppercase tracking-widest text-olive-800 mb-3">Department Summary</h4>
+              <div className="mt-6 p-4 bg-muted/30 rounded-xl border border-border/40">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-foreground mb-3">Department Summary</h4>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white p-3 rounded-lg border border-olive-100 shadow-sm text-center">
+                  <div className="bg-white p-3 rounded-lg border border-border/60 shadow-sm text-center">
                     <div className="text-xl font-bold text-blue-600 leading-none">
                       {facultyAssignments.length}
                     </div>
                     <div className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-widest">Subjects</div>
                   </div>
-                  <div className="bg-white p-3 rounded-lg border border-olive-100 shadow-sm text-center">
-                    <div className="text-xl font-bold text-emerald-600 leading-none">
+                  <div className="bg-white p-3 rounded-lg border border-border/60 shadow-sm text-center">
+                    <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400 leading-none">
                       {new Set(facultyAssignments.map(a => a.faculty_name)).size}
                     </div>
                     <div className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-widest">Faculty</div>
                   </div>
-                  <div className="bg-white p-3 rounded-lg border border-olive-100 shadow-sm text-center">
+                  <div className="bg-white p-3 rounded-lg border border-border/60 shadow-sm text-center">
                     <div className="text-xl font-bold text-purple-600 leading-none">
                       {facultyAssignments.reduce((total, a) => total + a.total_hours, 0)}
                     </div>
                     <div className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-widest">Total Hrs</div>
                   </div>
-                  <div className="bg-white p-3 rounded-lg border border-olive-100 shadow-sm text-center">
+                  <div className="bg-white p-3 rounded-lg border border-border/60 shadow-sm text-center">
                     <div className="text-xl font-bold text-orange-600 leading-none">
                       {Math.round(facultyAssignments.reduce((total, a) => total + a.total_hours, 0) / facultyAssignments.length || 0)}
                     </div>
@@ -518,7 +518,7 @@ const TimetableViewer = ({ departmentId, year, section }: TimetableViewerProps) 
       </Card>
 
       {/* Legend */}
-      <Card className="border-olive-100 shadow-sm bg-slate-50/50">
+      <Card className="border-border/60 shadow-sm bg-slate-50/50">
         <CardContent className="pt-6 px-6 pb-6">
           <h3 className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4">Timetable Legend</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[11px] font-bold uppercase tracking-wider">

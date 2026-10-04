@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useDarkMode } from "@/context/DarkModeContext";
 import { 
   FacultyMember, 
   getFacultyByEmail, 
@@ -29,7 +30,8 @@ import {
   GraduationCap, 
   BarChart3, 
   Building2,
-  Upload
+  Upload,
+  Sparkles
 } from "lucide-react";
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -48,6 +50,7 @@ interface FacultyScheduleItem {
   section: string;
   department_name?: string;
   is_special?: boolean;
+  sections?: string[];
 }
 
 interface SubjectAssignment {
@@ -62,6 +65,7 @@ interface SubjectAssignment {
 }
 
 const FacultyDashboard = () => {
+  const { isDark } = useDarkMode();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -87,8 +91,8 @@ const FacultyDashboard = () => {
           email: parsedFaculty.email || "",
           designation: parsedFaculty.designation || ""
         });
-        // Load their schedule
-        extractFacultyScheduleFromTimetables(parsedFaculty.name)
+        // Load their schedule with both name and ID for exact section-specific matching
+        extractFacultyScheduleFromTimetables(parsedFaculty.name, parsedFaculty.id)
           .then(({ schedule: facultySchedule, assignments }) => {
             setSchedule(facultySchedule);
             setSubjectAssignments(assignments);
@@ -103,10 +107,94 @@ const FacultyDashboard = () => {
     }
   }, []);
 
-  // Algorithm to extract faculty schedule from approved timetables
-  const extractFacultyScheduleFromTimetables = async (facultyName: string) => {
+  // Helper to parse year representations into standard numbers
+  const parseYearNum = (y: any): number => {
+    if (y === null || y === undefined) return -1;
+    const s = String(y).trim().toUpperCase();
+    const map: Record<string, number> = {
+      '1': 1, 'I': 1, 'FIRST': 1, 'YEAR I': 1, 'YEAR 1': 1, 'YR 1': 1,
+      '2': 2, 'II': 2, 'SECOND': 2, 'YEAR II': 2, 'YEAR 2': 2, 'YR 2': 2,
+      '3': 3, 'III': 3, 'THIRD': 3, 'YEAR III': 3, 'YEAR 3': 3, 'YR 3': 3,
+      '4': 4, 'IV': 4, 'FOURTH': 4, 'YEAR IV': 4, 'YEAR 4': 4, 'YR 4': 4,
+      '5': 5, 'V': 5, '6': 6, 'VI': 6, '7': 7, 'VII': 7, '8': 8, 'VIII': 8,
+    };
+    if (map[s] !== undefined) return map[s];
+    const num = parseInt(s.replace(/\D/g, ''), 10);
+    return isNaN(num) ? -1 : num;
+  };
+
+  // Helper to normalize section names ('A', 'Section B', etc.)
+  const normalizeSec = (sec: any): string => {
+    if (!sec) return '';
+    return String(sec).trim().toUpperCase().replace(/^SEC(TION)?\s*/i, '');
+  };
+
+  // Algorithm to extract faculty schedule strictly from approved timetables matching their assigned section
+  const extractFacultyScheduleFromTimetables = async (facultyName: string, facultyId?: string) => {
     try {
-      // Get all approved timetables
+      // 1. Resolve target faculty ID
+      let targetFacultyId = facultyId;
+      if (!targetFacultyId) {
+        const { data: fm } = await (supabase as any)
+          .from('faculty_members')
+          .select('id')
+          .eq('name', facultyName)
+          .maybeSingle();
+        targetFacultyId = fm?.id;
+      }
+
+      // 2. Fetch specific section assignments for this faculty from faculty_subject_assignments
+      let facultyAssignments: any[] = [];
+      if (targetFacultyId) {
+        const { data: fsaData } = await (supabase as any)
+          .from('faculty_subject_assignments')
+          .select(`
+            faculty_id,
+            department_id,
+            year,
+            section,
+            subjects!inner(id, name, abbreviation, code)
+          `)
+          .eq('faculty_id', targetFacultyId);
+        facultyAssignments = fsaData || [];
+      } else {
+        const { data: fsaData } = await (supabase as any)
+          .from('faculty_subject_assignments')
+          .select(`
+            faculty_id,
+            department_id,
+            year,
+            section,
+            faculty_members!inner(name),
+            subjects!inner(id, name, abbreviation, code)
+          `)
+          .eq('faculty_members.name', facultyName);
+        facultyAssignments = fsaData || [];
+      }
+
+      // 3. Fetch subjects where staff field is set to faculty
+      let staffSubjects: any[] = [];
+      try {
+        const { data: sData } = await (supabase as any)
+          .from('subjects')
+          .select('id, name, abbreviation, code, department_id, year, staff')
+          .or(`staff.eq.${facultyName}${targetFacultyId ? `,staff.eq.${targetFacultyId}` : ''}`);
+        staffSubjects = sData || [];
+      } catch (err) {
+        console.warn('Could not fetch staff subjects:', err);
+      }
+
+      // 4. Fetch class counselor assignments
+      let counselorData: any[] = [];
+      if (targetFacultyId) {
+        const { data: cData } = await (supabase as any)
+          .from('class_counselors')
+          .select('department_id, year, section')
+          .eq('faculty_id', targetFacultyId);
+        counselorData = cData || [];
+      }
+
+      // 5. Fetch all approved timetables
       const { data: timetables, error: ttError } = await (supabase as any)
         .from('timetables')
         .select(`
@@ -124,115 +212,161 @@ const FacultyDashboard = () => {
       const facultySchedule: FacultyScheduleItem[] = [];
       const subjectMap: Record<string, SubjectAssignment> = {};
 
-      // Get all faculty subject assignments to match faculty to subjects
-      const { data: facultyAssignments } = await (supabase as any)
-        .from('faculty_subject_assignments')
-        .select(`
-          faculty_members!inner(name),
-          subjects!inner(name, abbreviation, code),
-          department_id,
-          year,
-          section
-        `)
-        .eq('faculty_members.name', facultyName);
-
-      // Get general faculty assignments (not class-specific)
-      const { data: generalAssignments } = await (supabase as any)
-        .from('faculty_subject_assignments')
-        .select(`
-          faculty_members!inner(name),
-          subjects!inner(name, abbreviation, code),
-          department_id,
-          year,
-          section
-        `)
-        .eq('faculty_members.name', facultyName);
-
-      // Get subjects where faculty is directly mentioned in staff field
-      const { data: staffAssignments } = await (supabase as any)
-        .from('subjects')
-        .select('name, abbreviation, code, department_id, year, staff')
-        .eq('staff', facultyName);
-
-      // Create a mapping of subjects to faculty
-      const facultySubjects = new Set<string>();
-      
-      // Add from faculty_subject_assignments
-      if (facultyAssignments) {
-        facultyAssignments.forEach((assignment: any) => {
-          const subject = assignment.subjects;
-          if (subject) {
-            facultySubjects.add(subject.name);
-            if (subject.abbreviation) facultySubjects.add(subject.abbreviation);
-            if (subject.code) facultySubjects.add(subject.code);
-          }
-        });
-      }
-
-      // Add from faculty_subject_assignments
-      if (generalAssignments) {
-        generalAssignments.forEach((assignment: any) => {
-          const subject = assignment.subjects;
-          if (subject) {
-            facultySubjects.add(subject.name);
-            if (subject.abbreviation) facultySubjects.add(subject.abbreviation);
-            if (subject.code) facultySubjects.add(subject.code);
-          }
-        });
-      }
-
-      // Add from staff field
-      if (staffAssignments) {
-        staffAssignments.forEach((subject: any) => {
-          facultySubjects.add(subject.name);
-          if (subject.abbreviation) facultySubjects.add(subject.abbreviation);
-          if (subject.code) facultySubjects.add(subject.code);
-        });
-      }
-
-      // Process each timetable
+      // 6. Process each timetable strictly checking class section specificity
       for (const timetable of timetables) {
         const { grid_data, department_id, year, section, departments } = timetable;
-        
         if (!grid_data || !Array.isArray(grid_data)) continue;
 
-        // Scan through the timetable grid
+        const ttDeptId = department_id;
+        const ttYearNum = parseYearNum(year);
+        const ttSecNorm = normalizeSec(section);
+        const ttDeptName = departments?.name;
+
+        // Class-specific subject assignments: ONLY matches if this timetable is the assigned section!
+        const matchingAssignments = facultyAssignments.filter(a => {
+          if (a.department_id !== ttDeptId) return false;
+          if (parseYearNum(a.year) !== ttYearNum) return false;
+          const aSec = normalizeSec(a.section);
+          // If assignment specifies a section (e.g. 'B'), timetable MUST match that exact section!
+          if (aSec && aSec !== 'ALL' && aSec !== ttSecNorm) return false;
+          return true;
+        });
+
+        // Subjects table staff matches (fallback when no conflicting section assignment exists)
+        const matchingStaffSubjects = staffSubjects.filter(s => {
+          if (s.department_id !== ttDeptId) return false;
+          if (parseYearNum(s.year) !== ttYearNum) return false;
+          const hasSpecificAssignments = facultyAssignments.some(a => 
+            a.department_id === ttDeptId && 
+            parseYearNum(a.year) === ttYearNum && 
+            a.subjects?.id === s.id
+          );
+          if (hasSpecificAssignments) return false;
+          return true;
+        });
+
+        // Check if faculty is class counselor for this specific class
+        const isClassCounselor = counselorData.some(c => 
+          c.department_id === ttDeptId && 
+          parseYearNum(c.year) === ttYearNum && 
+          normalizeSec(c.section) === ttSecNorm
+        );
+
+        const hasAnyRole = matchingAssignments.length > 0 || matchingStaffSubjects.length > 0 || isClassCounselor;
+        if (!hasAnyRole) continue;
+
+        // Scan timetable grid
         grid_data.forEach((dayRow: any[], dayIndex: number) => {
           if (!Array.isArray(dayRow)) return;
-          
+
           dayRow.forEach((cell: any, periodIndex: number) => {
             if (!cell || typeof cell !== 'string') return;
-            
-            const subjectName = cell.trim();
-            
-            // Check if this subject belongs to the faculty
-            if (facultySubjects.has(subjectName)) {
-              const scheduleItem: FacultyScheduleItem = {
-                subject: subjectName,
+            const cellText = cell.trim();
+            if (!cellText) return;
+
+            let matchedSubjectName = '';
+            let isSpecial = false;
+
+            // Check counselor hour
+            if (isClassCounselor && ['counselling', 'student counselling', 'counseling'].includes(cellText.toLowerCase())) {
+              matchedSubjectName = 'Student Counselling';
+              isSpecial = true;
+            }
+
+            // Check matching section assignments
+            if (!matchedSubjectName) {
+              for (const a of matchingAssignments) {
+                const subj = a.subjects;
+                if (!subj) continue;
+
+                const sName = (subj.name || '').trim();
+                const sAbbr = (subj.abbreviation || '').trim();
+                const sCode = (subj.code || '').trim();
+
+                let isMatch = false;
+                if (sName && cellText.toLowerCase() === sName.toLowerCase()) {
+                  isMatch = true;
+                } else if (sAbbr && cellText.toLowerCase() === sAbbr.toLowerCase()) {
+                  isMatch = true;
+                } else if (sCode && cellText.toLowerCase() === sCode.toLowerCase()) {
+                  isMatch = true;
+                } else if (cellText.includes('/')) {
+                  const parts = cellText.split('/').map(p => p.trim().toLowerCase());
+                  if (parts.some(p => 
+                    (sName && p === sName.toLowerCase()) || 
+                    (sAbbr && p === sAbbr.toLowerCase()) || 
+                    (sCode && p === sCode.toLowerCase())
+                  )) {
+                    isMatch = true;
+                  }
+                }
+
+                if (isMatch) {
+                  matchedSubjectName = sName;
+                  isSpecial = ['Seminar', 'Library', 'Student Counselling'].includes(sName);
+                  break;
+                }
+              }
+            }
+
+            // Check matching staff subjects if not already matched
+            if (!matchedSubjectName) {
+              for (const s of matchingStaffSubjects) {
+                const sName = (s.name || '').trim();
+                const sAbbr = (s.abbreviation || '').trim();
+                const sCode = (s.code || '').trim();
+
+                let isMatch = false;
+                if (sName && cellText.toLowerCase() === sName.toLowerCase()) {
+                  isMatch = true;
+                } else if (sAbbr && cellText.toLowerCase() === sAbbr.toLowerCase()) {
+                  isMatch = true;
+                } else if (sCode && cellText.toLowerCase() === sCode.toLowerCase()) {
+                  isMatch = true;
+                } else if (cellText.includes('/')) {
+                  const parts = cellText.split('/').map(p => p.trim().toLowerCase());
+                  if (parts.some(p => 
+                    (sName && p === sName.toLowerCase()) || 
+                    (sAbbr && p === sAbbr.toLowerCase()) || 
+                    (sCode && p === sCode.toLowerCase())
+                  )) {
+                    isMatch = true;
+                  }
+                }
+
+                if (isMatch) {
+                  matchedSubjectName = sName;
+                  isSpecial = ['Seminar', 'Library', 'Student Counselling'].includes(sName);
+                  break;
+                }
+              }
+            }
+
+            if (matchedSubjectName) {
+              facultySchedule.push({
+                subject: matchedSubjectName,
                 day: dayIndex,
                 period: periodIndex,
                 year,
                 section,
-                department_name: departments?.name,
-                is_special: ['Seminar', 'Library', 'Student Counselling'].includes(subjectName)
-              };
-
-              facultySchedule.push(scheduleItem);
+                department_name: ttDeptName,
+                is_special: isSpecial
+              });
 
               // Group by subject for assignments view
-              if (!subjectMap[subjectName]) {
-                subjectMap[subjectName] = {
-                  subject: subjectName,
+              if (!subjectMap[matchedSubjectName]) {
+                subjectMap[matchedSubjectName] = {
+                  subject: matchedSubjectName,
                   schedule: []
                 };
               }
 
-              subjectMap[subjectName].schedule.push({
+              subjectMap[matchedSubjectName].schedule.push({
                 day: DAYS[dayIndex],
                 period: PERIODS[periodIndex],
                 year,
                 section,
-                department_name: departments?.name
+                department_name: ttDeptName
               });
             }
           });
@@ -269,8 +403,8 @@ const FacultyDashboard = () => {
         designation: facultyMember.designation || ""
       });
 
-      // Extract faculty schedule from approved timetables
-      const { schedule: facultySchedule, assignments } = await extractFacultyScheduleFromTimetables(facultyMember.name);
+      // Extract faculty schedule from approved timetables matching exact assigned section
+      const { schedule: facultySchedule, assignments } = await extractFacultyScheduleFromTimetables(facultyMember.name, facultyMember.id);
       setSchedule(facultySchedule);
       setSubjectAssignments(assignments);
 
@@ -320,8 +454,8 @@ const FacultyDashboard = () => {
     try {
       if (!faculty) return;
       
-      // Re-extract faculty schedule from approved timetables
-      const { schedule: freshSchedule, assignments } = await extractFacultyScheduleFromTimetables(faculty.name);
+      // Re-extract faculty schedule from approved timetables matching exact assigned section
+      const { schedule: freshSchedule, assignments } = await extractFacultyScheduleFromTimetables(faculty.name, faculty.id);
       setSchedule(freshSchedule);
       setSubjectAssignments(assignments);
       
@@ -341,13 +475,29 @@ const FacultyDashboard = () => {
     }
   };
 
-  // Create timetable grid from schedule data
+  // Create timetable grid from schedule data, merging sections when the same subject is taught simultaneously
   const createTimetableGrid = () => {
     const grid: { [day: number]: { [period: number]: FacultyScheduleItem } } = {};
     
     schedule.forEach(item => {
       if (!grid[item.day]) grid[item.day] = {};
-      grid[item.day][item.period] = item;
+      const existing = grid[item.day][item.period];
+      if (existing) {
+        // If it's the same subject, department and year, merge sections (e.g. "Sec A, C" for shared elective)
+        if (existing.subject === item.subject && existing.department_name === item.department_name && existing.year === item.year) {
+          const secs = existing.sections || [existing.section];
+          if (!secs.includes(item.section)) {
+            secs.push(item.section);
+          }
+          grid[item.day][item.period] = {
+            ...existing,
+            section: secs.sort().join(', '),
+            sections: secs
+          };
+          return;
+        }
+      }
+      grid[item.day][item.period] = { ...item, sections: [item.section] };
     });
     
     return grid;
@@ -360,489 +510,635 @@ const FacultyDashboard = () => {
     new Set(schedule.filter(item => item.subject).map(item => item.subject!))
   ).sort();
 
-  // Get unique classes taught with department info
+  // Helper to parse year numbers for sorting
+  const parseYr = (yr: string) => {
+    const s = String(yr || '').trim().toUpperCase();
+    const map: Record<string, number> = { 'I': 1, '1': 1, 'II': 2, '2': 2, 'III': 3, '3': 3, 'IV': 4, '4': 4 };
+    return map[s] || parseInt(s.replace(/\D/g, ''), 10) || 999;
+  };
+
+  // Get unique classes taught with department info, sorted naturally
   const uniqueClasses = Array.from(
     new Set(schedule.map(item => `${item.department_name || 'Unknown'} - Year ${item.year} - Section ${item.section}`))
-  ).sort();
+  ).sort((a, b) => {
+    const partsA = a.split(' - ');
+    const partsB = b.split(' - ');
+    const deptComp = (partsA[0] || '').localeCompare(partsB[0] || '');
+    if (deptComp !== 0) return deptComp;
+    const yrComp = parseYr(partsA[1]?.replace('Year ', '')) - parseYr(partsB[1]?.replace('Year ', ''));
+    if (yrComp !== 0) return yrComp;
+    return (partsA[2] || '').localeCompare(partsB[2] || '');
+  });
 
   // Get unique departments taught
   const uniqueDepartments = Array.from(
     new Set(schedule.map(item => item.department_name || 'Unknown'))
   ).filter(dept => dept !== 'Unknown').sort();
 
-  // Get unique years taught
+  // Get unique years taught, sorted naturally (I, II, III, IV)
   const uniqueYears = Array.from(
     new Set(schedule.map(item => item.year))
-  ).sort();
+  ).sort((a, b) => parseYr(a) - parseYr(b));
 
-  // Get unique sections taught
+  // Get unique sections taught, sorted alphabetically
   const uniqueSections = Array.from(
     new Set(schedule.map(item => item.section))
-  ).sort();
+  ).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
 
   // Get total teaching hours per week
   const totalHours = schedule.filter(item => !item.is_special).length;
   const totalSpecialHours = schedule.filter(item => item.is_special).length;
 
+  // ─── Glassmorphic style tokens ────────────────────────────────────────
+  const glassCard = isDark
+    ? "bg-[#090d1c]/80 backdrop-blur-2xl border border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)]"
+    : "bg-white/80 backdrop-blur-2xl border border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)]";
+
+  const innerCard = isDark
+    ? "bg-white/[0.03] border-indigo-500/15"
+    : "bg-indigo-50/40 border-indigo-100/80";
+
   if (!faculty) {
-    return (
-      <main className="min-h-screen bg-background">
-        <Navbar/>
-        <section className="container py-16">
-          <div className="mx-auto max-w-md">
-            <header className="mb-8 text-center">
-              <h1 className="text-3xl font-bold">Faculty Login</h1>
-              <p className="text-muted-foreground">Sign in to view your personal timetable</p>
-            </header>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-5 w-5" />
-                  Login
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="email">Faculty Email</Label>
-                  <Input 
-                    id="email"
-                    type="email" 
-                    placeholder="your.email@college.edu" 
-                    value={email} 
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && login()}
-                  />
-                </div>
-                <Button 
-                  onClick={login} 
-                  disabled={!email.trim() || loading}
-                  className="w-full"
-                >
-                  {loading ? 'Signing in...' : 'Sign In'}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-      </main>
-    );
+    // Redirect to main login page - faculty login is handled there
+    navigate("/", { replace: true });
+    return null;
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <Navbar/>
-      <section className="container py-8">
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background refraction orbs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/10 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
+      <Navbar />
+
+      <main className="pt-16 md:pt-16 transition-all duration-300 relative z-10">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
+
+          {/* ── Header Banner ─────────────────────────────────────── */}
+          <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-5 p-6 rounded-2xl ${glassCard}`}>
+            <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
             <div>
-              <h1 className="text-3xl font-bold">Faculty Dashboard</h1>
-              <p className="text-muted-foreground">Your personal timetable and information</p>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full border ${
+                  isDark
+                    ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                }`}>
+                  <Sparkles className="h-3 w-3 inline mr-1" />
+                  Faculty Portal
+                </span>
+              </div>
+              <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
+                isDark ? "text-white" : "bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent"
+              }`}>
+                Welcome, {faculty.name}
+              </h1>
+              <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Your personal timetable, teaching assignments, and profile overview.
+              </p>
             </div>
-            <Button 
-              onClick={() => navigate("/faculty/csv-upload")}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Upload className="h-4 w-4" />
-              CSV Upload
-            </Button>
+
+            <div className="flex items-center gap-2.5 shrink-0 self-start md:self-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncSchedule}
+                disabled={syncing}
+                className={`h-9 px-4 rounded-xl text-xs font-semibold border transition-all ${
+                  isDark ? "border-indigo-500/20 bg-white/5 hover:bg-white/10 text-slate-300" : "border-indigo-200/80 bg-white hover:bg-indigo-50 text-slate-700"
+                }`}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => navigate("/faculty/csv-upload")}
+                className="h-9 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-sm shadow-indigo-500/25 border border-indigo-400/30"
+              >
+                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                CSV Upload
+              </Button>
+            </div>
           </div>
-        </header>
 
-        {/* Faculty Information - Rectangular Card at Top */}
-        <div className="mb-8">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5" />
-                    Faculty Information
-                  </CardTitle>
-                  <Dialog open={editOpen} onOpenChange={setEditOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit
+          {/* ── Stats Cards Row ────────────────────────────────── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* Regular Hours */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Teaching Hours
+                </span>
+                <Clock className={`h-4 w-4 ${isDark ? "text-indigo-400" : "text-indigo-600"}`} />
+              </div>
+              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
+                {totalHours}
+              </div>
+              <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-indigo-300/70" : "text-indigo-600/80"}`}>
+                Regular periods/week
+              </p>
+            </div>
+
+            {/* Special Hours */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400/30 to-transparent" />
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Special Hours
+                </span>
+                <Shield className={`h-4 w-4 ${isDark ? "text-amber-400" : "text-amber-600"}`} />
+              </div>
+              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-amber-300" : "text-amber-600"}`}>
+                {totalSpecialHours}
+              </div>
+              <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-amber-300/70" : "text-amber-700/80"}`}>
+                Seminar, Library, etc.
+              </p>
+            </div>
+
+            {/* Subjects */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Subjects
+                </span>
+                <BookOpen className={`h-4 w-4 ${isDark ? "text-cyan-400" : "text-cyan-600"}`} />
+              </div>
+              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-cyan-300" : "text-cyan-600"}`}>
+                {uniqueSubjects.length}
+              </div>
+              <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-cyan-300/70" : "text-cyan-700/80"}`}>
+                Assigned subjects
+              </p>
+            </div>
+
+            {/* Classes */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  Classes
+                </span>
+                <Building2 className={`h-4 w-4 ${isDark ? "text-purple-400" : "text-purple-600"}`} />
+              </div>
+              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-purple-300" : "text-purple-600"}`}>
+                {uniqueClasses.length}
+              </div>
+              <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-purple-300/70" : "text-purple-700/80"}`}>
+                Yr/Sec combinations
+              </p>
+            </div>
+          </div>
+
+          {/* ── Profile + Quick Info Row ────────────────────────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Faculty Profile Card */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2.5">
+                  <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
+                    isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                  }`}>
+                    <User className="h-4.5 w-4.5" />
+                  </div>
+                  <h3 className={`text-sm font-bold uppercase tracking-wider ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                    Profile
+                  </h3>
+                </div>
+                <Dialog open={editOpen} onOpenChange={setEditOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" className={`h-8 px-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                      isDark ? "border-indigo-500/20 bg-white/5 hover:bg-white/10 text-slate-300" : "border-indigo-200/80 bg-white hover:bg-indigo-50 text-slate-700"
+                    }`}>
+                      <Edit className="h-3.5 w-3.5 mr-1" />
+                      Edit
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className={`rounded-2xl border backdrop-blur-2xl shadow-2xl ${
+                    isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+                  }`}>
+                    <DialogHeader>
+                      <DialogTitle className="text-lg font-bold">Edit Profile</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-2">
+                      <div>
+                        <Label htmlFor="edit-name" className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-slate-400" : "text-slate-500"}`}>Name</Label>
+                        <Input
+                          id="edit-name"
+                          value={editData.name}
+                          onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+                          className={`mt-1.5 rounded-xl h-10 border ${isDark ? "bg-white/[0.04] border-indigo-500/25 text-white" : "bg-white border-indigo-200"}`}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="edit-email" className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-slate-400" : "text-slate-500"}`}>Email</Label>
+                        <Input
+                          id="edit-email"
+                          type="email"
+                          value={editData.email}
+                          onChange={(e) => setEditData({ ...editData, email: e.target.value })}
+                          className={`mt-1.5 rounded-xl h-10 border ${isDark ? "bg-white/[0.04] border-indigo-500/25 text-white" : "bg-white border-indigo-200"}`}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="edit-designation" className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-slate-400" : "text-slate-500"}`}>Designation</Label>
+                        <Input
+                          id="edit-designation"
+                          value={editData.designation}
+                          onChange={(e) => setEditData({ ...editData, designation: e.target.value })}
+                          className={`mt-1.5 rounded-xl h-10 border ${isDark ? "bg-white/[0.04] border-indigo-500/25 text-white" : "bg-white border-indigo-200"}`}
+                        />
+                      </div>
+                      <Button onClick={handleUpdateProfile} className="w-full h-10 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-sm shadow-indigo-500/25 border border-indigo-400/30">
+                        Save Changes
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Edit Profile</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="edit-name">Name</Label>
-                          <Input 
-                            id="edit-name"
-                            value={editData.name}
-                            onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="edit-email">Email</Label>
-                          <Input 
-                            id="edit-email"
-                            type="email"
-                            value={editData.email}
-                            onChange={(e) => setEditData({ ...editData, email: e.target.value })}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="edit-designation">Designation</Label>
-                          <Input 
-                            id="edit-designation"
-                            value={editData.designation}
-                            onChange={(e) => setEditData({ ...editData, designation: e.target.value })}
-                          />
-                        </div>
-                        <Button onClick={handleUpdateProfile} className="w-full">
-                          Save Changes
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+
+              <div className="space-y-4">
+                <div className={`p-3.5 rounded-xl border ${innerCard}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-slate-500"}`}>Full Name</span>
+                  <span className={`text-sm font-bold mt-0.5 block ${isDark ? "text-white" : "text-slate-900"}`}>{faculty.name}</span>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-                  {/* Basic Information */}
-                  <div className="space-y-4 border-2 border-gray-300 rounded-lg p-2">
-                    <h4 className="font-semibold text-primary border-b pb-2 flex items-center gap-2">
-                      <User className="h-4 w-4" />
-                      Basic Information
-                    </h4>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</label>
-                        <p className="font-medium text-sm mt-1">{faculty.name}</p>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</label>
-                        <p className="font-medium text-sm mt-1 break-all">{faculty.email || 'Not provided'}</p>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Designation</label>
-                        <p className="font-medium text-sm mt-1">{faculty.designation || 'Not specified'}</p>
-                      </div>
-                    </div>
-                  </div>
+                <div className={`p-3.5 rounded-xl border ${innerCard}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-slate-500"}`}>Email</span>
+                  <span className={`text-sm font-bold mt-0.5 block break-all ${isDark ? "text-indigo-300" : "text-indigo-700"}`}>{faculty.email || 'Not provided'}</span>
+                </div>
+                <div className={`p-3.5 rounded-xl border ${innerCard}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block ${isDark ? "text-slate-400" : "text-slate-500"}`}>Designation</span>
+                  <span className={`text-sm font-bold mt-0.5 block ${isDark ? "text-white" : "text-slate-900"}`}>{faculty.designation || 'Not specified'}</span>
+                </div>
+              </div>
+            </div>
 
-                  {/* Subjects Taught */}
-                  <div className="space-y-4 border-2 border-gray-300 rounded-lg p-2">
-                    <h4 className="font-semibold text-primary border-b pb-2 flex items-center gap-2">
-                      <BookOpen className="h-4 w-4" />
-                      Subjects Taught
-                    </h4>
-                    <div className="space-y-3">
-                      {uniqueSubjects.length > 0 ? (
-                        <>
-                          <div className="flex flex-wrap gap-1">
-                            {uniqueSubjects.slice(0, 4).map(subject => (
-                              <Badge key={subject} variant="secondary" className="text-xs">
-                                {subject}
-                              </Badge>
-                            ))}
-                            {uniqueSubjects.length > 4 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{uniqueSubjects.length - 4} more
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            <strong>Total:</strong> {uniqueSubjects.length} subjects
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">No subjects assigned</p>
-                      )}
-                    </div>
-                  </div>
+            {/* Subjects & Departments Card */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
+                  isDark ? "bg-cyan-500/15 border-cyan-500/30 text-cyan-400" : "bg-cyan-50 border-cyan-200 text-cyan-600"
+                }`}>
+                  <BookOpen className="h-4.5 w-4.5" />
+                </div>
+                <h3 className={`text-sm font-bold uppercase tracking-wider ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                  Subjects & Classes
+                </h3>
+              </div>
 
-                  {/* Special Roles */}
-                  <div className="space-y-4 border-2 border-gray-300 rounded-lg p-2">
-                    <h4 className="font-semibold text-primary border-b pb-2 flex items-center gap-2">
-                      <Shield className="h-4 w-4" />
-                      Special Roles
-                    </h4>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Class Counselor</label>
-                        <div className="mt-1">
-                          {schedule.some(item => item.is_special && ['Student Counselling', 'Counselling'].includes(item.subject || '')) ? (
-                            <Badge variant="default" className="text-xs bg-green-100 text-green-800 border-green-300">
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              Yes
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">
-                              <X className="h-3 w-3 mr-1" />
-                              No
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Electives</label>
-                        <div className="mt-1">
-                          {schedule.some(item => item.subject && item.subject.toLowerCase().includes('elective')) ? (
-                            <Badge variant="default" className="text-xs bg-purple-100 text-purple-800 border-purple-300">
-                              <GraduationCap className="h-3 w-3 mr-1" />
-                              Teaching
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-xs text-muted-foreground">
-                              <X className="h-3 w-3 mr-1" />
-                              None
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+              <div className="space-y-4">
+                <div>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Subjects Taught</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {uniqueSubjects.length > 0 ? uniqueSubjects.map(subject => (
+                      <span key={subject} className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                        isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                      }`}>
+                        {subject}
+                      </span>
+                    )) : (
+                      <span className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>No subjects assigned</span>
+                    )}
                   </div>
+                </div>
 
-                  {/* Teaching Statistics */}
-                  <div className="space-y-4 lg:col-span-2 border-2 border-gray-300 rounded-lg p-2">
-                    <h4 className="font-semibold text-primary border-b pb-2 flex items-center gap-2">
-                      <BarChart3 className="h-4 w-4" />
-                      Statistics
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="text-center bg-blue-50 rounded-lg p-2 border border-blue-200">
-                          <div className="text-lg font-bold text-blue-600">{totalHours}</div>
-                          <div className="text-xs text-blue-600">Regular</div>
-                        </div>
-                        <div className="text-center bg-yellow-50 rounded-lg p-2 border border-yellow-200">
-                          <div className="text-lg font-bold text-yellow-600">{totalSpecialHours}</div>
-                          <div className="text-xs text-yellow-600">Special</div>
-                        </div>
-                      </div>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Departments:</span>
-                          <span className="font-medium">{uniqueDepartments.length}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Years:</span>
-                          <span className="font-medium">{uniqueYears.length}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Sections:</span>
-                          <span className="font-medium">{uniqueSections.length}</span>
-                        </div>
-                      </div>
-                    </div>
+                <div className={`border-t pt-4 ${isDark ? "border-indigo-500/15" : "border-indigo-100"}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Departments</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {uniqueDepartments.length > 0 ? uniqueDepartments.map(dept => (
+                      <span key={dept} className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                        isDark ? "bg-purple-500/15 text-purple-300 border-purple-500/30" : "bg-purple-50 text-purple-700 border-purple-200"
+                      }`}>
+                        {dept}
+                      </span>
+                    )) : (
+                      <span className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>None</span>
+                    )}
                   </div>
+                </div>
 
-                  {/* Classes Overview */}
-                  <div className="space-y-4 border-2 border-gray-300 rounded-lg p-2">
-                    <h4 className="font-semibold text-primary border-b pb-2 flex items-center gap-2">
-                      <Building2 className="h-4 w-4" />
-                      Classes Overview
-                    </h4>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Departments</label>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {uniqueDepartments.map(dept => (
-                            <Badge key={dept} variant="secondary" className="text-xs">
-                              {dept}
-                            </Badge>
-                          ))}
-                          {uniqueDepartments.length === 0 && (
-                            <span className="text-xs text-muted-foreground">None</span>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Years & Sections</label>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {uniqueClasses.slice(0, 3).map(classInfo => {
-                            const parts = classInfo.split(' - ');
-                            return (
-                              <Badge key={classInfo} variant="outline" className="text-xs">
-                                {parts[1]} {parts[2]}
-                              </Badge>
-                            );
-                          })}
-                          {uniqueClasses.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{uniqueClasses.length - 3} more
-                            </Badge>
-                          )}
-                          {uniqueClasses.length === 0 && (
-                            <span className="text-xs text-muted-foreground">None</span>
-                          )}
-                        </div>
-                      </div>
+                <div className={`border-t pt-4 ${isDark ? "border-indigo-500/15" : "border-indigo-100"}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Classes</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {uniqueClasses.length > 0 ? uniqueClasses.map(classInfo => {
+                      const parts = classInfo.split(' - ');
+                      return (
+                        <span key={classInfo} className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                          isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
+                        }`}>
+                          {parts[1]} {parts[2]}
+                        </span>
+                      );
+                    }) : (
+                      <span className={`text-xs ${isDark ? "text-slate-500" : "text-slate-400"}`}>None</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Roles & Quick Stats */}
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/30 to-transparent" />
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
+                  isDark ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400" : "bg-emerald-50 border-emerald-200 text-emerald-600"
+                }`}>
+                  <BarChart3 className="h-4.5 w-4.5" />
+                </div>
+                <h3 className={`text-sm font-bold uppercase tracking-wider ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                  Roles & Overview
+                </h3>
+              </div>
+
+              <div className="space-y-4">
+                <div className={`p-3.5 rounded-xl border flex items-center justify-between ${innerCard}`}>
+                  <span className={`text-xs font-bold ${isDark ? "text-slate-300" : "text-slate-700"}`}>Class Counselor</span>
+                  {schedule.some(item => item.is_special && ['Student Counselling', 'Counselling'].includes(item.subject || '')) ? (
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                      isDark ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    }`}>
+                      <CheckCircle className="h-3 w-3 inline mr-1" />
+                      Yes
+                    </span>
+                  ) : (
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                      isDark ? "bg-white/5 text-slate-400 border-white/10" : "bg-slate-100 text-slate-500 border-slate-200"
+                    }`}>
+                      <X className="h-3 w-3 inline mr-1" />
+                      No
+                    </span>
+                  )}
+                </div>
+
+                <div className={`p-3.5 rounded-xl border flex items-center justify-between ${innerCard}`}>
+                  <span className={`text-xs font-bold ${isDark ? "text-slate-300" : "text-slate-700"}`}>Elective Teaching</span>
+                  {schedule.some(item => item.subject && item.subject.toLowerCase().includes('elective')) ? (
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                      isDark ? "bg-purple-500/15 text-purple-300 border-purple-500/30" : "bg-purple-50 text-purple-700 border-purple-200"
+                    }`}>
+                      <GraduationCap className="h-3 w-3 inline mr-1" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                      isDark ? "bg-white/5 text-slate-400 border-white/10" : "bg-slate-100 text-slate-500 border-slate-200"
+                    }`}>
+                      <X className="h-3 w-3 inline mr-1" />
+                      None
+                    </span>
+                  )}
+                </div>
+
+                <div className={`border-t pt-4 ${isDark ? "border-indigo-500/15" : "border-indigo-100"}`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider block mb-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Weekly Breakdown</span>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className={`text-center p-3 rounded-xl border ${innerCard}`}>
+                      <div className={`text-lg font-black ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>{uniqueDepartments.length}</div>
+                      <div className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Depts</div>
+                    </div>
+                    <div className={`text-center p-3 rounded-xl border ${innerCard}`}>
+                      <div className={`text-lg font-black ${isDark ? "text-cyan-300" : "text-cyan-600"}`}>{uniqueYears.length}</div>
+                      <div className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Years</div>
+                    </div>
+                    <div className={`text-center p-3 rounded-xl border ${innerCard}`}>
+                      <div className={`text-lg font-black ${isDark ? "text-purple-300" : "text-purple-600"}`}>{uniqueSections.length}</div>
+                      <div className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>Secs</div>
                     </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-        </div>
+              </div>
+            </div>
+          </div>
 
-        {/* Personal Timetable - Full Width Below */}
-        <div>
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5" />
+          {/* ── Personal Timetable ─────────────────────────────── */}
+          <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+            <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
+
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2.5">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
+                  isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                }`}>
+                  <Calendar className="h-4.5 w-4.5" />
+                </div>
+                <div>
+                  <h2 className={`text-base font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
                     Your Personal Timetable
-                  </CardTitle>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleSyncSchedule}
-                    disabled={syncing}
-                  >
-                    <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-                    {syncing ? 'Syncing...' : 'Sync Schedule'}
-                  </Button>
+                  </h2>
+                  <p className={`text-[11px] font-medium ${isDark ? "text-indigo-400/70" : "text-indigo-600/80"}`}>
+                    6-day weekly schedule with {totalHours + totalSpecialHours} allocated periods
+                  </p>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm">
-                    <thead>
-                      <tr className="bg-gradient-to-r from-primary/20 to-primary/10">
-                        <th className="border border-gray-300 p-4 text-sm font-semibold bg-primary/30 text-center">
-                          <Clock className="h-4 w-4 mx-auto mb-1" />
-                          Day / Period
-                        </th>
-                        {PERIODS.map((period, idx) => (
-                          <th key={period} className="border border-gray-300 p-3 text-center font-semibold min-w-[120px]">
-                            <div className="font-bold text-primary">{period}</div>
-                            <div className="text-xs text-muted-foreground font-normal mt-1">
-                              {TIME_SLOTS[idx]}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncSchedule}
+                disabled={syncing}
+                className={`h-9 px-4 rounded-xl text-xs font-semibold border transition-all ${
+                  isDark ? "border-indigo-500/20 bg-white/5 hover:bg-white/10 text-slate-300" : "border-indigo-200/80 bg-white hover:bg-indigo-50 text-slate-700"
+                }`}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing...' : 'Sync Schedule'}
+              </Button>
+            </div>
+
+            <div className="overflow-x-auto -mx-2 px-2">
+              <table className={`w-full border-collapse rounded-2xl overflow-hidden shadow-sm border ${
+                isDark ? "border-indigo-500/20" : "border-indigo-200"
+              }`}>
+                <thead>
+                  <tr className={isDark ? "bg-[#0c1226]" : "bg-indigo-50/70"}>
+                    <th className={`border p-3.5 text-xs font-bold text-center uppercase tracking-wider ${
+                      isDark ? "border-indigo-500/20 text-indigo-300" : "border-indigo-200 text-indigo-900"
+                    }`}>
+                      <Clock className="h-3.5 w-3.5 mx-auto mb-1 text-indigo-400" />
+                      Day / Period
+                    </th>
+                    {PERIODS.map((period, idx) => (
+                      <th key={period} className={`border p-3 text-center font-bold min-w-[120px] ${
+                        isDark ? "border-indigo-500/20" : "border-indigo-200"
+                      }`}>
+                        <div className={`text-xs font-extrabold uppercase tracking-wider ${isDark ? "text-indigo-400" : "text-indigo-500"}`}>{period}</div>
+                        <div className={`text-[10px] font-normal mt-0.5 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                          {TIME_SLOTS[idx]}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DAYS.map((day, dayIdx) => (
+                    <tr key={day} className={`transition-colors ${
+                      isDark ? "hover:bg-white/[0.02]" : "hover:bg-indigo-50/30"
+                    }`}>
+                      <td className={`border p-3.5 font-bold text-center ${
+                        isDark ? "border-indigo-500/20 bg-indigo-500/5 text-indigo-200" : "border-indigo-200 bg-indigo-50/40 text-indigo-900"
+                      }`}>
+                        <div className="text-xs font-extrabold">{day}</div>
+                      </td>
+                      {PERIODS.map((_, periodIdx) => {
+                        const scheduleItem = timetableGrid[dayIdx]?.[periodIdx];
+                        return (
+                          <td key={periodIdx} className={`border p-1.5 ${
+                            isDark ? "border-indigo-500/20" : "border-indigo-200"
+                          }`}>
+                            <div
+                              className={`h-20 rounded-xl flex flex-col items-center justify-center text-center text-xs p-2 transition-all hover:scale-[1.02] ${
+                                scheduleItem
+                                  ? scheduleItem.is_special
+                                    ? isDark
+                                      ? 'bg-amber-500/15 border border-amber-400/30 text-amber-200 shadow-[0_0_12px_-2px_rgba(245,158,11,0.25)]'
+                                      : 'bg-amber-50/90 border border-amber-200 text-amber-900 shadow-xs'
+                                    : isDark
+                                      ? 'bg-indigo-500/15 border border-indigo-400/30 text-indigo-200 shadow-[0_0_12px_-2px_rgba(99,102,241,0.25)]'
+                                      : 'bg-indigo-50/90 border border-indigo-200 text-indigo-900 shadow-xs'
+                                  : isDark
+                                    ? 'bg-emerald-500/5 border border-emerald-500/10 text-emerald-400/60'
+                                    : 'bg-emerald-50/30 border border-emerald-100 text-emerald-500/70'
+                              }`}
+                            >
+                              {scheduleItem ? (
+                                <>
+                                  <div className="font-extrabold text-xs mb-1 line-clamp-2">{scheduleItem.subject}</div>
+                                  <div className="text-[10px] opacity-80 font-medium leading-tight">
+                                    {scheduleItem.department_name || 'Dept'}
+                                    <br />
+                                    Yr {scheduleItem.year} - Sec {scheduleItem.section}
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="font-semibold">
+                                  <div className="text-sm leading-none mb-0.5">✓</div>
+                                  <div className="text-[10px] uppercase tracking-wider font-bold">Free Hour</div>
+                                </div>
+                              )}
                             </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {DAYS.map((day, dayIdx) => (
-                        <tr key={day} className="hover:bg-muted/20 transition-colors">
-                          <td className="border border-gray-300 p-4 font-semibold bg-primary/10 text-center">
-                            <div className="text-sm">{day}</div>
                           </td>
-                          {PERIODS.map((_, periodIdx) => {
-                            const scheduleItem = timetableGrid[dayIdx]?.[periodIdx];
-                            return (
-                              <td key={periodIdx} className="border border-gray-300 p-2">
-                                <div 
-                                  className={`h-20 rounded-lg flex flex-col items-center justify-center text-center text-xs p-2 transition-all hover:shadow-md ${
-                                    scheduleItem 
-                                      ? scheduleItem.is_special 
-                                        ? 'bg-gradient-to-br from-yellow-100 to-yellow-50 border-2 border-yellow-300 text-yellow-800 shadow-sm' 
-                                        : 'bg-gradient-to-br from-blue-100 to-blue-50 border-2 border-blue-300 text-blue-800 shadow-sm'
-                                      : 'bg-gradient-to-br from-gray-50 to-gray-25 text-gray-500 border-2 border-gray-200'
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Timetable Legend */}
+            <div className="mt-5 flex flex-wrap gap-5 justify-center text-xs">
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-md border ${isDark ? "bg-indigo-500/20 border-indigo-500/40" : "bg-indigo-100 border-indigo-300"}`}></div>
+                <span className={`font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>Regular Classes</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-md border ${isDark ? "bg-amber-500/20 border-amber-500/40" : "bg-amber-100 border-amber-300"}`}></div>
+                <span className={`font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>Special Activities</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className={`w-4 h-4 rounded-md border ${isDark ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-200"}`}></div>
+                <span className={`font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>Free Periods</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Subject Assignments ────────────────────────────── */}
+          {subjectAssignments.length > 0 && (
+            <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+
+              <div className="flex items-center gap-2.5 mb-6">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
+                  isDark ? "bg-purple-500/15 border-purple-500/30 text-purple-400" : "bg-purple-50 border-purple-200 text-purple-600"
+                }`}>
+                  <BookOpen className="h-4.5 w-4.5" />
+                </div>
+                <div>
+                  <h2 className={`text-base font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Subject & Faculty Assignments
+                  </h2>
+                  <p className={`text-[11px] font-medium ${isDark ? "text-purple-400/70" : "text-purple-600/80"}`}>
+                    Detailed schedule breakdown by subject
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {subjectAssignments.map((assignment, index) => (
+                  <div key={index} className={`rounded-2xl p-5 border transition-all hover:scale-[1.01] ${
+                    isDark
+                      ? "bg-white/[0.03] border-indigo-500/15 hover:border-indigo-400/30"
+                      : "bg-indigo-50/30 border-indigo-100/80 hover:border-indigo-200"
+                  }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className={`text-sm font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>{assignment.subject}</h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                      }`}>
+                        {assignment.schedule.length} slots
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <User className={`h-3 w-3 ${isDark ? "text-slate-400" : "text-slate-500"}`} />
+                      <span className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>{faculty.name}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {Array.from(new Set(assignment.schedule.map(item => `${item.department_name || 'Unknown'}-${item.year}-${item.section}`))).map(classKey => {
+                        const classSchedule = assignment.schedule.filter(item => `${item.department_name || 'Unknown'}-${item.year}-${item.section}` === classKey);
+                        return (
+                          <div key={classKey} className={`rounded-xl p-3 border ${
+                            isDark ? "bg-[#090e1f]/60 border-indigo-500/10" : "bg-white/80 border-indigo-100/50"
+                          }`}>
+                            <div className={`text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                              {classSchedule[0].department_name || 'Department'} • Year {classSchedule[0].year} - Sec {classSchedule[0].section}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {classSchedule.map((scheduleItem, scheduleIndex) => (
+                                <span
+                                  key={scheduleIndex}
+                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
+                                    isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-300" : "bg-indigo-50 border-indigo-200 text-indigo-800"
                                   }`}
                                 >
-                                  {scheduleItem ? (
-                                    <>
-                                      <div className="font-bold text-sm mb-1">{scheduleItem.subject}</div>
-                                      <div className="text-[10px] opacity-90 font-medium leading-tight">
-                                        {scheduleItem.department_name || 'Unknown'}
-                                        <br />
-                                        Year {scheduleItem.year} - Sec {scheduleItem.section}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="text-muted-foreground font-medium">
-                                      <div className="text-lg mb-1">—</div>
-                                      <div className="text-xs">Free</div>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {/* Timetable Legend */}
-                <div className="mt-4 flex flex-wrap gap-4 justify-center text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-br from-blue-100 to-blue-50 border-2 border-blue-300 rounded"></div>
-                    <span>Regular Classes</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-br from-yellow-100 to-yellow-50 border-2 border-yellow-300 rounded"></div>
-                    <span>Special Activities</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 bg-gradient-to-br from-gray-50 to-gray-25 border-2 border-gray-200 rounded"></div>
-                    <span>Free Periods</span>
-                  </div>
-                </div>
-
-              </CardContent>
-            </Card>
-          </div>
-        
-
-        {/* Subject & Faculty Assignments */}
-        {subjectAssignments.length > 0 && (
-          <div className="mt-8">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5" />
-                  Subject & Faculty Assignments
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-6">
-                  {subjectAssignments.map((assignment, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <h3 className="text-lg font-semibold text-blue-900 mb-2">{assignment.subject}</h3>
-                      <div className="flex items-center gap-2 text-muted-foreground mb-3">
-                        <User className="h-4 w-4" />
-                        <span className="font-medium">{faculty.name}</span>
-                      </div>
-                      
-                      <div>
-                        <h4 className="text-sm font-medium text-muted-foreground mb-2">Schedule:</h4>
-                        <div className="space-y-2">
-                          {/* Group schedule by class */}
-                          {Array.from(new Set(assignment.schedule.map(item => `${item.department_name || 'Unknown'}-${item.year}-${item.section}`))).map(classKey => {
-                            const classSchedule = assignment.schedule.filter(item => `${item.department_name || 'Unknown'}-${item.year}-${item.section}` === classKey);
-                            return (
-                              <div key={classKey} className="bg-muted/10 rounded-md p-2">
-                                <div className="text-xs font-medium text-muted-foreground mb-1">
-                                  {classSchedule[0].department_name || 'Unknown'} - Year {classSchedule[0].year} - Section {classSchedule[0].section}
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {classSchedule.map((scheduleItem, scheduleIndex) => (
-                                    <Badge 
-                                      key={scheduleIndex}
-                                      variant="outline" 
-                                      className="text-xs bg-blue-50 border-blue-200 text-blue-800"
-                                    >
-                                      {scheduleItem.day} - {scheduleItem.period}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                                  {scheduleItem.day} - {scheduleItem.period}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </section>
-    </main>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </section>
+      </main>
+    </div>
   );
 };
 

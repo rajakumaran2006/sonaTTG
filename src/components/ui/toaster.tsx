@@ -23,7 +23,7 @@ export function Toaster() {
               {isDestructive ? (
                 <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
               ) : (
-                <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5 animate-bounce" />
+                <CheckCircle2 className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5 animate-bounce" />
               )}
               <div className="grid gap-1">
                 {title && <ToastTitle className="text-slate-100 font-bold">{title}</ToastTitle>}

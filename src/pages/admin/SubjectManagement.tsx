@@ -20,8 +20,10 @@ import { ensureDepartment, getSubjectsForYear, addSubject as addSubjectDb, addSu
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
 import { SpecialHoursManager } from "@/components/SpecialHoursManager";
+import { useDarkMode } from "@/context/DarkModeContext";
 //sample
 const SubjectManagement = () => {
+  const { isDark } = useDarkMode();
   const navigate = useNavigate();
   const { toast } = useToast();
   const available = useTimetableStore((s) => s.availableSubjects);
@@ -614,23 +616,48 @@ const SubjectManagement = () => {
   const SubjectTable = CustomTable<SubjectRow>;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={`min-h-screen transition-colors duration-300 relative overflow-x-hidden ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
+      <main className="md:pl-72 animate-fade-in-up pt-16 md:pt-0 relative z-10 transition-all duration-300">
         <SelectionHeader />
-        <section className="container py-4">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
         {/* Semester Selection Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 mb-6 rounded-2xl bg-card border border-border/60 shadow-sm">
+        <div className={`flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+          isDark 
+            ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" 
+            : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+        }`}>
           <div className="flex items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Semester:</span>
-            <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl">
+            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-indigo-300/80" : "text-indigo-900/80"}`}>Semester:</span>
+            <div className={`flex items-center gap-1.5 p-1 rounded-xl border ${
+              isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/70 border-indigo-100"
+            }`}>
               <button
                 type="button"
                 onClick={() => setSemesterType("odd")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   semesterType === "odd"
-                    ? "bg-emerald-500 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-indigo-600 text-white border border-indigo-400/50 shadow-[0_0_10px_-2px_rgba(99,102,241,0.4)]"
+                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Odd Semester
@@ -640,15 +667,17 @@ const SubjectManagement = () => {
                 onClick={() => setSemesterType("even")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   semesterType === "even"
-                    ? "bg-amber-500 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white border border-amber-400/50 shadow-[0_0_10px_-2px_rgba(245,158,11,0.4)]"
+                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Even Semester
               </button>
             </div>
             {semesterType === "even" && (
-              <Badge variant="outline" className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25">
+              <Badge variant="outline" className={`text-[11px] font-semibold border ${
+                isDark ? "text-amber-400 bg-amber-500/10 border-amber-500/30" : "text-amber-700 bg-amber-50 border-amber-200"
+              }`}>
                 Even Semester (Years II, III &amp; IV)
               </Badge>
             )}
@@ -661,7 +690,11 @@ const SubjectManagement = () => {
           (2 + (showElectiveCard ? 1 : 0) + (showOpenElectiveCard ? 1 : 0)) === 3 ? 'lg:grid-cols-3' : 
           'lg:grid-cols-2'
         } gap-6 mb-6 transform-gpu transition-all duration-300`}>
-          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+          <Card className={`rounded-2xl border backdrop-blur-2xl p-2 transition-all duration-300 ${
+            isDark 
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+          }`}>
             <CardHeader className="pb-2">
               <CardTitle className="text-lg font-bold">Summary</CardTitle>
               <CardDescription className="text-xs">Max 42 hours/week</CardDescription>
@@ -688,7 +721,11 @@ const SubjectManagement = () => {
 
           {/* Professional Elective Settings */}
           {showElectiveCard && (
-            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <Card className={`rounded-2xl border backdrop-blur-2xl p-2 transition-all duration-300 ${
+              isDark 
+                ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+                : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+            }`}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-bold">Elective Settings</CardTitle>
                 <CardDescription className="text-xs">Configure how electives are scheduled</CardDescription>
@@ -717,15 +754,21 @@ const SubjectManagement = () => {
 
           {/* Open Elective Settings */}
           {showOpenElectiveCard && (
-            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <Card className={`rounded-2xl border backdrop-blur-2xl p-2 transition-all duration-300 ${
+              isDark 
+                ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+                : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+            }`}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-bold">Open Elective Settings</CardTitle>
                 <CardDescription className="text-xs">Configure how Open Electives are scheduled</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-0">
-                <div className="p-3 rounded-xl bg-background/50 border border-border/50 shadow-sm space-y-3">
+                <div className={`p-3 rounded-xl border space-y-3 ${
+                  isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/50 border-indigo-100"
+                }`}>
                   <div>
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Hours per week</Label>
+                    <Label className={`text-[10px] uppercase tracking-wider font-semibold mb-1 block ${isDark ? "text-indigo-300/80" : "text-indigo-900/80"}`}>Hours per week</Label>
                     <div className="flex items-center gap-3">
                       <Input
                         type="number"
@@ -733,7 +776,7 @@ const SubjectManagement = () => {
                         max={42}
                         value={openElectiveHours}
                         onChange={(e) => setOpenElectiveHoursState(parseInt(e.target.value || '0', 10))}
-                        className="h-8 w-20 bg-background/50"
+                        className={`h-8 w-20 ${isDark ? "bg-[#090d1c] border-indigo-500/30" : "bg-white border-indigo-200"}`}
                       />
                       <Button size="sm" onClick={handleSaveOpenElectiveHours} disabled={savingOpenElective} className="h-8">
                         {savingOpenElective ? 'Saving…' : 'Save'}
@@ -742,9 +785,9 @@ const SubjectManagement = () => {
                   </div>
                   
                   <div>
-                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Scheduling Mode</Label>
+                    <Label className={`text-[10px] uppercase tracking-wider font-semibold mb-1 block ${isDark ? "text-indigo-300/80" : "text-indigo-900/80"}`}>Scheduling Mode</Label>
                     <Select value={openElectiveMode} onValueChange={(v: 'parallel' | 'separate') => setOpenElectiveMode(v)}>
-                      <SelectTrigger className="h-8 bg-background/50">
+                      <SelectTrigger className={`h-8 ${isDark ? "bg-[#090d1c] border-indigo-500/30" : "bg-white border-indigo-200"}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -761,31 +804,41 @@ const SubjectManagement = () => {
           )}
 
           {/* Faculty Overview */}
-          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg font-bold">
-                <div className="p-1.5 rounded-lg bg-primary/10">
-                  <Users className="h-4 w-4 text-primary" />
+          <Card className={`rounded-2xl border backdrop-blur-2xl p-2 transition-all duration-300 ${
+            isDark 
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+          }`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2.5 text-base font-semibold tracking-tight">
+                <div className={`p-2 rounded-xl border ${
+                  isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                }`}>
+                  <Users className="h-4 w-4" />
                 </div>
-                Faculty
+                Faculty Overview
               </CardTitle>
-              <CardDescription className="text-xs">Assignment Status</CardDescription>
+              <CardDescription className="text-xs">Assignment distribution status</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2.5 rounded-xl bg-background/50 border border-border/50 shadow-sm">
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1">Total</div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className={`p-3 rounded-xl border shadow-xs ${
+                  isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/50 border-indigo-100"
+                }`}>
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider mb-1">Total</div>
                   <div className="text-lg font-bold">{availableFaculty.length}</div>
                 </div>
-                <div className="p-2.5 rounded-xl bg-background/50 border border-border/50 shadow-sm">
-                  <div className="text-[10px] uppercase font-semibold text-green-600 mb-1">Assigned</div>
-                  <div className="text-lg font-bold text-green-600">{Object.keys(subjectFacultyMap).length}</div>
+                <div className={`p-3 rounded-xl border shadow-xs ${
+                  isDark ? "bg-indigo-500/10 border-indigo-500/30" : "bg-indigo-50 border-indigo-200"
+                }`}>
+                  <div className="text-[10px] uppercase font-semibold text-indigo-500 tracking-wider mb-1">Assigned</div>
+                  <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{Object.keys(subjectFacultyMap).length}</div>
                 </div>
               </div>
-              <div className="p-2.5 rounded-xl bg-orange-50/50 border border-orange-100 shadow-sm flex items-center justify-between">
+              <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 shadow-xs flex items-center justify-between">
                 <div>
-                  <div className="text-[10px] uppercase font-semibold text-orange-600">Unassigned</div>
-                  <div className="text-lg font-bold text-orange-600">
+                  <div className="text-[10px] uppercase font-semibold text-orange-600 dark:text-orange-400 tracking-wider">Unassigned</div>
+                  <div className="text-lg font-bold text-orange-600 dark:text-orange-400">
                     {available.length - Object.keys(subjectFacultyMap).length}
                   </div>
                 </div>
@@ -793,7 +846,7 @@ const SubjectManagement = () => {
                   <Button 
                     size="sm" 
                     variant="ghost" 
-                    className="h-8 px-2 text-[10px] font-bold uppercase hover:bg-orange-100/50"
+                    className="h-8 px-3 text-[11px] font-semibold rounded-xl uppercase hover:bg-orange-500/15"
                     onClick={() => {
                       available.forEach(subject => {
                         const suggestions = getSuggestedFaculty(subject);
@@ -822,13 +875,17 @@ const SubjectManagement = () => {
               onConfigUpdate={setSpecialHoursConfigs}
             />
           ) : (
-            <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+            <Card className={`rounded-2xl border backdrop-blur-2xl p-2 transition-all duration-300 ${
+              isDark 
+                ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+                : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+            }`}>
               <CardHeader>
-                <CardTitle className="text-lg font-bold">Special Hours Configuration</CardTitle>
+                <CardTitle className="text-base font-semibold tracking-tight">Special Hours Configuration</CardTitle>
                 <CardDescription className="text-xs">Configure Seminar, Library, and Counselling</CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center py-6">
-                <BookOpen className="h-10 w-10 text-muted-foreground opacity-20 mb-2" />
+              <CardContent className="flex flex-col items-center justify-center py-8">
+                <BookOpen className="h-10 w-10 text-muted-foreground/30 mb-2" />
                 <p className="text-xs text-muted-foreground text-center">Select department and year to configure special hours</p>
               </CardContent>
             </Card>
@@ -836,11 +893,15 @@ const SubjectManagement = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
-          <Card className="rounded-2xl">
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <Card className={`rounded-2xl border backdrop-blur-2xl transition-all duration-300 ${
+            isDark 
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)] text-white" 
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)] text-slate-900"
+          }`}>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 sm:p-7">
               <div className="flex-1">
-                <CardTitle>Selected for Generation</CardTitle>
-                <CardDescription>Filter and manage subjects for the timetable</CardDescription>
+                <CardTitle className="text-xl font-semibold tracking-tight">Selected for Generation</CardTitle>
+                <CardDescription className="text-sm text-muted-foreground mt-0.5">Filter and manage subjects for the timetable</CardDescription>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-2">
                 <Dialog>
@@ -975,7 +1036,7 @@ const SubjectManagement = () => {
                       ) : row.type === 'lab' ? (
                         row.labAllocName ? (
                           <div className="flex flex-col gap-0.5">
-                            <Badge variant="default" className="text-[10px] bg-green-100 text-green-800 dark:bg-green-950/60 dark:text-green-400 border border-green-200 dark:border-green-800/30 w-fit">
+                            <Badge variant="default" className="text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/30 w-fit">
                               {row.labAllocName}
                             </Badge>
                             {row.labAllocCode && <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{row.labAllocCode}</span>}
@@ -997,7 +1058,7 @@ const SubjectManagement = () => {
                       row.rowType === 'special' ? (
                         <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
                       ) : (
-                        <span className={`text-sm flex items-center gap-1.5 ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-655 dark:text-orange-400'}`}>
+                        <span className={`text-sm flex items-center gap-1.5 ${row.assignedFacultyName !== 'Unassigned' ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400'}`}>
                           {row.assignedFacultyName !== 'Unassigned' ? <UserCheck className="h-3.5 w-3.5 shrink-0" /> : <Users className="h-3.5 w-3.5 shrink-0" />}
                           <span className="truncate max-w-[140px]">{row.assignedFacultyName}</span>
                         </span>
@@ -1015,7 +1076,7 @@ const SubjectManagement = () => {
                           ⚠ Pending
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-250 dark:text-emerald-450 dark:border-emerald-900/30 bg-emerald-100 dark:bg-emerald-950/10">
+                        <Badge variant="outline" className="text-[10px] text-indigo-600 border-indigo-200 dark:text-indigo-400 dark:border-indigo-800/40 bg-indigo-50 dark:bg-indigo-950/30">
                           ✓ Ready
                         </Badge>
                       )
@@ -1056,7 +1117,7 @@ const SubjectManagement = () => {
                     onClick={onToggleSelect}
                     className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
                       isSelected
-                        ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30"
+                        ? "border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30"
                         : "border-border hover:border-muted-foreground/35 hover:bg-muted/10"
                     }`}
                   >
@@ -1094,14 +1155,14 @@ const SubjectManagement = () => {
                             
                             <div className="flex items-center gap-2 flex-wrap pt-1.5 border-t border-border">
                               <span>Faculty:</span>
-                              <span className={`font-semibold ${row.assignedFacultyName !== 'Unassigned' ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-450'}`}>{row.assignedFacultyName}</span>
+                              <span className={`font-semibold ${row.assignedFacultyName !== 'Unassigned' ? 'text-indigo-600 dark:text-indigo-400' : 'text-amber-600 dark:text-amber-400'}`}>{row.assignedFacultyName}</span>
                             </div>
 
                             {row.type === 'lab' && (
                               <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border">
                                 <span>Lab:</span>
                                 {row.labAllocName ? (
-                                  <span className="font-semibold text-green-600 dark:text-green-400">{row.labAllocName} ({row.labAllocCode})</span>
+                                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">{row.labAllocName} ({row.labAllocCode})</span>
                                 ) : (
                                   <span className="font-semibold text-orange-655 dark:text-orange-450">Not Allocated</span>
                                 )}
@@ -1116,7 +1177,7 @@ const SubjectManagement = () => {
                           checked={isSelected}
                           onCheckedChange={(checked) => onToggleSelect()}
                           onClick={(e) => e.stopPropagation()}
-                          className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                          className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                         />
                         {row.rowType !== 'special' && (
                           <button

@@ -519,26 +519,37 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent
-        className={`max-w-3xl max-h-[90vh] flex flex-col border rounded-2xl shadow-2xl transition-colors duration-300 ${
-          isDark ? "bg-[#0e0e1a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
+        className={`max-w-3xl max-h-[90vh] flex flex-col border rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
+          isDark 
+            ? "bg-[#090d1c]/95 border-indigo-500/30 text-white shadow-[0_0_35px_-5px_rgba(99,102,241,0.25)]" 
+            : "bg-white/95 border-indigo-200/80 text-slate-900 shadow-[0_0_30px_-5px_rgba(99,102,241,0.12)]"
         }`}
+        style={isDark ? { backgroundImage: 'radial-gradient(ellipse at 20% 0%, rgba(99,102,241,0.15) 0%, transparent 60%)' } : {}}
       >
         <DialogHeader className="shrink-0 pb-1">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${isDark ? "bg-emerald-500/15 text-emerald-400" : "bg-emerald-50 text-emerald-600"}`}>
+            <div className={`p-2.5 rounded-xl border ${
+              isDark 
+                ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400 shadow-[0_0_12px_-2px_rgba(99,102,241,0.3)]" 
+                : "bg-indigo-50 border-indigo-200 text-indigo-600 shadow-xs"
+            }`}>
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
                 Import Even Semester Subjects
-                <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-xs">
+                <Badge variant="outline" className={`text-xs border ${
+                  isDark ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                }`}>
                   Semesters IV, VI &amp; VIII (Years II, III, IV)
                 </Badge>
-                <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">
+                <Badge variant="secondary" className={`text-[10px] uppercase font-bold tracking-wider border ${
+                  isDark ? "bg-purple-500/10 text-purple-300 border-purple-500/25" : "bg-purple-50 text-purple-700 border-purple-200"
+                }`}>
                   Bulk Importer
                 </Badge>
               </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+              <DialogDescription className={`text-xs mt-0.5 ${isDark ? "text-indigo-300/70" : "text-slate-500"}`}>
                 Bulk import or configure Even Semester curriculum for Years II, III &amp; IV across all departments. Saved subjects will be reused automatically whenever Even Semester is selected.
               </DialogDescription>
             </div>
@@ -547,9 +558,11 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
 
         <div className="space-y-4 pt-1 flex-1 overflow-y-auto pr-1">
           {/* Department Choice & Action Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl border border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.02]">
+          <div className={`flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl border backdrop-blur-md transition-colors ${
+            isDark ? "border-indigo-500/20 bg-indigo-950/20" : "border-indigo-100 bg-indigo-50/50"
+          }`}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+              <span className={`text-xs font-semibold flex items-center gap-1 ${isDark ? "text-indigo-300/80" : "text-indigo-900/80"}`}>
                 <Layers className="h-3.5 w-3.5" /> Scope:
               </span>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -558,10 +571,10 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                   onClick={() => setSelectedDept("ALL")}
                   className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all ${
                     selectedDept === "ALL"
-                      ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                      ? "bg-indigo-600 text-white border-indigo-400/50 shadow-[0_0_10px_-2px_rgba(99,102,241,0.4)]"
                       : isDark
-                      ? "bg-white/5 border-white/10 text-slate-300 hover:border-white/20"
-                      : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                      ? "bg-white/5 border-white/10 text-slate-300 hover:border-indigo-500/30"
+                      : "bg-white border-slate-200 text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/50"
                   }`}
                 >
                   All Departments (Bulk)
@@ -573,10 +586,10 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                     onClick={() => setSelectedDept(dept)}
                     className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
                       selectedDept === dept
-                        ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                        ? "bg-indigo-600 text-white border-indigo-400/50 shadow-[0_0_10px_-2px_rgba(99,102,241,0.4)]"
                         : isDark
-                        ? "bg-white/5 border-white/10 text-slate-300 hover:border-white/20"
-                        : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                        ? "bg-white/5 border-white/10 text-slate-300 hover:border-indigo-500/30"
+                        : "bg-white border-slate-200 text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/50"
                     }`}
                   >
                     {dept}
@@ -613,7 +626,11 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                 variant="outline"
                 size="sm"
                 onClick={handleLoadDefaults}
-                className="h-8 text-xs gap-1.5 rounded-lg bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 font-semibold"
+                className={`h-8 text-xs gap-1.5 rounded-lg border font-semibold transition-all ${
+                  isDark 
+                    ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20 shadow-[0_0_10px_-2px_rgba(99,102,241,0.2)]" 
+                    : "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100/70"
+                }`}
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 {selectedDept === "ALL" ? "Pre-fill All Depts" : `Pre-fill ${selectedDept}`}
@@ -636,20 +653,20 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
             }}
             className={`border-2 border-dashed rounded-xl p-5 text-center transition-all ${
               dragOver
-                ? "border-emerald-500 bg-emerald-500/10"
+                ? "border-indigo-500 bg-indigo-500/15 shadow-[0_0_15px_-2px_rgba(99,102,241,0.3)]"
                 : isDark
-                ? "border-white/10 hover:border-white/20 bg-white/[0.02]"
-                : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                ? "border-indigo-500/20 hover:border-indigo-500/40 bg-white/[0.02]"
+                : "border-indigo-200 hover:border-indigo-300 bg-indigo-50/30"
             }`}
           >
-            <Upload className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
+            <Upload className={`h-6 w-6 mx-auto mb-2 ${isDark ? "text-indigo-400" : "text-indigo-600"}`} />
             <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              Drag &amp; drop your Bulk Even Semester file (<span className="font-mono text-emerald-600 dark:text-emerald-400">.xlsx</span> or <span className="font-mono text-emerald-600 dark:text-emerald-400">.csv</span>)
+              Drag &amp; drop your Bulk Even Semester file (<span className="font-mono text-indigo-600 dark:text-indigo-400">.xlsx</span> or <span className="font-mono text-indigo-600 dark:text-indigo-400">.csv</span>)
             </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 mb-2.5">
+            <p className={`text-[11px] mt-0.5 mb-2.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
               Include columns: <code className="font-mono font-bold">Department</code>, <code className="font-mono font-bold">Year (II, III, IV)</code>, <code className="font-mono font-bold">Subject Code</code>, <code className="font-mono font-bold">Subject Name</code>, <code className="font-mono font-bold">Type</code>, and <code className="font-mono font-bold">Hours Per Week</code>.
             </p>
-            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm">
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm shadow-indigo-500/25">
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Browse Spreadsheet / CSV
               <input
@@ -678,7 +695,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                   <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <span className="px-1.5 py-0.5 rounded bg-muted">Yr II: {yearStats.II}</span>
                     <span className="px-1.5 py-0.5 rounded bg-muted">Yr III: {yearStats.III}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-muted font-bold text-emerald-600 dark:text-emerald-400">Yr IV: {yearStats.IV}</span>
+                    <span className="px-1.5 py-0.5 rounded bg-muted font-bold text-indigo-600 dark:text-indigo-400">Yr IV: {yearStats.IV}</span>
                   </div>
                 </div>
 
@@ -722,7 +739,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                         onClick={() => setPreviewFilterDept(d)}
                         className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-all ${
                           previewFilterDept === d
-                            ? "bg-emerald-500 text-white border-emerald-500 shadow-sm"
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
                             : "bg-muted/40 border-border text-muted-foreground hover:text-foreground"
                         }`}
                       >
@@ -734,9 +751,13 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
               )}
 
               {/* Subjects Table */}
-              <div className="max-h-60 overflow-y-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-inner">
+              <div className={`max-h-60 overflow-y-auto rounded-xl border backdrop-blur-md shadow-inner ${
+                isDark ? "border-indigo-500/20 bg-black/20" : "border-indigo-200/70 bg-white/60"
+              }`}>
                 <table className="w-full text-left text-xs">
-                  <thead className={`sticky top-0 z-10 ${isDark ? "bg-[#181828] text-slate-200" : "bg-slate-100 text-slate-700"} font-semibold shadow-sm`}>
+                  <thead className={`sticky top-0 z-10 backdrop-blur-md ${
+                    isDark ? "bg-[#11162b]/90 text-indigo-200 border-b border-indigo-500/20" : "bg-indigo-50/90 text-indigo-900 border-b border-indigo-100"
+                  } font-semibold shadow-xs`}>
                     <tr>
                       <th className="p-2.5">Dept</th>
                       <th className="p-2.5">Year</th>
@@ -747,17 +768,21 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                       <th className="p-2.5 text-center w-10">Remove</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-white/5 font-normal">
+                  <tbody className={`divide-y font-normal ${isDark ? "divide-indigo-500/10" : "divide-indigo-100/60"}`}>
                     {displayedSubjects.map((s, idx) => (
-                      <tr key={idx} className={isDark ? "hover:bg-white/[0.02]" : "hover:bg-slate-50/80"}>
+                      <tr key={idx} className={isDark ? "hover:bg-indigo-500/5 transition-colors" : "hover:bg-indigo-50/40 transition-colors"}>
                         <td className="p-2.5">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-muted border border-border">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            isDark ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                          }`}>
                             {s.department}
                           </span>
                         </td>
                         <td className="p-2.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
-                            s.year === "IV" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-muted"
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            s.year === "IV" 
+                              ? "bg-amber-500/15 text-amber-500 dark:text-amber-400 border-amber-500/30" 
+                              : (isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200")
                           }`}>
                             Yr {s.year}
                           </span>
@@ -765,14 +790,14 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                         <td className="p-2.5 font-mono text-muted-foreground">{s.code || "-"}</td>
                         <td className="p-2.5 font-medium">{s.name}</td>
                         <td className="p-2.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase border ${
                             s.type === "open elective"
-                              ? "bg-purple-500/15 text-purple-600 dark:text-purple-300"
+                              ? (isDark ? "bg-purple-500/15 text-purple-300 border-purple-500/30" : "bg-purple-50 text-purple-700 border-purple-200")
                               : s.type === "lab"
-                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                              ? (isDark ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30" : "bg-cyan-50 text-cyan-700 border-cyan-200")
                               : s.type === "elective"
-                              ? "bg-blue-500/15 text-blue-600 dark:text-blue-300"
-                              : "bg-slate-500/15 text-slate-600 dark:text-slate-300"
+                              ? (isDark ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-blue-50 text-blue-700 border-blue-200")
+                              : (isDark ? "bg-slate-500/15 text-slate-300 border-slate-500/30" : "bg-slate-100 text-slate-700 border-slate-200")
                           }`}>
                             {s.type}
                           </span>
@@ -802,7 +827,9 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-slate-100 dark:border-white/5 shrink-0">
+        <div className={`flex items-center justify-between gap-3 pt-3 mt-1 border-t shrink-0 ${
+          isDark ? "border-indigo-500/20" : "border-indigo-100"
+        }`}>
           <div className="text-xs text-muted-foreground">
             {subjectsList.length > 0 ? (
               <span>
@@ -821,7 +848,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
             <Button
               onClick={handleSaveToDatabase}
               disabled={isSaving || subjectsList.length === 0}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs gap-1.5 rounded-xl disabled:opacity-40 font-bold px-4 h-9 shadow-md shadow-emerald-500/20"
+              className="bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-xs gap-1.5 rounded-xl disabled:opacity-40 font-bold px-5 h-9 shadow-md shadow-indigo-500/25"
             >
               {isSaving ? (
                 <>Saving Subjects in Bulk...</>

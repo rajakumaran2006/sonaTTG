@@ -127,7 +127,7 @@ const Navbar = () => {
   const SidebarContent = () => (
     <div className="flex h-full flex-col p-4 bg-background">
       <div className="flex h-12 items-center border-b pb-4 mb-4">
-        <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-emerald-500 to-teal-600">
+        <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
           OptiTime
         </Link>
       </div>
@@ -140,14 +140,14 @@ const Navbar = () => {
             onClick={() => setIsMobileMenuOpen(false)}
             className={({ isActive }) => 
               isActive 
-                ? `${linkBase} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20`
+                ? `${linkBase} bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20`
                 : `${linkBase} text-muted-foreground hover:bg-muted hover:text-foreground`
             }
           >
             {item.icon}
             <span>{item.label}</span>
             {typeof item.badge === 'number' && item.badge > 0 && (
-              <Badge variant="secondary" className="ml-auto bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+              <Badge variant="secondary" className="ml-auto bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                 {item.badge}
               </Badge>
             )}
@@ -175,7 +175,7 @@ const Navbar = () => {
         
         {/* Left Side: Brand Logo and Desktop Nav */}
         <div className="flex items-center gap-6">
-          <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-emerald-500 to-teal-600">
+          <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
             OptiTime
           </Link>
           
@@ -187,13 +187,13 @@ const Navbar = () => {
                 end={item.href === "/super-admin" || item.href === "/admin" || item.href === "/faculty"}
                 className={({ isActive }) => 
                   isActive 
-                    ? `${linkBase} bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20`
+                    ? `${linkBase} bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20`
                     : `${linkBase} text-muted-foreground hover:bg-muted hover:text-foreground border border-transparent`
                 }
               >
                 <span>{item.label}</span>
                 {typeof item.badge === 'number' && item.badge > 0 && (
-                  <Badge variant="secondary" className="bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 py-0 px-1.5 text-[10px]">
+                  <Badge variant="secondary" className="bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 py-0 px-1.5 text-[10px]">
                     {item.badge}
                   </Badge>
                 )}

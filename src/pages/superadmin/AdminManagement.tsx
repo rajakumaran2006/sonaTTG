@@ -10,9 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/navbar/Navbar";
-import { Plus, Edit, Trash2, UserCheck, UserX } from "lucide-react";
+import { Plus, Edit, Trash2, UserCheck, UserX, UserCog, Shield } from "lucide-react";
 import { CustomTable } from "@/components/ui/CustomTable";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 interface AdminUser {
   id: string;
@@ -36,6 +37,7 @@ interface Department {
 
 const AdminManagement = () => {
   const navigate = useNavigate();
+  const { isDark } = useDarkMode();
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -408,95 +410,168 @@ const AdminManagement = () => {
   const AdminTable = CustomTable<AdminUser>;
 
   return (
-    <main className="min-h-screen bg-background">
-      <Navbar />
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <section className="container py-10 md:pt-24">
-        <header className="mb-6 flex items-center justify-between">
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/admin')}>
-              Admin Console
-            </Button>
-            <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Admin
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Admin</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Name</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Departments <span className="text-muted-foreground text-xs">(select one or more)</span></Label>
-                    <div className="border rounded-lg p-3 max-h-44 overflow-y-auto space-y-2">
-                      {departments.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No departments available</p>
-                      ) : departments.map((dept) => {
-                        const checked = formData.department_ids.includes(dept.id);
-                        return (
-                          <label key={dept.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/40 px-2 py-1 rounded-md transition-colors">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(c) => {
-                                const ids = c
-                                  ? [...formData.department_ids, dept.id]
-                                  : formData.department_ids.filter(id => id !== dept.id);
-                                setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
-                              }}
-                            />
-                            <span className="text-sm">{dept.name}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    {formData.department_ids.length > 0 && (
-                      <p className="text-xs text-muted-foreground">{formData.department_ids.length} department(s) selected</p>
-                    )}
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setOpenCreate(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleCreateAdmin}>Create Admin</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </header>
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background refraction orbs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/10 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
 
-        <Card className="rounded-xl">
-          <CardHeader>
-            <CardTitle>Department Administrators</CardTitle>
+      <Navbar />
+
+      <main className="md:pl-72 pt-16 md:pt-16 transition-all duration-300 relative z-10">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 w-full space-y-8">
+          {/* Header Banner */}
+          <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-5 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+            isDark
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+          }`}>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full border ${
+                  isDark
+                    ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                }`}>
+                  System Access
+                </span>
+                <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  {admins.length} {admins.length === 1 ? 'administrator' : 'administrators'}
+                </span>
+              </div>
+              <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
+                isDark ? "text-white" : "bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent"
+              }`}>
+                Administrator Management
+              </h1>
+              <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Configure role access, credentials, and department allocations for administrators.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => navigate('/admin')}
+                className={`h-10 rounded-xl border text-xs font-semibold px-4 transition-all ${
+                  isDark
+                    ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10"
+                    : "bg-white border-indigo-200/80 text-slate-700 hover:bg-indigo-50"
+                }`}
+              >
+                Admin Console
+              </Button>
+              <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+                <DialogTrigger asChild>
+                  <Button className="h-10 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs px-4 shadow-sm shadow-indigo-500/25 border border-indigo-400/30 flex items-center gap-2">
+                    <Plus className="h-4 w-4" />
+                    Create Admin
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className={`rounded-2xl border backdrop-blur-2xl shadow-2xl ${
+                  isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+                }`}>
+                  <DialogHeader>
+                    <DialogTitle className="text-lg font-bold">Create New Admin</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="name" className="text-xs font-semibold">Name</Label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className="rounded-xl h-10 text-xs"
+                        placeholder="e.g. Dr. John Doe"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="email" className="text-xs font-semibold">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className="rounded-xl h-10 text-xs"
+                        placeholder="admin@college.edu"
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs font-semibold">Departments <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>(select one or more)</span></Label>
+                      <div className={`border rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5 ${
+                        isDark ? "bg-white/[0.03] border-indigo-500/20" : "bg-slate-50 border-slate-200"
+                      }`}>
+                        {departments.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No departments available</p>
+                        ) : departments.map((dept) => {
+                          const checked = formData.department_ids.includes(dept.id);
+                          return (
+                            <label key={dept.id} className={`flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg transition-colors text-xs ${
+                              isDark ? "hover:bg-white/[0.06]" : "hover:bg-indigo-50/80"
+                            }`}>
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(c) => {
+                                  const ids = c
+                                    ? [...formData.department_ids, dept.id]
+                                    : formData.department_ids.filter(id => id !== dept.id);
+                                  setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
+                                }}
+                              />
+                              <span className="text-xs font-medium">{dept.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      {formData.department_ids.length > 0 && (
+                        <p className="text-[11px] text-indigo-400 font-medium">{formData.department_ids.length} department(s) selected</p>
+                      )}
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="password" className="text-xs font-semibold">Password</Label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className="rounded-xl h-10 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" className="rounded-xl text-xs" onClick={() => setOpenCreate(false)}>
+                      Cancel
+                    </Button>
+                    <Button className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold" onClick={handleCreateAdmin}>
+                      Create Admin
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+
+          {/* Table Container Card */}
+          <div className={`rounded-2xl backdrop-blur-2xl border transition-all duration-300 p-4 md:p-6 shadow-xl ${
+            isDark
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] text-white"
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] text-slate-900"
+          }`}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-xl font-semibold tracking-tight">Department Administrators</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -555,7 +630,7 @@ const AdminManagement = () => {
                       return (
                         <div className="flex flex-wrap gap-1">
                           {names.map((name: string, i: number) => (
-                            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">{name}</span>
+                            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">{name}</span>
                           ))}
                         </div>
                       );
@@ -566,7 +641,7 @@ const AdminManagement = () => {
                     header: "Status",
                     sortable: true,
                     render: (row) => (
-                      <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-green-100 text-green-800 dark:bg-emerald-950/40 dark:text-emerald-450 border border-green-200 dark:border-emerald-900/30" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800"}>
+                      <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800"}>
                         {row.is_active ? "Active" : "Inactive"}
                       </Badge>
                     )
@@ -595,7 +670,7 @@ const AdminManagement = () => {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleToggleStatus(row.id, row.is_active)}
-                          className={`h-8 w-8 ${row.is_active ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-amber-500 dark:hover:bg-slate-800' : 'text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-slate-800'}`}
+                          className={`h-8 w-8 ${row.is_active ? 'text-slate-500 hover:text-amber-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-amber-500 dark:hover:bg-slate-800' : 'text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-indigo-400 dark:hover:bg-slate-800'}`}
                           title={row.is_active ? "Deactivate Admin" : "Activate Admin"}
                         >
                           {row.is_active ? (
@@ -623,14 +698,14 @@ const AdminManagement = () => {
                     onClick={onToggleSelect}
                     className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
                       isSelected
-                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        ? "border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30 text-foreground"
                         : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm"
                     }`}
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 leading-tight">{row.name}</h4>
-                        <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-green-100 text-green-800 dark:bg-emerald-950/40 dark:text-emerald-455 border border-green-200 dark:border-emerald-900/30 text-[9px]" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800 text-[9px]"}>
+                        <Badge variant={row.is_active ? "default" : "secondary"} className={row.is_active ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40 text-[9px]" : "bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-800 text-[9px]"}>
                           {row.is_active ? "Active" : "Inactive"}
                         </Badge>
                       </div>
@@ -643,7 +718,7 @@ const AdminManagement = () => {
                           const names = deptIds.map((id: string) => departments.find(d => d.id === id)?.name).filter(Boolean);
                           if (names.length === 0) return <span>No dept assigned</span>;
                           return names.map((name: string, i: number) => (
-                            <span key={i} className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded">{name}</span>
+                            <span key={i} className="bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40 px-1.5 py-0.5 rounded">{name}</span>
                           ));
                         })()}
                         <span>•</span>
@@ -655,7 +730,7 @@ const AdminManagement = () => {
                         checked={isSelected}
                         onCheckedChange={() => onToggleSelect()}
                         onClick={(e) => e.stopPropagation()}
-                        className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                        className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                       />
                       <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -666,7 +741,7 @@ const AdminManagement = () => {
                         </button>
                         <button
                           onClick={() => handleToggleStatus(row.id, row.is_active)}
-                          className={`h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors ${row.is_active ? 'bg-amber-100 text-amber-800 dark:bg-amber-955/20 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-955/40' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-955/20 dark:text-emerald-455 hover:bg-emerald-200 dark:hover:bg-emerald-955/40'}`}
+                          className={`h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors ${row.is_active ? 'bg-amber-100 text-amber-800 dark:bg-amber-955/20 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-955/40' : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/60'}`}
                         >
                           {row.is_active ? "Deactivate" : "Activate"}
                         </button>
@@ -682,81 +757,92 @@ const AdminManagement = () => {
                 )}
               />
             )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </div>
 
-        {/* Edit Admin Dialog */}
-        <Dialog open={!!editingAdmin} onOpenChange={() => setEditingAdmin(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Admin</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="edit-name">Name</Label>
-                <Input
-                  id="edit-name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="edit-email">Email</Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label>Departments <span className="text-muted-foreground text-xs">(select one or more)</span></Label>
-                <div className="border rounded-lg p-3 max-h-44 overflow-y-auto space-y-2">
-                  {departments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No departments available</p>
-                  ) : departments.map((dept) => {
-                    const checked = formData.department_ids.includes(dept.id);
-                    return (
-                      <label key={dept.id} className="flex items-center gap-2 cursor-pointer hover:bg-muted/40 px-2 py-1 rounded-md transition-colors">
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(c) => {
-                            const ids = c
-                              ? [...formData.department_ids, dept.id]
-                              : formData.department_ids.filter(id => id !== dept.id);
-                            setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
-                          }}
-                        />
-                        <span className="text-sm">{dept.name}</span>
-                      </label>
-                    );
-                  })}
+          {/* Edit Admin Dialog */}
+          <Dialog open={!!editingAdmin} onOpenChange={() => setEditingAdmin(null)}>
+            <DialogContent className={`rounded-2xl border backdrop-blur-2xl shadow-2xl ${
+              isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+            }`}>
+              <DialogHeader>
+                <DialogTitle className="text-lg font-bold">Edit Admin</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-3">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="edit-name" className="text-xs font-semibold">Name</Label>
+                  <Input
+                    id="edit-name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="rounded-xl h-10 text-xs"
+                  />
                 </div>
-                {formData.department_ids.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{formData.department_ids.length} department(s) selected</p>
-                )}
+                <div className="grid gap-1.5">
+                  <Label htmlFor="edit-email" className="text-xs font-semibold">Email</Label>
+                  <Input
+                    id="edit-email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="rounded-xl h-10 text-xs"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs font-semibold">Departments <span className={`text-[10px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>(select one or more)</span></Label>
+                  <div className={`border rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5 ${
+                    isDark ? "bg-white/[0.03] border-indigo-500/20" : "bg-slate-50 border-slate-200"
+                  }`}>
+                    {departments.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No departments available</p>
+                    ) : departments.map((dept) => {
+                      const checked = formData.department_ids.includes(dept.id);
+                      return (
+                        <label key={dept.id} className={`flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg transition-colors text-xs ${
+                          isDark ? "hover:bg-white/[0.06]" : "hover:bg-indigo-50/80"
+                        }`}>
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(c) => {
+                              const ids = c
+                                ? [...formData.department_ids, dept.id]
+                                : formData.department_ids.filter(id => id !== dept.id);
+                              setFormData({ ...formData, department_ids: ids, department_id: ids[0] || '' });
+                            }}
+                          />
+                          <span className="text-xs font-medium">{dept.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {formData.department_ids.length > 0 && (
+                    <p className="text-[11px] text-indigo-400 font-medium">{formData.department_ids.length} department(s) selected</p>
+                  )}
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="edit-password" className="text-xs font-semibold">New Password (leave blank to keep current)</Label>
+                  <Input
+                    id="edit-password"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="rounded-xl h-10 text-xs"
+                  />
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="edit-password">New Password (leave blank to keep current)</Label>
-                <Input
-                  id="edit-password"
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingAdmin(null)}>
-                Cancel
-              </Button>
-              <Button onClick={handleUpdateAdmin}>Update Admin</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" className="rounded-xl text-xs" onClick={() => setEditingAdmin(null)}>
+                  Cancel
+                </Button>
+                <Button className="rounded-xl text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold" onClick={handleUpdateAdmin}>
+                  Update Admin
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </section>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 };
 

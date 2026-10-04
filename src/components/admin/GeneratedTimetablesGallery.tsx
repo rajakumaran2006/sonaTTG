@@ -50,16 +50,16 @@ function getCellStyle(cell: string, isDark: boolean): string {
   if (!cell) {
     return isDark 
       ? 'bg-white/[0.02] text-slate-500 border border-dashed border-white/10' 
-      : 'bg-slate-50/70 text-slate-400 border border-dashed border-slate-200';
+      : 'bg-indigo-50/30 text-indigo-300 border border-dashed border-indigo-200/60';
   }
   if (cell === 'BREAK' || cell === 'LUNCH') {
     return isDark 
       ? 'bg-white/[0.02] text-slate-400 font-extrabold uppercase tracking-widest' 
-      : 'bg-slate-100/90 text-slate-500 font-extrabold uppercase tracking-widest';
+      : 'bg-indigo-50/60 text-indigo-700 font-extrabold uppercase tracking-widest border border-indigo-100/60';
   }
   return isDark 
-    ? 'bg-[#121222] text-slate-100 border border-white/10 hover:border-emerald-500/50 shadow-sm' 
-    : 'bg-white text-slate-900 border border-slate-200/90 hover:border-emerald-500/60 shadow-sm';
+    ? 'bg-[#121222] text-slate-100 border border-white/10 hover:border-indigo-500/50 shadow-sm' 
+    : 'bg-white text-slate-800 border border-indigo-100/90 hover:border-indigo-400 hover:shadow-[0_4px_12px_rgba(99,102,241,0.12)] shadow-[0_1px_3px_rgba(99,102,241,0.04)]';
 }
 
 function matchesFilter(cell: string, search: string, filterType: string): boolean {
@@ -83,22 +83,22 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
     <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm ${compact ? 'max-h-[250px]' : ''}`}>
       <table className="w-full border-collapse" style={{ minWidth: compact ? 650 : 1080 }}>
         <thead>
-          <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
-            <th className={`py-2.5 px-2 text-center font-bold text-xs uppercase tracking-wider w-16 border-r border-emerald-700/60 sticky left-0 z-20 bg-[#064e3b]`}>
+          <tr className="bg-slate-900 dark:bg-[#0e1428] text-white">
+            <th className={`py-2.5 px-2 text-center font-bold text-xs uppercase tracking-wider w-16 border-r border-slate-700/60 dark:border-white/10 sticky left-0 z-20 bg-slate-900 dark:bg-[#0e1428]`}>
               Day
             </th>
             {GRID_COLUMNS.map((col) => (
               <th
                 key={col.key}
-                className={`py-2 px-1 text-center border-r border-emerald-700/60 last:border-r-0 ${
-                  col.isDivider ? "w-16 sm:w-20 bg-[#053d2e]" : "min-w-[100px]"
+                className={`py-2 px-1 text-center border-r border-slate-700/60 dark:border-white/10 last:border-r-0 ${
+                  col.isDivider ? "w-16 sm:w-20 bg-slate-800 dark:bg-[#080d1a]" : "min-w-[100px]"
                 }`}
               >
                 <div className="flex flex-col items-center justify-center">
                   <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
                     {col.label}
                   </span>
-                  <span className="text-[9px] font-mono text-emerald-100/90 mt-0.5">
+                  <span className="text-[9px] font-mono text-slate-300 dark:text-indigo-300/80 mt-0.5">
                     {col.time}
                   </span>
                 </div>
@@ -150,7 +150,7 @@ function MiniGrid({ grid, search, filterType, compact = false }: {
                           rounded-xl flex items-center justify-center p-2 text-center transition-all select-none
                           ${compact ? 'h-11' : 'min-h-[58px]'}
                           ${getCellStyle(cell, isDark)}
-                          ${highlight ? 'ring-2 ring-emerald-500 scale-105 z-10' : ''}
+                          ${highlight ? 'ring-2 ring-indigo-500 scale-105 z-10' : ''}
                           ${isDimmed ? 'opacity-25' : ''}
                         `}
                       >
@@ -216,17 +216,26 @@ function SectionCard({ result, search, filterType, viewMode, onExpand, yearColor
   result: YearSectionResult; search: string; filterType: string; viewMode: 'table' | 'list';
   onExpand: () => void; yearColors: { accent: string; glow: string };
 }) {
+  const { isDark } = useDarkMode();
   return (
-    <div className={`rounded-2xl border ${yearColors.accent} bg-[#0d0d1a] shadow-lg ${yearColors.glow} hover:shadow-xl transition-all`}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/6">
+    <div className={`rounded-2xl border transition-all duration-200 ${
+      isDark 
+        ? `${yearColors.accent} bg-[#0d0d1a] shadow-lg ${yearColors.glow}` 
+        : "border-indigo-100/90 bg-white/90 shadow-md shadow-indigo-500/5 hover:border-indigo-300"
+    } hover:shadow-xl`}>
+      <div className={`flex items-center justify-between px-4 py-3 border-b ${
+        isDark ? "border-white/6" : "border-indigo-50 bg-indigo-50/20"
+      }`}>
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-white">Section {result.section}</span>
+          <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>Section {result.section}</span>
           {result.status === 'ok'
-            ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            ? <CheckCircle2 className="h-3.5 w-3.5 text-indigo-500" />
             : <AlertCircle className="h-3.5 w-3.5 text-red-400" />}
         </div>
         {result.status === 'ok' && (
-          <button onClick={onExpand} className="p-1.5 rounded-lg bg-white/6 hover:bg-white/12 transition-colors text-white/40 hover:text-white" title="Expand">
+          <button onClick={onExpand} className={`p-1.5 rounded-lg transition-colors ${
+            isDark ? "bg-white/6 hover:bg-white/12 text-white/40 hover:text-white" : "bg-indigo-50 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-800"
+          }`} title="Expand">
             <Maximize2 className="h-3.5 w-3.5" />
           </button>
         )}
@@ -326,18 +335,20 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
         className={`max-w-[98vw] w-[1400px] h-[92vh] flex flex-col p-0 border rounded-2xl overflow-hidden shadow-2xl transition-colors duration-300 ${
           isDark 
             ? "border-white/8 bg-[#08080f] text-white" 
-            : "border-slate-200 bg-[#f5f5f7] text-slate-900"
+            : "border-indigo-100 bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff] text-slate-900 shadow-[0_20px_60px_rgba(99,102,241,0.12)]"
         }`}
-        style={isDark ? { backgroundImage: 'radial-gradient(ellipse at 15% 15%, rgba(16,185,129,0.07) 0%, transparent 55%), radial-gradient(ellipse at 85% 85%, rgba(16,185,129,0.04) 0%, transparent 55%)' } : {}}
+        style={isDark 
+          ? { backgroundImage: 'radial-gradient(ellipse at 15% 15%, rgba(99,102,241,0.08) 0%, transparent 55%), radial-gradient(ellipse at 85% 85%, rgba(99,102,241,0.04) 0%, transparent 55%)' } 
+          : { backgroundImage: 'radial-gradient(ellipse at 15% 15%, rgba(99,102,241,0.06) 0%, transparent 60%), radial-gradient(ellipse at 85% 85%, rgba(168,85,247,0.05) 0%, transparent 60%)' }}
       >
         {/* Top bar */}
         <div className={`flex items-center justify-between px-6 py-4 border-b shrink-0 ${
-          isDark ? "border-white/7" : "border-slate-200 bg-white"
+          isDark ? "border-white/7" : "border-indigo-100/80 bg-white/90 backdrop-blur-md"
         }`}>
           <div>
             <h2 className={`text-lg font-bold tracking-tight ${isDark ? "text-white" : "text-slate-800"}`}>Generated Timetables</h2>
             <p className={`text-xs mt-0.5 ${isDark ? "text-white/25" : "text-slate-500"}`}>
-              <span className="text-emerald-500 font-semibold">{totalOk} generated successfully</span>
+              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{totalOk} generated successfully</span>
               {totalErr > 0 && <span className="text-red-500/70"> · {totalErr} failed</span>}
               <span className={`ml-2 ${isDark ? "text-white/20" : "text-slate-400"}`}>· Subjects only view</span>
             </p>
@@ -345,25 +356,25 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
           <div className="flex items-center gap-2.5">
             {/* View toggle */}
             <div className={`flex p-1 rounded-xl border ${
-              isDark ? "bg-white/5 border-white/8" : "bg-slate-100 border-slate-200"
+              isDark ? "bg-white/5 border-white/8" : "bg-indigo-50/70 border-indigo-100"
             }`}>
               <button onClick={() => setViewMode('table')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 viewMode === 'table' 
-                  ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-slate-800 shadow-sm border border-slate-200') 
-                  : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-slate-800')
+                  ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-indigo-700 shadow-sm border border-indigo-100') 
+                  : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-indigo-600')
               }`}>
                 <LayoutGrid className="h-3 w-3" />Table
               </button>
               <button onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 viewMode === 'list' 
-                  ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-slate-800 shadow-sm border border-slate-200') 
-                  : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-slate-800')
+                  ? (isDark ? 'bg-white/15 text-white' : 'bg-white text-indigo-700 shadow-sm border border-indigo-100') 
+                  : (isDark ? 'text-white/35 hover:text-white/65' : 'text-slate-500 hover:text-indigo-600')
               }`}>
                 <List className="h-3 w-3" />List
               </button>
             </div>
             <button onClick={onClose} className={`p-2 rounded-xl transition-colors ${
-              isDark ? "bg-white/5 hover:bg-white/10 text-white/40 hover:text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800"
+              isDark ? "bg-white/5 hover:bg-white/10 text-white/40 hover:text-white" : "bg-indigo-50/80 hover:bg-indigo-100 text-indigo-600 hover:text-indigo-900 border border-indigo-100"
             }`}>
               <X className="h-4 w-4" />
             </button>
@@ -372,11 +383,11 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
 
         {/* Search + filter */}
         <div className={`flex items-center gap-3 px-6 py-3 border-b shrink-0 ${
-          isDark ? "border-white/5" : "border-slate-200 bg-white"
+          isDark ? "border-white/5" : "border-indigo-100/80 bg-white/70 backdrop-blur-sm"
         }`}>
           <div className="relative flex-1 max-w-sm">
             <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${
-              isDark ? "text-white/25" : "text-slate-400"
+              isDark ? "text-white/25" : "text-indigo-400"
             }`} />
             <Input
               value={search} onChange={(e) => setSearch(e.target.value)}
@@ -384,7 +395,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
               className={`pl-8 h-9 text-sm rounded-xl transition-colors ${
                 isDark 
                   ? "bg-white/5 border-white/9 text-white placeholder:text-white/20" 
-                  : "bg-white border-slate-200 text-slate-800 placeholder:text-slate-400 focus:bg-white"
+                  : "bg-white border-indigo-100 text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               }`}
             />
           </div>
@@ -392,15 +403,15 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
             <SelectTrigger className={`h-9 w-44 text-sm rounded-xl transition-colors ${
               isDark 
                 ? "bg-white/5 border-white/9 text-white/60" 
-                : "bg-white border-slate-200 text-slate-700"
+                : "bg-white border-indigo-100 text-slate-700 focus:border-indigo-500"
             }`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent className={`${
-              isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
+              isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-indigo-100 text-slate-800 shadow-lg shadow-indigo-500/5"
             }`}>
               {SUBJECT_TYPES.map((t) => (
-                <SelectItem key={t} value={t} className={`capitalize focus:bg-emerald-500 focus:text-white ${
+                <SelectItem key={t} value={t} className={`capitalize focus:bg-indigo-600 focus:text-white ${
                   isDark ? "text-white/75" : "text-slate-755"
                 }`}>
                   {t === 'all' ? 'All Types' : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -426,7 +437,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
                     activeYear === year 
                       ? `bg-gradient-to-r ${yc.tab} text-white shadow-lg` 
                       : hasYear 
-                        ? (isDark ? 'text-white/35 hover:text-white/65 hover:bg-white/5' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100') 
+                        ? (isDark ? 'text-white/35 hover:text-white/65 hover:bg-white/5' : 'text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/60') 
                         : (isDark ? 'text-white/15 cursor-not-allowed' : 'text-slate-300 cursor-not-allowed')
                   }`}
                 >
@@ -435,7 +446,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
                     <span className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                       activeYear === year 
                         ? 'bg-white/20 text-white' 
-                        : (isDark ? 'bg-white/8 text-white/40' : 'bg-slate-200 text-slate-600')
+                        : (isDark ? 'bg-white/8 text-white/40' : 'bg-indigo-100 text-indigo-700')
                     }`}>
                       {okCount}/{total}
                     </span>
@@ -449,7 +460,7 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
           {/* Section nested tabs inside Year */}
           {currentYearResults.length > 0 && (
             <div className={`flex p-1 rounded-xl border gap-1 ${
-              isDark ? "bg-white/3 border-white/6" : "bg-slate-100 border-slate-200"
+              isDark ? "bg-white/3 border-white/6" : "bg-indigo-50/50 border-indigo-100"
             }`}>
               {currentYearResults.map((r) => (
                 <button
@@ -457,15 +468,15 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
                   onClick={() => setActiveSection(r.section)}
                   className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                     activeSection === r.section
-                      ? (isDark ? "bg-white/15 text-white shadow-sm" : "bg-white text-slate-800 shadow-sm")
-                      : (isDark ? "text-white/40 hover:text-white/70" : "text-slate-500 hover:text-slate-800")
+                      ? (isDark ? "bg-white/15 text-white shadow-sm" : "bg-white text-indigo-700 shadow-sm border border-indigo-100")
+                      : (isDark ? "text-white/40 hover:text-white/70" : "text-slate-500 hover:text-indigo-600")
                   }`}
                 >
                   Section {r.section}
                   {r.status === 'ok' ? (
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${
-                        r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
+                        r.hourVerification?.isValid ?? true ? "bg-indigo-500" : "bg-amber-500"
                       }`}
                       title={
                         r.hourVerification?.isValid ?? true
@@ -503,10 +514,10 @@ export function GeneratedTimetablesGallery({ open, onClose, results }: Generated
             <div className={`rounded-2xl p-5 shadow-inner border transition-colors duration-300 ${
               isDark 
                 ? "bg-[#0c0c17] border-white/6" 
-                : "bg-white border-slate-200"
+                : "bg-white/95 border-indigo-100 shadow-[0_4px_20px_-4px_rgba(99,102,241,0.06)]"
             }`}>
               <div className={`flex items-center justify-between mb-4 border-b pb-3 ${
-                isDark ? "border-white/5" : "border-slate-100"
+                isDark ? "border-white/5" : "border-indigo-50"
               }`}>
                 <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
                   Timetable Grid: Year {activeResult.year} — Section {activeResult.section}

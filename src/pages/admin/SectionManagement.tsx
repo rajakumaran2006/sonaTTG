@@ -14,12 +14,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 interface Subject { id: string; name: string; type: string; hours_per_week: number }
 interface Faculty { id: string; name: string }
 
 const SectionManagement = () => {
+  const { isDark } = useDarkMode();
   const { id, year, section } = useParams();
   const navigate = useNavigate();
   const superAdmin = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
@@ -142,40 +145,69 @@ const SectionManagement = () => {
     });
   }, [labPrefs, subjects]);
 
-  const AssignmentTable = CustomTable<AssignmentRow>;
-  const LabPrefTable = CustomTable<LabPrefRow>;
+  const cardGlass = isDark
+    ? "bg-[#090d1c]/80 backdrop-blur-2xl border border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] text-white"
+    : "bg-white/80 backdrop-blur-2xl border border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] text-slate-900";
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className={`${'md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80'} animate-fade-in-up pt-16 ${
-        userType === 'super' ? 'md:pt-14' : 'md:pt-0'
-      } transition-all duration-300`}>
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
+      {userType === 'super' ? <Navbar /> : userType === 'faculty' ? <FacultyNavbar /> : <AdminNavbar />}
+      <main className={`transition-all duration-300 relative z-10 ${
+        userType === 'faculty' ? "" : "md:pl-72"
+      } ${
+        userType === 'super' ? "pt-16 md:pt-16" : userType === 'faculty' ? "" : "pt-16 md:pt-0"
+      }`}>
         <SelectionHeader />
-        <section className="container py-4">
-        <header className="mb-6 flex items-center justify-between">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
+        <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+          isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+        }`}>
           <div>
-            <h1 className="text-2xl font-bold">{deptName || 'Department'} — Year {year} — Section {section}</h1>
-            <p className="text-sm text-muted-foreground">Assign subjects, view timetable, manage lab preferences</p>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 text-xs font-bold border border-indigo-500/20 mb-2">
+              <span>Section Workspace</span>
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight">{deptName || 'Department'} — Year {year} — Section {section}</h1>
+            <p className="text-sm text-muted-foreground mt-1">Assign subjects, view timetable metrics, and configure lab allocations</p>
           </div>
-          <div className="space-x-2">
-            <Button variant="outline" onClick={() => navigate(userType === 'super' ? `/super-admin/departments/${id}/years/${year}` : '/admin')}>Back</Button>
-            <Button onClick={exportXlsx}>Export (Excel)</Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" className={`rounded-xl border font-semibold ${
+              isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
+            }`} onClick={() => navigate(userType === 'super' ? `/super-admin/departments/${id}/years/${year}` : '/admin')}>Back</Button>
+            <Button className="rounded-xl font-bold shadow-md bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-400/40" onClick={exportXlsx}>Export (Excel)</Button>
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <Card className="rounded-xl md:col-span-2">
-            <CardHeader><CardTitle className="text-base">Subject assignments</CardTitle></CardHeader>
+        <section className="grid gap-6 md:grid-cols-3">
+          <Card className={`rounded-3xl p-3 md:col-span-2 ${cardGlass}`}>
+            <CardHeader><CardTitle className="text-lg font-semibold tracking-tight">Subject Assignments</CardTitle></CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
                 {subjects.map((s) => (
                   <label 
                     key={s.id} 
-                    className={`flex items-center gap-3 border rounded-xl px-4 py-3 cursor-pointer transition-all hover:bg-slate-50 hover:shadow-sm ${
+                    className={`flex items-center gap-3 border rounded-2xl px-4 py-3 cursor-pointer transition-all hover:shadow-sm ${
                       selected.has(s.id) 
-                        ? 'bg-olive-50/20 border-olive-500 shadow-sm' 
-                        : 'bg-card/50 border-slate-200'
+                        ? 'bg-indigo-500/10 border-indigo-500/30 text-foreground shadow-sm' 
+                        : 'bg-background/50 border-border/40 text-foreground'
                     }`}
                   >
                     <Checkbox
@@ -187,40 +219,42 @@ const SectionManagement = () => {
                       }}
                     />
                     <div className="flex-1 flex flex-col">
-                      <span className="font-semibold text-sm text-slate-800">{s.name}</span>
+                      <span className="font-semibold text-sm text-foreground">{s.name}</span>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 capitalize">{s.type}</span>
-                        <span className="text-[10px] text-slate-400">•</span>
-                        <span className="text-[10px] font-medium text-slate-500">{s.hours_per_week} hours/week</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{s.type}</span>
+                        <span className="text-[10px] text-muted-foreground">•</span>
+                        <span className="text-[10px] font-medium text-muted-foreground">{s.hours_per_week} hours/week</span>
                       </div>
                     </div>
                   </label>
                 ))}
               </div>
               <div className="mt-4">
-                <Button onClick={async () => { await saveAssignments(); toast.success('Assignments saved'); }}>Save assignments</Button>
+                <Button className="rounded-xl shadow-sm" onClick={async () => { await saveAssignments(); toast.success('Assignments saved'); }}>Save assignments</Button>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-card to-secondary/30 backdrop-blur-sm">
+          <Card className={`rounded-3xl p-3 flex flex-col justify-between ${cardGlass}`}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-bold">Timetable preview</CardTitle>
+              <CardTitle className="text-lg font-semibold tracking-tight">Timetable Preview</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Filled periods</div>
-              <div className="text-4xl font-extrabold text-slate-850 mt-1">{timetableInfo.filled}</div>
-              <div className="text-[10px] text-muted-foreground mt-3 font-medium">
+            <CardContent className="space-y-4">
+              <div className="p-4 rounded-2xl bg-background/50 border border-border/40 backdrop-blur-md">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Filled Periods</div>
+                <div className="text-4xl font-extrabold text-foreground mt-1">{timetableInfo.filled}</div>
+              </div>
+              <div className="text-[11px] text-muted-foreground font-medium">
                 Updated: {timetableInfo.updated_at ? new Date(timetableInfo.updated_at).toLocaleString() : '-'}
               </div>
             </CardContent>
           </Card>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 mt-6">
-          <Card className="rounded-2xl border border-slate-100 shadow-lg bg-card overflow-hidden">
-            <CardHeader className="border-b bg-slate-50/50 pb-3">
-              <CardTitle className="text-base font-bold">Faculty assignments</CardTitle>
+        <section className="grid gap-6 md:grid-cols-2 mt-2">
+          <Card className={`rounded-3xl p-3 overflow-hidden ${cardGlass}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold tracking-tight">Faculty Assignments</CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               <div className="grid gap-2 md:grid-cols-3">
@@ -308,7 +342,7 @@ const SectionManagement = () => {
                     onClick={onToggleSelect}
                     className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer flex flex-col justify-between bg-card ${
                       isSelected
-                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        ? "border-indigo-500 shadow-md bg-indigo-500/5 text-foreground"
                         : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground"
                     }`}
                   >
@@ -321,7 +355,7 @@ const SectionManagement = () => {
                         checked={isSelected}
                         onCheckedChange={() => onToggleSelect()}
                         onClick={(e) => e.stopPropagation()}
-                        className="border-border data-[state=checked]:bg-emerald-500"
+                        className="border-border data-[state=checked]:bg-indigo-600"
                       />
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -356,8 +390,8 @@ const SectionManagement = () => {
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl">
-            <CardHeader><CardTitle className="text-base">Lab preferences</CardTitle></CardHeader>
+          <Card className={`rounded-3xl p-3 ${cardGlass}`}>
+            <CardHeader className="pb-3"><CardTitle className="text-lg font-semibold tracking-tight">Lab Preferences</CardTitle></CardHeader>
             <CardContent>
               <div className="grid gap-2 md:grid-cols-4">
                 <Select value={labSubjectId} onValueChange={setLabSubjectId}>
@@ -449,7 +483,7 @@ const SectionManagement = () => {
                     onClick={onToggleSelect}
                     className={`p-4 rounded-xl border transition-all duration-300 cursor-pointer flex flex-col justify-between bg-card ${
                       isSelected
-                        ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                        ? "border-indigo-500 shadow-md bg-indigo-500/5 text-foreground"
                         : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground"
                     }`}
                   >
@@ -466,7 +500,7 @@ const SectionManagement = () => {
                         checked={isSelected}
                         onCheckedChange={() => onToggleSelect()}
                         onClick={(e) => e.stopPropagation()}
-                        className="border-border data-[state=checked]:bg-emerald-500"
+                        className="border-border data-[state=checked]:bg-indigo-600"
                       />
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -500,9 +534,9 @@ const SectionManagement = () => {
           </Card>
         </section>
       </section>
+      </main>
     </div>
-  </main>
-);
+  );
 };
 
 export default SectionManagement;

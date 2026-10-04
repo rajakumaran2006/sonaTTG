@@ -109,19 +109,21 @@ const SUBJECT_TYPES = ['all', 'theory', 'lab', 'elective', 'open elective'];
 function getCellStyle(cell: string, isDark: boolean): string {
   if (!cell) {
     return isDark 
-      ? 'bg-white/[0.02] text-slate-500 border border-dashed border-white/10 hover:border-white/20' 
-      : 'bg-slate-50/70 text-slate-400 border border-dashed border-slate-200 hover:border-slate-300';
+      ? 'bg-white/[0.02] text-slate-500 border border-dashed border-white/10 hover:border-blue-500/40 hover:bg-blue-500/5' 
+      : 'bg-white/40 backdrop-blur-sm text-blue-300 border border-dashed border-blue-200/70 hover:border-blue-400/70 hover:bg-blue-50/40';
   }
   if (cell === 'BREAK' || cell === 'LUNCH') {
     return isDark 
-      ? 'bg-white/[0.02] text-slate-400 font-extrabold uppercase tracking-widest' 
-      : 'bg-slate-100/90 text-slate-500 font-extrabold uppercase tracking-widest';
+      ? 'bg-[#0a0e1c] text-slate-400 font-extrabold uppercase tracking-widest border border-white/5' 
+      : 'bg-blue-50/50 backdrop-blur-sm text-blue-600/80 font-extrabold uppercase tracking-widest border border-blue-100/70';
   }
 
-  // All subjects have the exact same clean, uniform, professional styling
-  return isDark 
-    ? 'bg-[#121222] text-slate-100 border border-white/10 hover:border-emerald-500/50 hover:bg-[#16162a] shadow-sm' 
-    : 'bg-white text-slate-900 border border-slate-200/90 hover:border-emerald-500/60 hover:bg-slate-50/80 shadow-sm';
+  if (isDark) {
+    return 'bg-[#0e1428]/90 text-slate-100 border border-blue-500/30 hover:border-blue-400/55 hover:bg-[#121a36] shadow-sm';
+  }
+
+  // All subject periods: Unified clean style (Blue + White + Glassmorphism)
+  return 'bg-white/90 backdrop-blur-md text-slate-900 border border-blue-200/90 hover:border-blue-400 hover:bg-white shadow-[0_2px_8px_rgba(37,99,235,0.06)]';
 }
 
 function matchesFilter(cell: string, search: string, filterType: string): boolean {
@@ -143,7 +145,7 @@ function MiniGrid({
   compact = false,
   onSwapSlots,
   getFaculty,
-  showFaculty = true,
+  showFaculty = false,
 }: {
   grid: string[][];
   search: string;
@@ -152,7 +154,7 @@ function MiniGrid({
   onSwapSlots?: (source: { day: number; period: number }, target: { day: number; period: number }) => void;
   getFaculty?: (subject: string) => string[];
   showFaculty?: boolean;
-}) {
+  }) {
   const { isDark } = useDarkMode();
   const safeGrid = Array.isArray(grid) ? grid : [];
 
@@ -160,25 +162,29 @@ function MiniGrid({
   const [dragOverTarget, setDragOverTarget] = useState<{ day: number; period: number } | null>(null);
 
   return (
-    <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10 shadow-sm bg-white dark:bg-[#0c0c18] ${compact ? 'max-h-[300px]' : ''}`}>
+    <div className={`overflow-x-auto rounded-xl border border-slate-200 dark:border-indigo-500/20 shadow-sm bg-white dark:bg-[#080b14] ${compact ? 'max-h-[300px]' : ''}`}>
       <table className="w-full border-collapse" style={{ minWidth: compact ? 650 : 1180 }}>
         <thead>
-          <tr className="bg-[#064e3b] dark:bg-[#064e3b] text-white">
-            <th className="py-3 px-3 text-center font-bold text-xs sm:text-[13px] uppercase tracking-wider w-20 border-r border-emerald-700/60 sticky left-0 z-20 bg-[#064e3b]">
+          <tr className={isDark ? "bg-[#0e1428] text-slate-200 border-b border-indigo-500/20" : "bg-[#0f172a] text-white"}>
+            <th className={`py-3 px-3 text-center font-bold text-xs sm:text-[13px] uppercase tracking-wider w-20 sticky left-0 z-20 ${
+              isDark ? "bg-[#0e1428] border-r border-white/10 text-slate-200" : "bg-[#0f172a] border-r border-slate-700 text-white"
+            }`}>
               Day
             </th>
             {GRID_COLUMNS.map((col) => (
               <th
                 key={col.key}
-                className={`py-2.5 px-2 text-center border-r border-emerald-700/60 last:border-r-0 ${
-                  col.isDivider ? "w-20 sm:w-24 bg-[#053d2e]" : "min-w-[125px]"
+                className={`py-2.5 px-2 text-center last:border-r-0 ${
+                  isDark
+                    ? `border-r border-white/10 ${col.isDivider ? "w-20 sm:w-24 bg-[#0a0f1e] text-slate-400" : "min-w-[125px] text-slate-200"}`
+                    : `border-r border-slate-700 ${col.isDivider ? "w-20 sm:w-24 bg-[#1e293b]" : "min-w-[125px]"}`
                 }`}
               >
                 <div className="flex flex-col items-center justify-center">
-                  <span className="text-xs sm:text-[13px] font-bold text-white tracking-wide">
+                  <span className={`text-xs sm:text-[13px] font-bold tracking-wide ${isDark ? "text-slate-100" : "text-white"}`}>
                     {col.label}
                   </span>
-                  <span className="text-[10px] sm:text-[11px] font-mono text-emerald-100/90 mt-0.5">
+                  <span className={`text-[10px] sm:text-[11px] font-mono mt-0.5 ${isDark ? "text-indigo-300/80" : "text-indigo-200/90"}`}>
                     {col.time}
                   </span>
                 </div>
@@ -202,7 +208,7 @@ function MiniGrid({
               >
                 {/* Day Header Cell */}
                 <td className={`py-2 px-3 text-center border-r font-semibold select-none sticky left-0 z-10 ${
-                  isDark ? "bg-[#0e0e1b] border-white/10" : "bg-slate-50 border-slate-200"
+                  isDark ? "bg-[#0f1527] border-white/10 text-slate-100" : "bg-slate-50 border-slate-200"
                 }`}>
                   <div className="flex flex-col items-center justify-center">
                     <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-100">
@@ -295,9 +301,9 @@ function MiniGrid({
                           ${compact ? 'h-12' : showFaculty ? 'min-h-[78px] sm:min-h-[86px]' : 'min-h-[64px] sm:min-h-[72px]'}
                           ${getCellStyle(cell, isDark)}
                           ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5' : ''}
-                          ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
-                          ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
-                          ${highlight ? 'ring-2 ring-emerald-500 scale-105 z-10' : ''}
+                          ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-indigo-500' : ''}
+                          ${isTargetThis ? 'ring-2 ring-indigo-500 bg-indigo-500/20 scale-105 z-20 shadow-xl' : ''}
+                          ${highlight ? 'ring-2 ring-indigo-500 scale-105 z-10' : ''}
                           ${isDimmed ? 'opacity-25' : ''}
                         `}
                       >
@@ -361,7 +367,7 @@ function ListView({ grid, search, filterType }: { grid: string[][]; search: stri
             : "bg-white border-slate-200 hover:bg-slate-50 text-slate-800 shadow-sm"
         }`}>
           <span className="text-xs font-extrabold uppercase w-10 text-slate-500 shrink-0">{item.day}</span>
-          <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+          <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
             {item.label}
           </span>
           {item.time && (
@@ -378,18 +384,47 @@ function ListView({ grid, search, filterType }: { grid: string[][]; search: stri
   );
 }
 
+function getFullScreenCellStyle(cell: string, isDark?: boolean): string {
+  if (!cell) {
+    return isDark
+      ? 'bg-slate-800/40 backdrop-blur-sm text-blue-400/50 border border-dashed border-blue-900/60 hover:border-blue-500/70 hover:bg-blue-950/40'
+      : 'bg-white/40 backdrop-blur-sm text-blue-300 border border-dashed border-blue-200/70 hover:border-blue-400/70 hover:bg-blue-50/40';
+  }
+  if (cell === 'BREAK' || cell === 'LUNCH') {
+    return isDark
+      ? 'bg-slate-900/70 backdrop-blur-sm text-blue-400 font-extrabold uppercase tracking-widest border border-blue-900/50'
+      : 'bg-blue-50/50 backdrop-blur-sm text-blue-600/80 font-extrabold uppercase tracking-widest border border-blue-100/70';
+  }
+
+  // Unified clean aesthetic for all subjects:
+  return isDark
+    ? 'bg-[#131b31]/90 backdrop-blur-md text-slate-100 border border-blue-500/30 hover:border-blue-400 hover:bg-[#182342] shadow-[0_2px_12px_rgba(0,0,0,0.4)]'
+    : 'bg-white/90 backdrop-blur-md text-slate-900 border border-blue-200/90 hover:border-blue-400 hover:bg-white shadow-[0_2px_8px_rgba(37,99,235,0.06)]';
+}
+
+function getFullScreenCellTitleColor(cell: string, isDark?: boolean): string {
+  if (!cell) return isDark ? 'text-slate-500' : 'text-slate-400';
+  return isDark ? 'text-slate-100 font-bold' : 'text-slate-900 font-bold';
+}
+
+function getFullScreenCellFacultyColor(cell: string, isDark?: boolean): string {
+  if (!cell) return isDark ? 'text-slate-500' : 'text-slate-400';
+  return isDark ? 'text-blue-300/90 font-medium' : 'text-blue-600 font-semibold';
+}
+
 function FullScreenGrid({
   grid,
   onSwapSlots,
   getFaculty,
-  showFaculty = true,
+  showFaculty = false,
+  isDark = false,
 }: {
   grid: string[][];
   onSwapSlots?: (source: { day: number; period: number }, target: { day: number; period: number }) => void;
   getFaculty?: (subject: string) => string[];
   showFaculty?: boolean;
+  isDark?: boolean;
 }) {
-  const { isDark } = useDarkMode();
   const safeGrid = Array.isArray(grid) ? grid : [];
 
   const [dragSource, setDragSource] = useState<{ day: number; period: number; subject: string } | null>(null);
@@ -428,17 +463,23 @@ function FullScreenGrid({
   };
 
   return (
-    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none relative">
+    <div className={`w-full h-full flex flex-col rounded-2xl overflow-hidden border ${
+      isDark
+        ? "border-blue-500/25 bg-[#0c1022]/85 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.6),0_0_12px_-2px_rgba(59,130,246,0.1),inset_0_1px_1px_0_rgba(255,255,255,0.05)]"
+        : "border-blue-200/70 bg-white/85 shadow-[0_4px_20px_-4px_rgba(37,99,235,0.08),0_0_10px_-2px_rgba(37,99,235,0.06),inset_0_1px_1px_0_rgba(255,255,255,0.9)]"
+    } backdrop-blur-2xl select-none relative`}>
       {/* Mobile scroll hint */}
-      <div className="xl:hidden px-2.5 py-1 bg-emerald-500/10 dark:bg-emerald-500/15 border-b border-emerald-500/20 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between shrink-0">
+      <div className={`xl:hidden px-2.5 py-1 ${
+        isDark ? "bg-blue-950/60 border-blue-800/60 text-blue-200" : "bg-blue-100/60 border-blue-200/60 text-blue-900"
+      } backdrop-blur-sm border-b text-[11px] font-semibold flex items-center justify-between shrink-0`}>
         <span className="flex items-center gap-1.5 truncate">
-          <ArrowLeftRight className="h-3 w-3 text-emerald-500 shrink-0" />
+          <ArrowLeftRight className="h-3 w-3 text-blue-600 shrink-0" />
           <span>Swipe horizontally for all periods • Tap slots to swap</span>
         </span>
         {selectedTapSlot && (
           <button
             onClick={() => setSelectedTapSlot(null)}
-            className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold underline shrink-0 ml-2"
+            className="text-[10px] text-blue-700 font-bold underline shrink-0 ml-2"
           >
             Cancel swap
           </button>
@@ -448,20 +489,34 @@ function FullScreenGrid({
       {/* Main scrollable grid viewport with sticky day column */}
       <div className="flex-1 min-h-0 w-full overflow-x-auto overflow-y-auto">
         <div className="w-full min-w-[940px] xl:min-w-0 xl:w-full h-full flex flex-col">
-          {/* Header */}
-          <div className="h-9 shrink-0 bg-[#064e3b] dark:bg-[#064e3b] text-white grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] border-b border-emerald-800 sticky top-0 z-30">
+          {/* Header - Crisp Pure Blue (Light) / Comfortable Midnight Blue (Dark) */}
+          <div className={`h-10 shrink-0 grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] ${
+            isDark ? "border-b border-blue-500/25 bg-[#131d38] text-blue-100 shadow-xs" : "border-b border-blue-400/30 bg-blue-600 text-white shadow-xs"
+          } sticky top-0 z-30`}>
             {cols.map((col, idx) => (
               <div
                 key={col.key}
-                className={`flex flex-col items-center justify-center leading-none border-r border-emerald-700/60 last:border-r-0 p-1 ${
-                  col.isDivider ? "bg-[#053d2e]" : ""
-                } ${idx === 0 ? "sticky left-0 z-40 bg-[#064e3b] shadow-[2px_0_4px_rgba(0,0,0,0.2)]" : ""}`}
+                className={`flex flex-col items-center justify-center leading-none last:border-r-0 p-1 ${
+                  isDark ? "border-r border-blue-500/20" : "border-r border-blue-500/40"
+                } ${
+                  col.isDivider
+                    ? isDark ? 'bg-[#0e162b]/90 text-blue-300/80' : 'bg-blue-700/50 text-blue-100'
+                    : ''
+                } ${
+                  idx === 0
+                    ? isDark
+                      ? 'sticky left-0 z-40 bg-[#182852] shadow-[2px_0_6px_rgba(0,0,0,0.5)]'
+                      : 'sticky left-0 z-40 bg-blue-700 shadow-[2px_0_6px_rgba(29,78,216,0.3)]'
+                    : ''
+                }`}
               >
-                <span className="text-xs sm:text-[13px] font-extrabold text-white tracking-wide uppercase">
+                <span className={`text-xs sm:text-[13px] font-extrabold tracking-wide uppercase ${isDark ? "text-blue-100" : "text-white"}`}>
                   {col.label}
                 </span>
                 {col.time && (
-                  <span className="text-[10px] xl:text-[10.5px] font-mono text-emerald-100/90 mt-0.5 whitespace-nowrap leading-none tracking-tight">
+                  <span className={`text-[10px] xl:text-[10.5px] font-mono mt-0.5 whitespace-nowrap leading-none tracking-tight font-medium ${
+                    isDark ? "text-blue-300/70" : "text-blue-100/90"
+                  }`}>
                     ({col.time})
                   </span>
                 )}
@@ -470,7 +525,7 @@ function FullScreenGrid({
           </div>
 
           {/* Body: 6 equal rows */}
-          <div className="flex-1 min-h-0 grid grid-rows-6 divide-y divide-slate-100 dark:divide-white/5">
+          <div className={`flex-1 min-h-0 grid grid-rows-6 divide-y ${isDark ? "divide-slate-800/80" : "divide-blue-100/70"}`}>
             {safeGrid.map((row, dayIdx) => {
               const r = Array.isArray(row) ? row : [];
               const displayRow: string[] = [
@@ -480,10 +535,14 @@ function FullScreenGrid({
               return (
                 <div
                   key={dayIdx}
-                  className="grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] h-full min-h-[58px] xl:min-h-0 transition-colors hover:bg-slate-50/50 dark:hover:bg-white/[0.01]"
+                  className={`grid grid-cols-[70px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_repeat(2,minmax(115px,1fr))_86px_minmax(115px,1fr))] xl:grid-cols-[5%_11%_11%_6%_11%_11%_6%_11%_11%_6%_11%] h-full min-h-[58px] xl:min-h-0 transition-colors ${isDark ? "hover:bg-slate-800/30" : "hover:bg-blue-50/25"}`}
                 >
                   {/* Sticky Day column */}
-                  <div className="flex items-center justify-center border-r border-slate-200 dark:border-white/10 font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0e0e1b] sticky left-0 z-20 shadow-[2px_0_4px_rgba(0,0,0,0.06)] uppercase tracking-wider">
+                  <div className={`flex items-center justify-center border-r ${
+                    isDark
+                      ? "border-blue-900/50 text-slate-100 bg-slate-900/80 shadow-[2px_0_6px_rgba(0,0,0,0.3)]"
+                      : "border-blue-100/90 text-slate-800 bg-blue-50/60 shadow-[2px_0_6px_rgba(37,99,235,0.06)]"
+                  } font-extrabold text-xs sm:text-sm backdrop-blur-md sticky left-0 z-20 uppercase tracking-wider`}>
                     {DAYS[dayIdx]}
                   </div>
 
@@ -497,9 +556,11 @@ function FullScreenGrid({
                       return (
                         <div
                           key={colIdx}
-                          className="border-r border-slate-200 dark:border-white/5 bg-slate-100/80 dark:bg-white/[0.02] flex items-center justify-center select-none"
+                          className={`border-r ${
+                            isDark ? "border-slate-800/80 bg-slate-900/50 text-blue-400/80" : "border-blue-100/80 bg-blue-50/35 text-blue-600/75"
+                          } backdrop-blur-sm flex items-center justify-center select-none`}
                         >
-                          <span className="text-xs sm:text-[13px] font-extrabold tracking-widest text-slate-500 dark:text-slate-400 uppercase whitespace-nowrap">
+                          <span className="text-xs sm:text-[13px] font-extrabold tracking-widest uppercase whitespace-nowrap">
                             {cell}
                           </span>
                         </div>
@@ -517,7 +578,7 @@ function FullScreenGrid({
                     return (
                       <div
                         key={colIdx}
-                        className="p-1 border-r border-slate-200 dark:border-white/5 last:border-r-0 h-full min-h-0 overflow-hidden flex items-center justify-center"
+                        className={`p-1 border-r ${isDark ? "border-slate-800/80" : "border-blue-100/70"} last:border-r-0 h-full min-h-0 overflow-hidden flex items-center justify-center`}
                         onDragOver={(e) => {
                           if (!canDrop || pIdx === null) return;
                           e.preventDefault();
@@ -566,21 +627,21 @@ function FullScreenGrid({
                           }
                           className={`
                             rounded-lg flex flex-col justify-center items-center px-1.5 py-0.5 transition-all duration-150 h-full w-full select-none text-center overflow-hidden cursor-pointer
-                            ${getCellStyle(cell, isDark)}
+                            ${getFullScreenCellStyle(cell, isDark)}
                             ${canDrag ? 'cursor-grab active:cursor-grabbing hover:shadow-md hover:scale-[1.01]' : ''}
-                            ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-emerald-500' : ''}
-                            ${isTargetThis ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-105 z-20 shadow-xl' : ''}
-                            ${isTapSelectedThis ? 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-[#0c0c18] bg-emerald-500/25 scale-[1.02] z-20 shadow-lg' : ''}
-                            ${selectedTapSlot && !isTapSelectedThis ? 'hover:ring-2 hover:ring-emerald-400/60 hover:bg-emerald-500/10' : ''}
+                            ${isDraggingThis ? 'opacity-30 scale-95 border-2 border-dashed border-blue-500' : ''}
+                            ${isTargetThis ? 'ring-2 ring-blue-500 bg-blue-500/20 scale-105 z-20 shadow-xl' : ''}
+                            ${isTapSelectedThis ? 'ring-2 ring-blue-600 ring-offset-2 ring-offset-white bg-blue-500/20 scale-[1.02] z-20 shadow-lg' : ''}
+                            ${selectedTapSlot && !isTapSelectedThis ? 'hover:ring-2 hover:ring-blue-400/60 hover:bg-blue-500/10' : ''}
                           `}
                         >
-                          <span className="text-xs font-bold tracking-tight text-center leading-snug line-clamp-2 w-full text-slate-900 dark:text-slate-100">
+                          <span className={`text-xs font-bold tracking-tight text-center leading-snug line-clamp-2 w-full ${getFullScreenCellTitleColor(cell, isDark)}`}>
                             {cell && cell.toLowerCase().includes('open elective') ? 'Open Elective' : (cell || '')}
                           </span>
 
                           {showFaculty && facultyLabel && (
                             <span
-                              className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 text-center uppercase tracking-wide truncate w-full mt-0.5 opacity-90 leading-tight"
+                              className={`text-[10px] font-semibold text-center uppercase tracking-wide truncate w-full mt-0.5 opacity-90 leading-tight ${getFullScreenCellFacultyColor(cell, isDark)}`}
                               title={`Staff: ${facultyLabel}`}
                             >
                               {facultyLabel}
@@ -599,15 +660,15 @@ function FullScreenGrid({
 
       {/* Floating Action Banner for Mobile / Tap-to-Swap */}
       {selectedTapSlot && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-[#141426]/95 text-white backdrop-blur-md px-3.5 py-1.5 rounded-full shadow-2xl border border-emerald-500/40 flex items-center gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-          <span className="font-semibold truncate max-w-[180px] sm:max-w-xs">
-            Selected: <span className="text-emerald-300 font-bold">{selectedTapSlot.subject}</span> ({DAYS[selectedTapSlot.day]} P{selectedTapSlot.period + 1})
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50 bg-blue-900/90 text-white backdrop-blur-xl px-4 py-2 rounded-full shadow-[0_8px_32px_rgba(37,99,235,0.35)] border border-blue-400/40 flex items-center gap-2.5 text-xs animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <span className="flex h-2 w-2 rounded-full bg-blue-300 animate-ping" />
+          <span className="font-semibold truncate max-w-[180px] sm:max-w-xs text-white">
+            Selected: <span className="text-blue-200 font-bold">{selectedTapSlot.subject}</span> ({DAYS[selectedTapSlot.day]} P{selectedTapSlot.period + 1})
           </span>
-          <span className="text-slate-400 text-[11px] hidden sm:inline">• Tap destination slot to swap</span>
+          <span className="text-blue-200/80 text-[11px] hidden sm:inline">• Tap destination slot to swap</span>
           <button
             onClick={() => setSelectedTapSlot(null)}
-            className="p-1 hover:bg-white/15 rounded-full transition-colors ml-1 text-slate-300 hover:text-white"
+            className="p-1 hover:bg-white/20 rounded-full transition-colors ml-1 text-blue-200 hover:text-white"
             title="Cancel swap"
           >
             <X className="h-3.5 w-3.5" />
@@ -621,7 +682,7 @@ function FullScreenGrid({
 function MobileDayScheduleView({
   grid,
   getFaculty,
-  showFaculty = true,
+  showFaculty = false,
   onSwapSlots,
   isDark,
 }: {
@@ -667,9 +728,9 @@ function MobileDayScheduleView({
   };
 
   return (
-    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
+    <div className="w-full h-full flex flex-col rounded-2xl overflow-hidden border border-indigo-200/70 bg-white/80 backdrop-blur-2xl shadow-sm select-none">
       {/* Day Selector Pills */}
-      <div className="bg-[#064e3b] dark:bg-[#064e3b] px-3 py-2 flex items-center justify-between shrink-0 gap-2 border-b border-emerald-800 overflow-x-auto no-scrollbar">
+      <div className="bg-gradient-to-r from-indigo-700 via-indigo-600 to-purple-600 px-3 py-2 flex items-center justify-between shrink-0 gap-2 border-b border-indigo-300/40 overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-1.5 min-w-max">
           <span className="text-xs font-bold text-white uppercase mr-1">Day:</span>
           {DAYS.map((d, idx) => (
@@ -678,8 +739,8 @@ function MobileDayScheduleView({
               onClick={() => setActiveDayIdx(idx)}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
                 activeDayIdx === idx
-                  ? "bg-white text-slate-900 shadow-md scale-105"
-                  : "bg-emerald-800/80 text-emerald-100 hover:bg-emerald-700"
+                  ? "bg-white text-indigo-700 shadow-sm"
+                  : "bg-indigo-800/40 text-indigo-100 hover:bg-white/20"
               }`}
             >
               {d}
@@ -719,11 +780,11 @@ function MobileDayScheduleView({
               className={`
                 p-3 rounded-xl border transition-all duration-150 flex flex-col gap-1.5 cursor-pointer
                 ${getCellStyle(cell, isDark)}
-                ${isSelected ? 'ring-2 ring-emerald-500 bg-emerald-500/20 scale-[1.01]' : 'hover:border-emerald-500/40'}
+                ${isSelected ? 'ring-2 ring-indigo-500 bg-indigo-500/20 scale-[1.01]' : 'hover:border-indigo-500/40'}
               `}
             >
               <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">
                   <span>{item.label}</span>
                   <span className="text-slate-400 dark:text-slate-500">•</span>
                   <span>{item.time}</span>
@@ -739,7 +800,7 @@ function MobileDayScheduleView({
 
               {showFaculty && facultyLabel && (
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 font-medium">
-                  <Users className="h-3 w-3 text-emerald-500 shrink-0" />
+                  <Users className="h-3 w-3 text-indigo-400 shrink-0" />
                   <span className="truncate">{facultyLabel}</span>
                 </div>
               )}
@@ -749,13 +810,13 @@ function MobileDayScheduleView({
       </div>
 
       {selectedTapSlot && (
-        <div className="p-2.5 bg-slate-900 text-white flex items-center justify-between text-xs shrink-0 border-t border-emerald-500/30">
-          <span className="truncate font-semibold">
-            Selected: <span className="text-emerald-300 font-bold">{selectedTapSlot.subject}</span> • Tap any period to swap
+        <div className="p-2.5 bg-blue-900/90 backdrop-blur-xl text-white flex items-center justify-between text-xs shrink-0 border-t border-blue-400/30">
+          <span className="truncate font-semibold text-white">
+            Selected: <span className="text-blue-200 font-bold">{selectedTapSlot.subject}</span> • Tap any period to swap
           </span>
           <button
             onClick={() => setSelectedTapSlot(null)}
-            className="p-1 hover:bg-white/20 rounded-full ml-2"
+            className="p-1 hover:bg-white/20 rounded-full ml-2 text-blue-200 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
@@ -767,10 +828,10 @@ function MobileDayScheduleView({
 
 function FullScreenAllocationTable({
   rows,
-  isDark,
+  isDark = false,
 }: {
   rows: { code: string; title: string; category: string; hours: number; faculty: string }[];
-  isDark: boolean;
+  isDark?: boolean;
 }) {
   const [viewType, setViewType] = useState<'table' | 'cards'>('table');
   const [searchQuery, setSearchQuery] = useState('');
@@ -801,37 +862,43 @@ function FullScreenAllocationTable({
   const renderCardsView = () => (
     <div className="w-full h-full overflow-y-auto p-2.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
       {filteredRows.length === 0 ? (
-        <div className="col-span-full py-8 text-center text-xs text-muted-foreground italic">
+        <div className={`col-span-full py-8 text-center text-xs ${isDark ? "text-blue-400" : "text-blue-500"} italic`}>
           No courses match current filter.
         </div>
       ) : (
         filteredRows.map((row, idx) => (
           <div
             key={idx}
-            className={`p-3 rounded-xl border transition-all ${
+            className={`p-3 rounded-2xl border ${
               isDark
-                ? "bg-[#101022] border-white/10 hover:border-emerald-500/40"
-                : "bg-white border-slate-200 hover:border-emerald-500/50 shadow-sm"
-            }`}
+                ? "border-blue-500/25 bg-[#131b31]/90 hover:border-blue-400/60 hover:bg-[#182342]"
+                : "border-blue-200/70 bg-white/85 hover:border-blue-300 hover:bg-white/95"
+            } backdrop-blur-md shadow-sm transition-all`}
           >
             <div className="flex items-center justify-between gap-1.5 mb-1.5">
-              <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-slate-800 dark:text-slate-200">
+              <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg ${
+                isDark ? "bg-blue-950/80 text-blue-300 border-blue-800/60" : "bg-blue-100/70 text-blue-900 border-blue-200/60"
+              } border`}>
                 {row.code}
               </span>
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 capitalize">
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                  isDark ? "bg-blue-950/50 text-blue-400 border-blue-800/50" : "bg-blue-50 text-blue-700 border-blue-200"
+                } border capitalize`}>
                   {row.category}
                 </span>
-                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-300">
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${
+                  isDark ? "bg-slate-700/60 text-slate-200" : "bg-blue-100/50 text-blue-900"
+                }`}>
                   {row.hours}h
                 </span>
               </div>
             </div>
-            <div className="font-bold text-xs sm:text-[13px] text-slate-900 dark:text-slate-100 line-clamp-2 mb-1.5">
+            <div className={`font-bold text-xs sm:text-[13px] ${isDark ? "text-slate-100" : "text-slate-900"} line-clamp-2 mb-1.5`}>
               {row.title}
             </div>
-            <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate">
-              <Users className="h-3 w-3 text-emerald-500 shrink-0" />
+            <div className={`text-[11px] font-semibold ${isDark ? "text-blue-300/80" : "text-blue-700/80"} flex items-center gap-1 truncate`}>
+              <Users className={`h-3 w-3 ${isDark ? "text-blue-400" : "text-blue-500"} shrink-0`} />
               <span className="truncate">{row.faculty}</span>
             </div>
           </div>
@@ -841,7 +908,9 @@ function FullScreenAllocationTable({
   );
 
   const renderSplitTable = (subRows: typeof rows, startIdx: number) => (
-    <div className="w-full h-full overflow-x-auto overflow-y-auto rounded-lg border border-slate-200/80 dark:border-white/5">
+    <div className={`w-full h-full overflow-x-auto overflow-y-auto rounded-xl border ${
+      isDark ? "border-blue-900/50 bg-slate-900/70" : "border-blue-200/70 bg-white/70"
+    } backdrop-blur-md`}>
       <table className="w-full h-full table-fixed border-collapse text-left" style={{ minWidth: 440 }}>
         <colgroup>
           <col style={{ width: '18%' }} />
@@ -851,38 +920,50 @@ function FullScreenAllocationTable({
           <col style={{ width: '19%' }} />
         </colgroup>
         <thead>
-          <tr className="bg-[#053d2e] dark:bg-[#053d2e] text-white text-xs uppercase font-bold tracking-wider h-7 shrink-0 sticky top-0 z-10">
-            <th className="px-2.5 border-r border-emerald-700/60 py-1">Code</th>
-            <th className="px-2.5 border-r border-emerald-700/60 py-1">Course Title</th>
-            <th className="px-1 text-center border-r border-emerald-700/60 py-1">Category</th>
-            <th className="px-1 text-center border-r border-emerald-700/60 py-1">Hrs</th>
-            <th className="px-2.5 py-1">Faculty</th>
+          <tr className={`${
+            isDark ? "bg-[#162347] text-blue-200 border-b border-blue-500/25" : "bg-blue-600 text-white border-b border-blue-500/40"
+          } text-xs uppercase font-bold tracking-wider h-7.5 shrink-0 sticky top-0 z-10`}>
+            <th className={`px-2.5 ${isDark ? "border-r border-blue-500/20 text-blue-200" : "border-r border-blue-500/40 text-white"} py-1`}>Code</th>
+            <th className={`px-2.5 ${isDark ? "border-r border-blue-500/20 text-blue-200" : "border-r border-blue-500/40 text-white"} py-1`}>Course Title</th>
+            <th className={`px-1 text-center ${isDark ? "border-r border-blue-500/20 text-blue-200" : "border-r border-blue-500/40 text-white"} py-1`}>Category</th>
+            <th className={`px-1 text-center ${isDark ? "border-r border-blue-500/20 text-blue-200" : "border-r border-blue-500/40 text-white"} py-1`}>Hrs</th>
+            <th className={`px-2.5 py-1 ${isDark ? "text-blue-200" : "text-white"}`}>Faculty</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100 dark:divide-white/5 h-[calc(100%-28px)]">
+        <tbody className={`divide-y ${isDark ? "divide-slate-800" : "divide-blue-100/70"} h-[calc(100%-28px)]`}>
           {subRows.map((row, idx) => (
             <tr
               key={idx}
               style={{ height: `${100 / Math.max(subRows.length, 1)}%` }}
               className={`transition-colors ${
-                isDark
-                  ? (startIdx + idx) % 2 === 0 ? "bg-white/[0.01]" : "bg-white/[0.03]"
-                  : (startIdx + idx) % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-              } hover:bg-emerald-500/5`}
+                (startIdx + idx) % 2 === 0
+                  ? isDark ? "bg-slate-900/60" : "bg-white/80"
+                  : isDark ? "bg-[#11182c]/50" : "bg-blue-50/40"
+              } ${isDark ? "hover:bg-slate-800/60" : "hover:bg-blue-100/50"}`}
             >
-              <td className="px-2.5 font-mono font-bold text-xs text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+              <td className={`px-2.5 font-mono font-bold text-xs ${
+                isDark ? "text-blue-300 border-slate-800" : "text-blue-900 border-blue-100/80"
+              } border-r truncate align-middle`}>
                 {row.code}
               </td>
-              <td className="px-2.5 font-bold text-xs text-slate-900 dark:text-slate-100 border-r border-slate-100 dark:border-white/5 truncate align-middle">
+              <td className={`px-2.5 font-bold text-xs ${
+                isDark ? "text-slate-100 border-slate-800" : "text-slate-900 border-blue-100/80"
+              } border-r truncate align-middle`}>
                 {row.title}
               </td>
-              <td className="px-1 text-center font-medium text-xs text-slate-600 dark:text-slate-400 capitalize border-r border-slate-100 dark:border-white/5 truncate align-middle">
+              <td className={`px-1 text-center font-medium text-xs ${
+                isDark ? "text-blue-400 border-slate-800" : "text-blue-700 border-blue-100/80"
+              } capitalize border-r truncate align-middle`}>
                 {row.category}
               </td>
-              <td className="px-1 text-center font-bold text-xs text-slate-800 dark:text-slate-200 border-r border-slate-100 dark:border-white/5 align-middle">
+              <td className={`px-1 text-center font-bold text-xs ${
+                isDark ? "text-blue-300 border-slate-800" : "text-blue-900 border-blue-100/80"
+              } border-r align-middle`}>
                 {row.hours}
               </td>
-              <td className="px-2.5 font-semibold text-xs text-slate-800 dark:text-slate-200 truncate align-middle">
+              <td className={`px-2.5 font-semibold text-xs ${
+                isDark ? "text-slate-300" : "text-slate-700"
+              } truncate align-middle`}>
                 {row.faculty}
               </td>
             </tr>
@@ -893,14 +974,22 @@ function FullScreenAllocationTable({
   );
 
   return (
-    <div className="w-full h-full flex flex-col rounded-xl overflow-hidden border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0c0c18] shadow-sm select-none">
-      {/* Allocation Header */}
-      <div className="bg-[#064e3b] text-white px-2.5 sm:px-3 py-1.5 flex flex-wrap items-center justify-between shrink-0 gap-2">
+    <div className={`w-full h-full flex flex-col rounded-2xl overflow-hidden border ${
+      isDark
+        ? "border-blue-500/25 bg-[#0c1022]/85 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.6),0_0_12px_-2px_rgba(59,130,246,0.1),inset_0_1px_1px_0_rgba(255,255,255,0.05)]"
+        : "border-blue-200/70 bg-white/80 shadow-[0_4px_20px_-4px_rgba(37,99,235,0.08),0_0_10px_-2px_rgba(37,99,235,0.06),inset_0_1px_1px_0_rgba(255,255,255,0.9)]"
+    } backdrop-blur-2xl select-none`}>
+      {/* Allocation Header - Crisp Blue (Light) / Comfortable Midnight Blue (Dark) */}
+      <div className={`${
+        isDark ? "bg-[#131d38] text-blue-100 border-b border-blue-500/25" : "bg-blue-600 text-white border-b border-blue-500/40"
+      } px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between shrink-0 gap-2 shadow-sm`}>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-extrabold uppercase tracking-wider truncate">
+          <span className={`text-xs font-extrabold uppercase tracking-wider truncate ${isDark ? "text-blue-100" : "text-white"}`}>
             Subjects &amp; Faculty Allocation
           </span>
-          <span className="text-[10px] font-mono text-emerald-200 font-semibold px-2 py-0.5 rounded-md bg-emerald-900/60 border border-emerald-500/30">
+          <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md border ${
+            isDark ? "bg-[#182852] border-blue-500/30 text-blue-200" : "bg-blue-700/50 border-blue-400/40 text-blue-100"
+          }`}>
             {filteredRows.length} total subjects
           </span>
         </div>
@@ -908,21 +997,29 @@ function FullScreenAllocationTable({
         <div className="flex items-center gap-1.5">
           {/* Search Box */}
           <div className="relative w-28 sm:w-40">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-emerald-300" />
+            <Search className={`absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 ${isDark ? "text-blue-300/70" : "text-blue-200"}`} />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search..."
-              className="h-6.5 pl-6 text-[11px] rounded-lg bg-black/20 border-white/10 text-white placeholder:text-emerald-200/50"
+              className={`h-6.5 pl-6 text-[11px] rounded-lg ${
+                isDark
+                  ? "bg-[#0b1224]/80 border-blue-500/30 text-blue-100 placeholder:text-blue-300/50 focus:bg-[#0e172e] focus:border-blue-400/60"
+                  : "bg-white/20 border-blue-400/40 text-white placeholder:text-blue-200/80 focus:bg-white/30 focus:border-white/60"
+              }`}
             />
           </div>
 
           {/* Mobile view format toggle (Table vs Cards) */}
-          <div className="flex items-center gap-0.5 bg-black/20 p-0.5 rounded-lg border border-white/10 xl:hidden">
+          <div className={`flex items-center gap-0.5 ${
+            isDark ? "bg-[#0b1224]/80 border-blue-500/30" : "bg-blue-700/50 border-blue-400/40"
+          } p-0.5 rounded-lg border xl:hidden`}>
             <button
               onClick={() => setViewType('table')}
               className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
-                viewType === 'table' ? 'bg-white/20 text-white shadow-sm' : 'text-emerald-200 hover:text-white'
+                viewType === 'table'
+                  ? isDark ? 'bg-[#1d2f60] text-blue-100 shadow-sm' : 'bg-white text-blue-900 shadow-sm'
+                  : isDark ? 'text-blue-300/70 hover:text-white' : 'text-blue-200 hover:text-white'
               }`}
               title="Table View"
             >
@@ -931,7 +1028,9 @@ function FullScreenAllocationTable({
             <button
               onClick={() => setViewType('cards')}
               className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
-                viewType === 'cards' ? 'bg-white/20 text-white shadow-sm' : 'text-emerald-200 hover:text-white'
+                viewType === 'cards'
+                  ? isDark ? 'bg-[#1d2f60] text-blue-100 shadow-sm' : 'bg-white text-blue-900 shadow-sm'
+                  : isDark ? 'text-blue-300/70 hover:text-white' : 'text-blue-200 hover:text-white'
               }`}
               title="Card View (Best for mobile)"
             >
@@ -946,7 +1045,7 @@ function FullScreenAllocationTable({
         {viewType === 'cards' ? (
           renderCardsView()
         ) : filteredRows.length === 0 ? (
-          <div className="w-full h-full flex items-center justify-center text-xs italic text-muted-foreground">
+          <div className={`w-full h-full flex items-center justify-center text-xs italic ${isDark ? "text-blue-400" : "text-blue-500"}`}>
             No courses match current filter.
           </div>
         ) : (
@@ -1051,7 +1150,26 @@ export default function GenerateReviewPage() {
   const [generating, setGenerating] = useState(false);
   const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
   const [showProgress, setShowProgress] = useState(false);
-  const [generatedResults, setGeneratedResults] = useState<GeneratedTimetableResult[]>([]);
+
+  const cacheKey = useMemo(() => {
+    if (!selections || selections.length === 0) return '';
+    return `sona_ttg_gen_${semesterType}_${selections.map(s => `${s.departmentName}_${s.selectedYears.map(y => `${y.year}_${(y.sections || []).join('')}`).join('_')}`).join('__')}`;
+  }, [selections, semesterType]);
+
+  const [generatedResults, setGeneratedResults] = useState<GeneratedTimetableResult[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const selKey = `sona_ttg_gen_${semesterType}_${(rawSelections || []).map(s => `${s.departmentName}_${s.selectedYears.map(y => `${y.year}_${(y.sections || []).join('')}`).join('_')}`).join('__')}`;
+      const stored = sessionStorage.getItem(selKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
   const [facultyBeforeAfternoon, setFacultyBeforeAfternoon] = useState(false);
   const [specialHoursDialogOpen, setSpecialHoursDialogOpen] = useState(false);
   
@@ -1065,7 +1183,7 @@ export default function GenerateReviewPage() {
   const [exporting, setExporting] = useState(false);
   const [reviewTypeFilter, setReviewTypeFilter] = useState<'all' | 'theory-elective' | 'lab' | 'open-elective' | 'special'>('all');
 
-  const [showFacultyInGrid, setShowFacultyInGrid] = useState(true);
+  const [showFacultyInGrid, setShowFacultyInGrid] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [fullScreenPage, setFullScreenPage] = useState<'timetable' | 'allocation'>('timetable');
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
@@ -1353,18 +1471,36 @@ export default function GenerateReviewPage() {
     loadAllData();
   }, [location.state]);
 
-  // Aligns default active section when activeDept, activeTab, or generatedResults changes
+  // Aligns default active department, year, and section when generatedResults changes & auto-launches full screen
   useEffect(() => {
     if (generatedResults.length > 0) {
-      const yearResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === activeTab);
+      const okResults = generatedResults.filter(r => r.status === 'ok');
+      const pool = okResults.length > 0 ? okResults : generatedResults;
+
+      const hasDept = pool.some(r => r.departmentName === activeDept);
+      const targetDept = hasDept ? activeDept : pool[0].departmentName;
+      if (targetDept !== activeDept) setActiveDept(targetDept);
+
+      const deptResults = pool.filter(r => r.departmentName === targetDept);
+      const hasYear = deptResults.some(r => r.year === activeTab);
+      const targetYear = hasYear ? activeTab : (deptResults[0]?.year || activeTab);
+      if (targetYear !== activeTab) setActiveTab(targetYear);
+
+      const yearResults = deptResults.filter(r => r.year === targetYear);
       if (yearResults.length > 0) {
         const sections = yearResults.map(r => r.section);
         if (!sections.includes(activeSection)) {
           setActiveSection(sections[0]);
         }
       }
+
+      // Automatically go to full screen preview as soon as timetables are ready
+      if (!isFullScreen && okResults.length > 0) {
+        setIsFullScreen(true);
+        setFullScreenPage('timetable');
+      }
     }
-  }, [activeDept, activeTab, generatedResults]);
+  }, [generatedResults, activeDept, activeTab]);
 
   // Recalculate section total hours dynamically when subjects or section-assignments change
   useEffect(() => {
@@ -1596,7 +1732,22 @@ export default function GenerateReviewPage() {
       const totalOk = allFinalResults.filter(r => r.status === "ok").length;
       const totalErr = allFinalResults.filter(r => r.status === "error").length;
 
+      if (cacheKey && totalOk > 0) {
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(allFinalResults));
+        } catch (e) {
+          console.warn("Could not cache to sessionStorage", e);
+        }
+      }
+
       if (totalOk > 0) {
+        const firstOk = allFinalResults.find(r => r.status === 'ok') || allFinalResults[0];
+        if (firstOk) {
+          setActiveDept(firstOk.departmentName);
+          setActiveTab(firstOk.year);
+          setActiveSection(firstOk.section);
+        }
+
         const totalMismatches = allFinalResults.reduce(
           (sum, r) => sum + (r.hourVerification?.mismatches.length || 0),
           0
@@ -1618,8 +1769,24 @@ export default function GenerateReviewPage() {
       toast.error(e?.message || "Generation failed.");
     } finally {
       setGenerating(false);
+      setShowProgress(false);
     }
   };
+
+  const autoGeneratedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      !loading &&
+      selections.length > 0 &&
+      generatedResults.length === 0 &&
+      !generating &&
+      !autoGeneratedRef.current
+    ) {
+      autoGeneratedRef.current = true;
+      handleGenerate();
+    }
+  }, [loading, selections, generatedResults.length, generating]);
 
   const handlePublish = async () => {
     setPublishing(true);
@@ -1645,6 +1812,7 @@ export default function GenerateReviewPage() {
         })
       );
 
+      if (cacheKey) sessionStorage.removeItem(cacheKey);
       toast.success("All timetables published successfully!");
       navigate("/admin");
     } catch (error: any) {
@@ -1762,8 +1930,25 @@ export default function GenerateReviewPage() {
   const activeYearSpecialHours = specialHoursData[activeYearKey] || [];
   const activeTotalHoursBySection = totalHoursBySection[activeYearKey] || {};
 
-  const currentYearResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === activeTab);
-  const activeResult = currentYearResults.find((r) => r.section === activeSection);
+  const currentYearResults = useMemo(() => {
+    const list = generatedResults.filter(r => r.departmentName === activeDept && r.year === activeTab);
+    if (list.length > 0) return list;
+    const deptList = generatedResults.filter(r => r.departmentName === activeDept);
+    if (deptList.length > 0) return deptList;
+    return generatedResults;
+  }, [generatedResults, activeDept, activeTab]);
+
+  const activeResult = useMemo(() => {
+    if (generatedResults.length === 0) return null;
+    return (
+      generatedResults.find(r => r.departmentName === activeDept && r.year === activeTab && r.section === activeSection) ||
+      generatedResults.find(r => r.departmentName === activeDept && r.year === activeTab) ||
+      generatedResults.find(r => r.departmentName === activeDept) ||
+      generatedResults.find(r => r.status === 'ok') ||
+      generatedResults[0] ||
+      null
+    );
+  }, [generatedResults, activeDept, activeTab, activeSection]);
 
   const currentVerification = useMemo(() => {
     if (!activeResult || !Array.isArray(activeResult.grid) || activeResult.status !== 'ok') return null;
@@ -1778,716 +1963,91 @@ export default function GenerateReviewPage() {
 
   if (loading) {
     return (
-      <main className={`min-h-screen transition-colors duration-300 ${isDark ? "bg-[#07070d] text-slate-100" : "bg-[#f5f5f7] text-slate-900"}`}>
-        <AdminNavbar />
-        <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
-          <SelectionHeader />
-          <div className="flex h-[60vh] flex-col items-center justify-center gap-3">
-            <Loader2 className={`h-8 w-8 animate-spin ${isDark ? "text-emerald-450" : "text-emerald-600"}`} />
-            <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Preparing generation review data...</p>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff] text-slate-900 p-4 select-none relative overflow-hidden">
+        {/* Ambient glassmorphic glowing gradients (matching Dashboard UI) */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-blue-200/40 via-blue-100/30 to-transparent blur-3xl opacity-75 pointer-events-none" />
+        <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65 pointer-events-none" />
+
+        <div className="p-8 sm:p-10 rounded-3xl bg-white/85 dark:bg-[#0c1022]/85 backdrop-blur-2xl border border-blue-200/60 dark:border-blue-500/25 shadow-[0_16px_48px_rgba(37,99,235,0.12)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.6)] flex flex-col items-center gap-4 max-w-md text-center z-10 animate-in fade-in zoom-in-95 duration-200">
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-500/15 to-blue-600/15 border border-blue-200/80 text-blue-600 shadow-sm shadow-blue-500/10">
+            <Loader2 className="h-10 w-10 animate-spin" />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">Preparing Timetable System</h2>
+            <p className="text-xs text-blue-700/80 mt-1">Loading department curricula, faculties, and room constraints...</p>
           </div>
         </div>
-      </main>
+      </div>
     );
   }
 
-  return (
-    <main className={`min-h-screen pb-24 transition-colors duration-300 ${
-      isDark ? "bg-[#07070d] text-slate-100" : "bg-[#f5f5f7] text-slate-900"
-    }`}>
-      <AdminNavbar />
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
-        <SelectionHeader />
-        
-        <div className="container py-6 max-w-7xl">
-          {/* Header */}
-          <header className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className={`flex items-center gap-2 text-xs mb-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                <span>Admin Dashboard</span>
-                <span>/</span>
-                <span>Review &amp; Generate</span>
+  if (generating || showProgress) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff] text-slate-900 p-4 select-none relative overflow-hidden">
+        {/* Ambient glassmorphic glowing gradients (matching Dashboard UI) */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-blue-200/40 via-blue-100/30 to-transparent blur-3xl opacity-75 pointer-events-none" />
+        <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65 pointer-events-none" />
+
+        <div className="relative w-[480px] max-w-[95vw] max-h-[88vh] overflow-y-auto rounded-3xl border border-blue-200/80 dark:border-blue-500/25 bg-white/85 dark:bg-[#0c1022]/85 backdrop-blur-2xl shadow-[0_20px_60px_rgba(37,99,235,0.14)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)] p-6 sm:p-7 z-10 animate-in fade-in duration-200">
+          <div className="mb-5">
+            <div className="flex items-center gap-3 mb-1.5">
+              <div className="p-2.5 rounded-2xl bg-gradient-to-br from-blue-500/15 to-blue-600/15 border border-blue-200/80 text-blue-600 shadow-sm shadow-blue-500/10">
+                <Loader2 className="h-6 w-6 animate-spin" />
               </div>
-              <div className="flex items-center gap-3">
-                <h1 className={`text-2xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
-                  Review &amp; Generate Timetables
-                </h1>
-                <Badge className={`text-xs px-2.5 py-0.5 font-bold ${
-                  semesterType === 'even'
-                    ? "bg-amber-500/15 text-amber-500 border border-amber-500/30"
-                    : "bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
-                }`}>
-                  {semesterType === 'even' ? "Even Semester (Years II, III & IV)" : "Odd Semester"}
-                </Badge>
-              </div>
-              <p className={`text-sm mt-1 ${isDark ? "text-slate-400" : "text-slate-650"}`}>
-                Active View: <span className="text-emerald-500 font-semibold">{activeDept}</span>
-              </p>
-            </div>
-            
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin")}
-              className={`rounded-xl gap-2 self-start sm:self-auto ${
-                isDark 
-                  ? "border-white/10 bg-white/5 hover:bg-white/10 text-white" 
-                  : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
-              }`}
-            >
-              <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-            </Button>
-          </header>
-
-          {/* Department Selector Navbar Tabs */}
-          <div className={`flex border-b mb-4 gap-1 shrink-0 overflow-x-auto ${isDark ? "border-white/10" : "border-slate-200"}`}>
-            {selections.map(({ departmentName }) => (
-              <button
-                key={departmentName}
-                onClick={() => {
-                  setActiveDept(departmentName);
-                  const deptSel = selections.find(d => d.departmentName === departmentName);
-                  if (deptSel && deptSel.selectedYears.length > 0) {
-                    setActiveTab(deptSel.selectedYears[0].year);
-                  }
-                }}
-                className={`px-5 py-3 text-sm font-bold border-b-2 transition-all ${
-                  activeDept === departmentName
-                    ? "border-emerald-500 text-emerald-600 dark:text-emerald-450 bg-emerald-500/[0.04] dark:bg-white/2"
-                    : `border-transparent ${isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-850"}`
-                }`}
-              >
-                {departmentName}
-              </button>
-            ))}
-          </div>
-
-          {/* Year Tabs */}
-          <div className={`flex border-b mb-6 gap-1 shrink-0 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-            {(activeDeptSelection?.selectedYears || []).map(({ year }) => {
-              const isActive = activeTab === year;
-              return (
-                <button
-                  key={year}
-                  onClick={() => setActiveTab(year)}
-                  className={`px-5 py-3 text-sm font-bold border-b-2 transition-all ${
-                    isActive
-                      ? "border-emerald-500 text-emerald-600 dark:text-emerald-450 bg-emerald-500/[0.04] dark:bg-white/2"
-                      : `border-transparent ${isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-850"}`
-                  }`}
-                >
-                  Year {year}
-                  <Badge variant="secondary" className={`ml-2 font-mono ${
-                    isDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700 border border-slate-200"
-                  }`}>
-                    {subjectsData[`${activeDept}_${year}`]?.length || 0} subjects
-                  </Badge>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Quick Return Banner if timetables were generated */}
-          {generatedResults.length > 0 && (
-            <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between gap-4 transition-all shadow-sm ${
-              isDark 
-                ? "bg-emerald-500/10 border-emerald-500/30 text-white" 
-                : "bg-emerald-50 border-emerald-300 text-slate-900"
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-500">
-                  <CheckCircle2 className="h-5 w-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold">
-                    Timetables Generated ({generatedResults.filter(r => r.status === 'ok').length} Class Schedules Ready)
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Timetable is ready in full-screen distraction-free mode.
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={() => setIsFullScreen(true)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-2 font-bold px-4 py-2 text-xs shadow-md shadow-emerald-500/25 shrink-0"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-                <span>Open Full Screen</span>
-              </Button>
-            </div>
-          )}
-
-          <div className="grid gap-6 lg:grid-cols-4">
-              {/* Left side: Config / Stats (1 col) */}
-              <div className="lg:col-span-1 space-y-6">
-                {/* Hours Validator Card */}
-                <Card className={`rounded-2xl shadow-lg border transition-colors duration-300 ${
-                  isDark ? "bg-[#0e0e1b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
-                }`}>
-                  <CardHeader className={`pb-3 border-b ${isDark ? "border-white/5" : "border-slate-100"}`}>
-                    <CardTitle className={`text-sm font-bold flex items-center gap-2 ${isDark ? "text-white" : "text-slate-800"}`}>
-                      Hour Validator
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-4">
-                    <div className="space-y-4">
-                      {activeYearSections.map((sec) => {
-                        const hours = activeTotalHoursBySection[sec] || 0;
-                        return (
-                          <div key={sec} className={`space-y-1.5 border-b pb-3 last:border-b-0 last:pb-0 ${
-                            isDark ? "border-white/5" : "border-slate-100"
-                          }`}>
-                            <div className="flex items-center justify-between">
-                              <span className={`text-xs font-bold ${isDark ? "text-slate-300" : "text-slate-655"}`}>Section {sec}</span>
-                              <span className={`text-xs font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
-                                {hours}h <span className={`font-normal ${isDark ? "text-slate-500" : "text-slate-400"}`}>/ 42h</span>
-                              </span>
-                            </div>
-                            
-                            <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  hours === 42 ? "bg-emerald-500" : hours > 42 ? "bg-red-500" : "bg-amber-500"
-                                }`}
-                                style={{ width: `${Math.min(100, (hours / 42) * 100)}%` }}
-                              />
-                            </div>
-
-                            {hours === 42 ? (
-                              <div className="flex items-center gap-1 text-emerald-500 text-[10px] font-semibold">
-                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                                Perfect 42 hours.
-                              </div>
-                            ) : hours > 42 ? (
-                              <div className="flex items-center gap-1 text-red-500 text-[10px] font-semibold">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                Overloaded ({hours - 42}h extra).
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1 text-amber-500 text-[10px] font-semibold">
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                                Underloaded ({42 - hours}h left).
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Special Hours Config Card */}
-                <Card className={`rounded-2xl shadow-lg border transition-colors duration-300 ${
-                  isDark ? "bg-[#0e0e1b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
-                }`}>
-                  <CardHeader className={`pb-3 border-b flex flex-row items-center justify-between ${
-                    isDark ? "border-white/5" : "border-slate-100"
-                  }`}>
-                    <CardTitle className={`text-sm font-bold flex items-center gap-2 ${isDark ? "text-white" : "text-slate-800"}`}>
-                      Special Hours
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSpecialHoursDialogOpen(true)}
-                      className={`h-7 text-xs p-0 hover:bg-transparent ${
-                        isDark ? "text-emerald-400 hover:text-emerald-300" : "text-emerald-600 hover:text-emerald-700"
-                      }`}
-                    >
-                      Edit
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="pt-4">
-                    {activeYearSpecialHours.length === 0 ? (
-                      <div className={`text-xs italic py-2 ${isDark ? "text-slate-500" : "text-slate-450"}`}>
-                        No active special hours config
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {activeYearSpecialHours.map((h, idx) => (
-                          <div key={idx} className={`flex justify-between items-center border p-2 rounded-xl text-xs ${
-                            isDark 
-                              ? "bg-white/5 border-white/8 text-white" 
-                              : "bg-slate-50 border-slate-100 text-slate-700"
-                          }`}>
-                            <span className={`font-semibold capitalize ${isDark ? "text-white" : "text-slate-800"}`}>{h.special_type}</span>
-                            <span className={isDark ? "text-slate-400" : "text-slate-500"}>{h.total_hours} hr(s) total</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right side: Subjects Table (3 cols) */}
-              <div className="lg:col-span-3">
-                <Card className={`rounded-2xl shadow-lg overflow-hidden border transition-colors duration-300 ${
-                  isDark ? "bg-[#0e0e1b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
-                }`}>
-                  <CardHeader className={`pb-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
-                    isDark ? "border-white/5" : "border-slate-100"
-                  }`}>
-                    <div>
-                      <CardTitle className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-800"}`}>
-                        Curriculum &amp; Section Allocations
-                      </CardTitle>
-                      <p className={`text-xs mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                        {activeTab === 'IV' && semesterType === 'even'
-                          ? "Final Year (Year IV) Even Semester uses a static timetable: All weekday periods & Saturday P1-P2 are Project (37h), followed by Seminar (P3-P4), Library (P5), and Counselling (P6-P7)."
-                          : "Check subject type, hour load, and faculty names per section."}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate(`/admin/subjects`)}
-                      className={`rounded-xl text-xs ${
-                        isDark 
-                          ? "border-white/10 bg-white/5 hover:bg-white/10 text-white" 
-                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
-                      }`}
-                    >
-                      Manage Subjects
-                    </Button>
-                  </CardHeader>
-                  
-                  {/* Subject type filtering navbar */}
-                  <div className={`px-6 py-2.5 border-b flex gap-1 overflow-x-auto shrink-0 ${
-                    isDark ? "bg-white/[0.02] border-white/5" : "bg-slate-50/50 border-slate-100"
-                  }`}>
-                    {[
-                      { id: 'all', label: 'All Subjects' },
-                      { id: 'theory-elective', label: 'Theory / Electives' },
-                      { id: 'lab', label: 'Labs' },
-                      { id: 'open-elective', label: 'Open Electives' },
-                      { id: 'special', label: 'Special Hours' },
-                    ].map((tab) => {
-                      const isActive = reviewTypeFilter === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => setReviewTypeFilter(tab.id as any)}
-                          className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            isActive
-                              ? (isDark ? "bg-white/15 text-white shadow-sm" : "bg-emerald-500 text-white shadow-sm")
-                              : (isDark ? "text-white/40 hover:text-white/70" : "text-slate-500 hover:text-slate-800")
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className={`font-semibold border-b ${
-                            isDark 
-                              ? "bg-white/3 text-slate-400 border-white/5" 
-                              : "bg-slate-50 text-slate-500 border-slate-100"
-                          }`}>
-                            <th className="py-3 px-4 w-20">Code</th>
-                            <th className="py-3 px-4">Subject Name</th>
-                            <th className="py-3 px-4 w-28">Type</th>
-                            <th className="py-3 px-4 w-20">Hours</th>
-                            {activeYearSections.map((sec) => (
-                              <th key={sec} className="py-3 px-4 text-center">Sec {sec} Faculty</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredReviewSubjects.length === 0 ? (
-                            <tr>
-                              <td colSpan={4 + activeYearSections.length} className={`py-12 text-center italic ${
-                                isDark ? "text-slate-500" : "text-slate-450"
-                              }`}>
-                                No subjects of this type configured for Year {activeTab}.
-                              </td>
-                            </tr>
-                          ) : reviewTypeFilter === 'open-elective' ? (
-                            /* Open Elective — grouped display */
-                            <tr>
-                              <td colSpan={4 + activeYearSections.length} className="p-0">
-                                <div className={`px-5 py-4 ${isDark ? "bg-purple-500/5" : "bg-purple-50/40"}`}>
-                                  {/* Group Header */}
-                                  <div className="flex items-center gap-2.5 mb-3">
-                                    <Badge className={`text-[9px] uppercase font-bold px-2.5 py-1 ${
-                                      isDark
-                                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                                        : "bg-purple-100 text-purple-700 border border-purple-200"
-                                    }`}>
-                                      Open Elective
-                                    </Badge>
-                                    <span className={`text-xs ${isDark ? "text-white/40" : "text-slate-500"}`}>
-                                      {filteredReviewSubjects.length} subject{filteredReviewSubjects.length !== 1 ? 's' : ''} — students choose one from below
-                                    </span>
-                                  </div>
-                                  {/* Subject list */}
-                                  <div className="space-y-2 pl-1">
-                                    {filteredReviewSubjects.map((sub) => (
-                                      <div key={sub.id} className={`flex flex-wrap items-center gap-3 px-3 py-2.5 rounded-xl border ${
-                                        isDark
-                                          ? "bg-white/3 border-white/7 hover:bg-white/5"
-                                          : "bg-white border-purple-100 shadow-sm hover:bg-purple-50/30"
-                                      } transition-colors`}>
-                                        {sub.code && (
-                                          <span className={`font-mono text-[10px] shrink-0 px-1.5 py-0.5 rounded border ${
-                                            isDark ? "text-slate-400 bg-white/4 border-white/8" : "text-slate-500 bg-slate-50 border-slate-200"
-                                          }`}>{sub.code}</span>
-                                        )}
-                                        <span className={`text-sm font-semibold flex-1 min-w-[200px] ${isDark ? "text-white" : "text-slate-800"}`}>
-                                          {sub.name}
-                                        </span>
-                                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${isDark ? "text-white/35 bg-white/5" : "text-slate-400 bg-slate-100"}`}>
-                                          {sub.hoursPerWeek}h
-                                        </span>
-                                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                                          {activeYearSections.map((sec) => {
-                                            const sectionKey = `${activeDept}_${activeTab}`;
-                                            const isAssigned = sectionSubjectsData[sectionKey]?.[sec]?.has(sub.id) ?? true;
-                                            const size = sectionSubjectsData[sectionKey]?.[sec]?.size || 0;
-                                            const isMapped = size === 0 || isAssigned;
-                                            if (!isMapped) return null;
-                                            const fac = sub.facultyBySection[sec];
-                                            return (
-                                              <span key={sec} className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg border ${
-                                                fac
-                                                  ? (isDark ? "text-white/70 bg-white/5 border-white/8" : "text-slate-700 bg-slate-50 border-slate-200")
-                                                  : "text-amber-500 bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20"
-                                              }`}>
-                                                Sec {sec}: {fac || "Unassigned"}
-                                              </span>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredReviewSubjects.map((sub) => (
-                              <tr key={sub.id} className={`border-b transition-colors ${
-                                isDark 
-                                  ? "border-white/5 hover:bg-white/2" 
-                                  : "border-slate-100 hover:bg-slate-50/50"
-                              }`}>
-                                <td className={`py-3 px-4 font-mono ${isDark ? "text-slate-400" : "text-slate-500"}`}>{sub.code || "-"}</td>
-                                <td className={`py-3 px-4 font-bold ${isDark ? "text-white" : "text-slate-800"}`}>{sub.name}</td>
-                                <td className="py-3 px-4">
-                                  <Badge
-                                    className={`text-[9px] uppercase font-bold shrink-0 ${
-                                      sub.type === "lab"
-                                        ? (isDark ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20" : "bg-emerald-50 text-emerald-700 border border-emerald-250")
-                                        : sub.type === "elective" || sub.type === "open elective"
-                                        ? (isDark ? "bg-purple-500/15 text-purple-300 border border-purple-500/20" : "bg-purple-50 text-purple-700 border border-purple-250")
-                                        : (isDark ? "bg-slate-700/30 text-slate-300 border border-slate-700/20" : "bg-slate-100 text-slate-600 border border-slate-200")
-                                    }`}
-                                  >
-                                    {sub.type}
-                                  </Badge>
-                                </td>
-                                <td className={`py-3 px-4 font-semibold ${isDark ? "text-white/90" : "text-slate-700"}`}>{sub.hoursPerWeek}h</td>
-                                {activeYearSections.map((sec) => {
-                                  const sectionKey = `${activeDept}_${activeTab}`;
-                                  const isAssigned = sectionSubjectsData[sectionKey]?.[sec]?.has(sub.id) ?? true;
-                                  const size = sectionSubjectsData[sectionKey]?.[sec]?.size || 0;
-                                  const isMapped = size === 0 || isAssigned;
-
-                                  if (!isMapped) {
-                                    return (
-                                      <td key={sec} className={`py-3 px-4 text-center italic ${
-                                        isDark ? "text-slate-600" : "text-slate-300"
-                                      }`}>
-                                        —
-                                      </td>
-                                    );
-                                  }
-
-                                  const fac = sub.facultyBySection[sec];
-                                  return (
-                                    <td key={sec} className="py-3 px-4 text-center">
-                                      {fac ? (
-                                        <span className={`font-semibold ${isDark ? "text-white/80" : "text-slate-700"}`}>{fac}</span>
-                                      ) : (
-                                        <span className="text-amber-500 font-semibold">Unassigned</span>
-                                      )}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-        </div>
-      </div>
-
-      {/* Persistent Bottom Bar */}
-      <footer className={`fixed bottom-0 left-0 md:left-72 lg:left-80 xl:left-72 2xl:left-80 right-0 z-40 border-t backdrop-blur-md px-6 py-4 flex items-center justify-between transition-colors duration-300 ${
-        isDark ? "bg-[#0e0e1a]/95 border-white/10 text-white" : "bg-white/95 border-slate-200 text-slate-900 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]"
-      }`}>
-        <div className="flex flex-col gap-0.5 max-w-[60%] overflow-hidden">
-          <span className={`text-xs font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-            {generatedResults.length > 0 ? "Generation Results:" : "Selected for Generation:"}
-          </span>
-          <span className="text-xs font-bold flex flex-wrap items-center gap-1.5 mt-0.5 max-h-16 overflow-y-auto">
-            {generatedResults.length > 0 ? (
-              <>
-                <Badge variant="outline" className={`text-[10px] px-2 py-0.5 border ${
-                  isDark ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                }`}>
-                  {generatedResults.filter(r => r.status === 'ok').length} Generated Successfully
-                </Badge>
-                {generatedResults.filter(r => r.status === 'error').length > 0 && (
-                  <Badge variant="outline" className={`text-[10px] px-2 py-0.5 border ${
-                    isDark ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-red-200 bg-red-50 text-red-700"
-                  }`}>
-                    {generatedResults.filter(r => r.status === 'error').length} Failed
-                  </Badge>
-                )}
-              </>
-            ) : (
-              selections.map(({ departmentName, selectedYears }) => (
-                <div key={departmentName} className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border shrink-0 ${
-                  isDark ? "bg-white/5 border-white/10" : "bg-slate-50 border-slate-200"
-                }`}>
-                  <span className={`text-[10px] font-bold ${isDark ? "text-slate-400" : "text-slate-500"}`}>{departmentName}:</span>
-                  {selectedYears.map(({ year, sections }) => (
-                    <Badge key={year} variant="outline" className={`text-[9px] px-1 py-0 ${
-                      isDark 
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-355" 
-                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}>
-                      Yr {year}({sections.join(",")})
-                    </Badge>
-                  ))}
-                </div>
-              ))
-            )}
-          </span>
-        </div>
-
-        {generatedResults.length > 0 ? (
-          <div className="flex items-center gap-3 shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setGeneratedResults([]);
-              }}
-              className={`rounded-xl font-bold px-5 py-5 border gap-2 ${
-                isDark 
-                  ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white' 
-                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-              }`}
-              disabled={publishing || exporting}
-            >
-              <RotateCcw className="h-4 w-4 text-amber-500" />
-              <span>Discard &amp; Reconfigure</span>
-            </Button>
-
-            <Button
-              onClick={() => setIsFullScreen(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl gap-2 font-bold px-5 py-5 shadow-lg shadow-emerald-500/25 transition-all"
-            >
-              <Maximize2 className="h-4 w-4" />
-              <span>Open Full Screen</span>
-            </Button>
-
-            {/* Export PDF Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  disabled={exporting || publishing || generatedResults.filter(r => r.status === 'ok').length === 0}
-                  className={`rounded-xl font-bold px-5 py-5 border gap-2 shadow-sm transition-all ${
-                    isDark 
-                      ? 'border-white/15 bg-white/10 hover:bg-white/15 text-white' 
-                      : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
-                  }`}
-                >
-                  {exporting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
-                      <span>Exporting PDF...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FileDown className="h-4 w-4 text-emerald-500" />
-                      <span>Export PDF</span>
-                      <ChevronDown className="h-3.5 w-3.5 opacity-60 ml-0.5" />
-                    </>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className={`w-64 rounded-xl p-1.5 shadow-xl border ${
-                isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
-              }`}>
-                <DropdownMenuItem
-                  onClick={() => handleExportPDF('all')}
-                  disabled={exporting}
-                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
-                >
-                  <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
-                  <div>
-                    <div className="font-semibold text-xs">Export All Classes (PDF)</div>
-                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
-                      All generated classes &amp; sections combined
-                    </div>
-                  </div>
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={() => handleExportPDF('year')}
-                  disabled={exporting}
-                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
-                >
-                  <Layers className="h-4 w-4 text-purple-400 shrink-0" />
-                  <div>
-                    <div className="font-semibold text-xs">Export Year {activeTab} (All Sections)</div>
-                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
-                      Combined PDF of all Year {activeTab} sections
-                    </div>
-                  </div>
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={() => handleExportPDF('current')}
-                  disabled={exporting}
-                  className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
-                >
-                  <Printer className="h-4 w-4 text-sky-400 shrink-0" />
-                  <div>
-                    <div className="font-semibold text-xs">Export Current Class (PDF)</div>
-                    <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
-                      Year {activeTab} — Section {activeSection}
-                    </div>
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Button
-              onClick={handlePublish}
-              disabled={publishing || exporting || generatedResults.filter(r => r.status === 'ok').length === 0}
-              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl gap-2 font-bold px-6 py-5 shadow-lg shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
-            >
-              {publishing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Publishing...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Publish Timetables
-                </>
-              )}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-6 shrink-0">
-            <div className="flex items-center gap-2.5 border-r pr-5 border-slate-200 dark:border-white/10">
-              <Switch
-                checked={facultyBeforeAfternoon}
-                onCheckedChange={setFacultyBeforeAfternoon}
-                id="faculty-before-afternoon-review"
-              />
-              <Label htmlFor="faculty-before-afternoon-review" className="text-xs font-bold cursor-pointer select-none">
-                Professor before afternoon
-              </Label>
-            </div>
-            <Button
-              onClick={handleGenerate}
-              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl gap-2 font-bold px-6 py-5 shadow-lg shadow-emerald-500/25"
-            >
-              <Zap className="h-4 w-4" /> Generate Selected Timetables
-            </Button>
-          </div>
-        )}
-      </footer>
-
-      {/* ── Generation Progress Overlay ── */}
-      {showProgress && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className={`relative w-[460px] max-w-[95vw] max-h-[85vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 transition-colors duration-300 ${
-            isDark ? "bg-[#0e0e1b] border-white/10 text-white" : "bg-white border-slate-200 text-slate-900"
-          }`}
-            style={isDark ? { backgroundImage: 'radial-gradient(ellipse at 30% 0%, rgba(16,185,129,0.1) 0%, transparent 60%)' } : {}}
-          >
-            {!generating && (
-              <button
-                onClick={() => {
-                  setShowProgress(false);
-                }}
-                className={`absolute top-4 right-4 p-1.5 rounded-lg transition-colors ${
-                  isDark ? "text-white/30 hover:text-white hover:bg-white/10" : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-
-            <div className="mb-5">
-              <div className="flex items-center gap-2.5 mb-1">
-                {generating
-                  ? <Loader2 className={`h-5 w-5 animate-spin ${isDark ? "text-emerald-450" : "text-emerald-600"}`} />
-                  : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-                <h3 className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>
-                  {generating ? "Generating Timetables..." : "Generation Complete"}
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                  Generating Timetables Automatically
                 </h3>
+                <p className="text-xs text-indigo-700/80">
+                  Optimizing faculty allocations and slot distributions
+                </p>
               </div>
-              <p className={`text-xs pl-7 ${isDark ? "text-white/30" : "text-slate-400"}`}>
-                {generating ? "Running multi-department sections in parallel" : `${generatedResults.filter(r => r.status === "ok").length} of ${generatedResults.length} succeeded`}
-              </p>
             </div>
+          </div>
 
-            {/* Progress list by department & year */}
+          {/* Department & Section Progress */}
+          <div className="space-y-4">
             {selections.map(({ departmentName, selectedYears }) => {
               const deptProgress = progressItems.filter(p => p.departmentName === departmentName);
-              if (deptProgress.length === 0) return null;
               return (
-                <div key={departmentName} className="mb-5 last:mb-0">
-                  <div className={`text-xs font-bold mb-2 border-b pb-1 ${
-                    isDark ? "text-emerald-450 border-white/10" : "text-emerald-600 border-slate-200"
-                  }`}>{departmentName}</div>
+                <div key={departmentName} className="p-3.5 rounded-2xl bg-blue-50/40 dark:bg-slate-900/60 border border-blue-100/90 dark:border-blue-900/40">
+                  <div className="text-xs font-extrabold text-blue-900 dark:text-blue-200 mb-2.5 flex items-center justify-between">
+                    <span>{departmentName}</span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-200/60">
+                      {semesterType.toUpperCase()} SEM
+                    </span>
+                  </div>
                   {selectedYears.map(({ year }) => {
                     const items = deptProgress.filter((p) => p.year === year);
-                    if (items.length === 0) return null;
                     return (
-                      <div key={year} className="mb-4 last:mb-0 pl-2">
-                        <div className={`text-[10px] font-bold uppercase tracking-widest mb-2 pl-1 ${
-                          isDark ? "text-white/30" : "text-slate-400"
-                        }`}>Year {year}</div>
+                      <div key={year} className="mb-3 last:mb-0">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600/80 mb-1.5">
+                          Year {year}
+                        </div>
                         <div className="space-y-1.5">
                           {items.map((item) => (
-                            <div key={item.section} className={`flex items-center gap-3 px-3 py-2 rounded-xl border ${
-                              isDark ? "bg-white/5 border-white/8" : "bg-slate-50 border-slate-100"
-                            }`}>
-                              <div className={`w-16 text-xs font-semibold ${isDark ? "text-white/60" : "text-slate-655"}`}>Section {item.section}</div>
+                            <div key={item.section} className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-white/85 dark:bg-slate-800/80 border border-blue-100/80 dark:border-blue-900/40 text-xs shadow-xs text-slate-900 dark:text-slate-100">
+                              <span className="w-16 font-bold text-slate-900">Sec {item.section}</span>
                               <div className="flex-1">
-                                {item.status === "idle" && <div className={`h-1 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />}
-                                {item.status === "running" && (
-                                  <div className={`h-1 rounded-full overflow-hidden ${isDark ? "bg-white/10" : "bg-slate-200"}`}>
-                                    <div className="h-full bg-emerald-500 rounded-full animate-pulse animate-infinite" style={{ width: "60%" }} />
+                                {item.status === 'idle' && (
+                                  <div className="h-1.5 w-full rounded-full bg-indigo-100" />
+                                )}
+                                {item.status === 'running' && (
+                                  <div className="h-1.5 w-full rounded-full bg-indigo-100 overflow-hidden">
+                                    <div className="h-full bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 rounded-full animate-pulse" style={{ width: '70%' }} />
                                   </div>
                                 )}
-                                {item.status === "ok" && <div className="h-1 w-full bg-emerald-500 rounded-full" />}
-                                {item.status === "error" && <div className="h-1 w-full bg-red-500 rounded-full" />}
+                                {item.status === 'ok' && (
+                                  <div className="h-1.5 w-full bg-indigo-600 rounded-full" />
+                                )}
+                                {item.status === 'error' && (
+                                  <div className="h-1.5 w-full bg-rose-500 rounded-full" />
+                                )}
                               </div>
                               <div className="w-5 flex justify-center">
-                                {item.status === "idle" && <span className={`h-1.5 w-1.5 rounded-full ${isDark ? "bg-white/15" : "bg-slate-300"}`} />}
-                                {item.status === "running" && <Loader2 className={`h-3.5 w-3.5 animate-spin ${isDark ? "text-emerald-450" : "text-emerald-600"}`} />}
-                                {item.status === "ok" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
-                                {item.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
+                                {item.status === 'running' && <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" />}
+                                {item.status === 'ok' && <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" />}
+                                {item.status === 'error' && <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />}
                               </div>
                             </div>
                           ))}
@@ -2498,305 +2058,237 @@ export default function GenerateReviewPage() {
                 </div>
               );
             })}
-
-            {!generating && generatedResults.length > 0 && (
-              <button
-                onClick={() => {
-                  setShowProgress(false);
-                  setIsFullScreen(true);
-                  setFullScreenPage('timetable');
-                }}
-                className="mt-4 w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-bold hover:from-emerald-600 hover:to-teal-700 transition-all shadow-sm shadow-emerald-500/25 flex items-center justify-center gap-2"
-              >
-                <span>Open Timetable Full Screen</span>
-                <Maximize2 className="h-4 w-4" />
-              </button>
-            )}
           </div>
         </div>
-      )}
-      {/* Special Hours Manager Dialog */}
-      <Dialog open={specialHoursDialogOpen} onOpenChange={setSpecialHoursDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Configure Special Hours</DialogTitle>
-          </DialogHeader>
-          {deptIds[activeDept] && activeTab && (
-            <SpecialHoursManager
-              departmentId={deptIds[activeDept]}
-              year={activeTab}
-              embedded={true}
-              onConfigUpdate={(configs) => {
-                const key = `${activeDept}_${activeTab}`;
-                setSpecialHoursData((prev) => ({
-                  ...prev,
-                  [key]: configs,
-                }));
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-      {/* Faculty Conflict Dialog */}
-      <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
-        <DialogContent className={`max-w-xl rounded-2xl p-6 shadow-2xl transition-colors z-[70] ${
-          isDark ? 'bg-[#0f0f1c] text-white border-white/10' : 'bg-white text-slate-900 border-slate-200'
-        }`}>
-          <DialogHeader className="pb-3 border-b border-slate-100 dark:border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-500 shrink-0">
-                <AlertTriangle className="h-6 w-6" />
-              </div>
-              <div>
-                <DialogTitle className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Faculty Schedule Conflict Detected
-                </DialogTitle>
-                <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {conflictData?.source && conflictData?.target ? (
-                    <>
-                      Attempted swap between <strong>{DAYS[conflictData.source.day]} P{conflictData.source.period + 1}</strong> and <strong>{DAYS[conflictData.target.day]} P{conflictData.target.period + 1}</strong> causes a clash.
-                    </>
-                  ) : (
-                    "The requested hour change causes a faculty clash."
-                  )}
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
+      </div>
+    );
+  }
 
-          <div className="py-4 space-y-3 max-h-[55vh] overflow-y-auto">
-            {conflictData?.conflicts.map((c, idx) => (
-              <div
-                key={idx}
-                className={`p-3.5 rounded-xl border text-xs space-y-2 ${
-                  isDark 
-                    ? 'bg-red-500/10 border-red-500/25 text-red-200' 
-                    : 'bg-red-50 border-red-200 text-red-900'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400">
-                    <Users className="h-4 w-4" />
-                    {c.facultyName}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30">
-                    Double-Booking Clash
-                  </span>
-                </div>
+  if (activeResult) {
+    return (
+      <div className={`fixed inset-0 z-50 flex flex-col h-screen w-screen overflow-hidden ${
+        isDark
+          ? "bg-[#060814] text-slate-100"
+          : "bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff] text-slate-900"
+      } p-1.5 sm:p-2.5 md:p-3 select-none animate-in fade-in duration-150 relative`}>
+        {/* Ambient glassmorphic glowing gradients (matching Dashboard UI) */}
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-blue-600/15 via-blue-500/10 to-transparent blur-3xl opacity-70 pointer-events-none" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-indigo-600/12 via-blue-600/10 to-transparent blur-3xl opacity-60 pointer-events-none" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-blue-700/10 via-indigo-600/08 to-transparent blur-3xl opacity-50 pointer-events-none" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-blue-200/40 via-blue-100/30 to-transparent blur-3xl opacity-75 pointer-events-none" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65 pointer-events-none" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50 pointer-events-none" />
+          </>
+        )}
 
-                <div className="space-y-1.5 text-xs">
-                  <div>
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">Moving Subject:</span>{" "}
-                    <span className="font-semibold underline">{c.movingSubject || '(Empty)'}</span> → to {c.targetSlot.dayName} {c.targetSlot.periodLabel} ({c.targetSlot.time})
-                  </div>
-                  <div className={`p-2.5 rounded-lg text-xs leading-relaxed border ${
-                    isDark ? 'bg-black/30 border-red-500/20 text-red-300' : 'bg-white border-red-200 text-red-800'
-                  }`}>
-                    ⚠️ <strong>Clash Details:</strong> {c.reason}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
-              isDark ? 'bg-white/4 border-white/6 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'
-            }`}>
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <span>
-                Faculty members cannot teach two different classrooms during the same hour. The change was halted to prevent timetable collision. You can cancel to keep the valid schedule or force swap if you plan to reallocate the conflicting class.
+        {/* Top Command Bar - Spacious, perfectly aligned, Blue accent */}
+        <header className={`min-h-[52px] h-[52px] shrink-0 ${
+          isDark
+            ? "bg-[#0c1022]/85 border-blue-500/25 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.6),0_0_12px_-2px_rgba(59,130,246,0.1),inset_0_1px_1px_0_rgba(255,255,255,0.06)]"
+            : "bg-white/90 border-blue-200/70 shadow-[0_4px_20px_-4px_rgba(37,99,235,0.08),inset_0_1px_1px_0_rgba(255,255,255,0.9)]"
+        } backdrop-blur-2xl rounded-2xl border px-3 sm:px-4 flex items-center justify-between gap-3 relative z-10 overflow-x-auto no-scrollbar`}>
+          {/* Left Zone: Class Identity & Switchers */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2">
+              <Badge className={`${
+                isDark ? "bg-[#182852] text-blue-200 border border-blue-500/30 shadow-xs" : "bg-blue-600 text-white shadow-sm shadow-blue-500/25 border-0"
+              } font-extrabold text-[11px] px-2.5 py-1 rounded-lg shrink-0`}>
+                Yr {activeResult.year} • Sec {activeResult.section}
+              </Badge>
+              <span className={`font-extrabold text-sm tracking-tight truncate ${isDark ? "text-slate-100" : "text-slate-800"}`}>
+                {activeDept}
               </span>
             </div>
-          </div>
 
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-white/10">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setConflictModalOpen(false);
-                setConflictData(null);
-              }}
-              className="rounded-xl text-xs font-semibold"
-            >
-              Cancel (Keep Current)
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleForceSwap}
-              className="rounded-xl text-xs font-semibold"
-            >
-              Force Swap Anyway
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── FULL SCREEN TIMETABLE WORKSPACE (FULL PAGE SLIDE MODE) ── */}
-      {isFullScreen && activeResult && (
-        <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen overflow-hidden bg-slate-100 dark:bg-[#07070f] text-slate-900 dark:text-slate-100 p-1.5 sm:p-2.5 md:p-3 select-none animate-in fade-in duration-150">
-          {/* Top Compact Command Bar */}
-          <header className="min-h-11 h-auto py-1.5 sm:py-0 sm:h-11 shrink-0 bg-white dark:bg-[#0d0d1a] rounded-xl border border-slate-200 dark:border-white/10 px-2.5 sm:px-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between shadow-sm gap-2">
-            {/* Left: Class Identity, Year Switcher & Section Switcher */}
-            <div className="flex items-center gap-2 sm:gap-2.5">
-              <div className="flex items-center gap-1.5">
-                <Badge className="bg-emerald-600 text-white font-extrabold text-[11px] px-2 py-0.5 rounded-lg shadow-sm shrink-0">
-                  Yr {activeResult.year} • Sec {activeResult.section}
-                </Badge>
-                <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 dark:text-white truncate">
-                  {activeDept}
-                </span>
+            {/* Department switcher pills if multiple departments */}
+            {selections.length > 1 && (
+              <div className={`flex p-0.5 rounded-xl border ${isDark ? "border-blue-500/25 bg-slate-900/60" : "border-blue-200/60 bg-blue-50/50"} backdrop-blur-md gap-0.5 shadow-xs overflow-x-auto no-scrollbar`}>
+                {selections.map(({ departmentName }) => (
+                  <button
+                    key={departmentName}
+                    onClick={() => {
+                      setActiveDept(departmentName);
+                      const deptResults = generatedResults.filter(r => r.departmentName === departmentName);
+                      if (deptResults.length > 0) {
+                        setActiveTab(deptResults[0].year);
+                        setActiveSection(deptResults[0].section);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      activeDept === departmentName
+                        ? isDark
+                          ? "bg-[#1c3166] text-blue-100 shadow-xs border border-blue-500/40 font-bold"
+                          : "bg-white text-blue-700 shadow-xs border border-blue-300 font-bold"
+                        : isDark
+                        ? "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        : "text-slate-600 hover:text-blue-700 hover:bg-white/60"
+                    }`}
+                  >
+                    {departmentName}
+                  </button>
+                ))}
               </div>
+            )}
 
-              {/* Year switcher pills if multiple years */}
-              {activeDeptSelection && activeDeptSelection.selectedYears.length > 1 && (
-                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm overflow-x-auto no-scrollbar ${
-                  isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
-                }`}>
-                  {activeDeptSelection.selectedYears.map(({ year }) => (
-                    <button
-                      key={year}
-                      onClick={() => {
-                        setActiveTab(year);
-                        const yrResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === year);
-                        if (yrResults.length > 0) setActiveSection(yrResults[0].section);
-                      }}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all ${
-                        activeTab === year
-                          ? isDark ? "bg-white/20 text-white shadow-sm" : "bg-white text-slate-900 shadow-sm"
-                          : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-950"
+            {/* Year switcher pills if multiple years */}
+            {activeDeptSelection && activeDeptSelection.selectedYears.length > 1 && (
+              <div className={`flex p-0.5 rounded-xl border ${isDark ? "border-blue-500/25 bg-slate-900/60" : "border-blue-200/60 bg-blue-50/50"} backdrop-blur-md gap-0.5 shadow-xs overflow-x-auto no-scrollbar`}>
+                {activeDeptSelection.selectedYears.map(({ year }) => (
+                  <button
+                    key={year}
+                    onClick={() => {
+                      setActiveTab(year);
+                      const yrResults = generatedResults.filter(r => r.departmentName === activeDept && r.year === year);
+                      if (yrResults.length > 0) setActiveSection(yrResults[0].section);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      activeTab === year
+                        ? isDark
+                          ? "bg-[#1c3166] text-blue-100 shadow-xs border border-blue-500/40 font-bold"
+                          : "bg-white text-blue-700 shadow-xs border border-blue-300 font-bold"
+                        : isDark
+                        ? "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        : "text-slate-600 hover:text-blue-700 hover:bg-white/60"
+                    }`}
+                  >
+                    Yr {year}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Section switcher pills */}
+            {currentYearResults.length > 0 && (
+              <div className={`flex p-0.5 rounded-xl border ${isDark ? "border-blue-500/25 bg-slate-900/60" : "border-blue-200/60 bg-blue-50/50"} backdrop-blur-md gap-0.5 shadow-xs overflow-x-auto no-scrollbar`}>
+                {currentYearResults.map((r) => (
+                  <button
+                    key={r.section}
+                    onClick={() => setActiveSection(r.section)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0 ${
+                      activeSection === r.section
+                        ? isDark
+                          ? "bg-[#1c3166] text-blue-100 shadow-xs border border-blue-500/40 font-bold"
+                          : "bg-white text-blue-700 shadow-xs border border-blue-300 font-bold"
+                        : isDark
+                        ? "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                        : "text-slate-600 hover:text-blue-700 hover:bg-white/60"
+                    }`}
+                  >
+                    {r.section}
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        r.hourVerification?.isValid ?? true ? (isDark ? "bg-blue-400" : "bg-blue-600") : "bg-amber-500"
                       }`}
-                    >
-                      Yr {year}
-                    </button>
-                  ))}
-                </div>
-              )}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-              {/* Section switcher pills */}
-              {currentYearResults.length > 0 && (
-                <div className={`flex p-0.5 rounded-lg border gap-0.5 shadow-sm overflow-x-auto no-scrollbar max-w-[140px] sm:max-w-none ${
-                  isDark ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
-                }`}>
-                  {currentYearResults.map((r) => (
-                    <button
-                      key={r.section}
-                      onClick={() => setActiveSection(r.section)}
-                      className={`px-2 sm:px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 ${
-                        activeSection === r.section
-                          ? isDark
-                            ? "bg-white/20 text-white shadow-sm"
-                            : "bg-white text-slate-900 shadow-sm"
-                          : isDark
-                          ? "text-slate-400 hover:text-white"
-                          : "text-slate-600 hover:text-slate-950"
-                      }`}
-                    >
-                      {r.section}
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          r.hourVerification?.isValid ?? true ? "bg-emerald-500" : "bg-amber-500"
-                        }`}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+          {/* Center Zone: Mode Switcher (Timetable vs Subject Staffs) */}
+          <div className={`flex items-center p-0.5 rounded-xl border ${
+            isDark ? "border-blue-500/25 bg-slate-900/60" : "border-blue-200/70 bg-blue-50/60"
+          } backdrop-blur-md shadow-xs gap-1 shrink-0`}>
+            <button
+              onClick={() => setFullScreenPage('timetable')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                fullScreenPage === 'timetable'
+                  ? isDark ? 'bg-[#1c3166] text-blue-100 shadow-sm shadow-blue-900/40 border border-blue-500/40' : 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                  : isDark
+                  ? 'text-slate-300 hover:text-white hover:bg-slate-800/80 font-semibold'
+                  : 'text-slate-600 hover:text-blue-900 hover:bg-white/60 font-semibold'
+              }`}
+              title="View Full Timetable (Swipe Down / Up Arrow)"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span>Timetable</span>
+            </button>
 
-            {/* Center: Mode Switcher (Timetable vs Subject Staffs) */}
-            <div className="flex items-center p-0.5 rounded-lg border bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 shadow-sm gap-0.5">
-              <button
-                onClick={() => setFullScreenPage('timetable')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  fullScreenPage === 'timetable'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : isDark
-                    ? 'text-slate-400 hover:text-white'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="View Full Timetable (Swipe Down / Up Arrow)"
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                <span>Timetable</span>
-              </button>
+            <button
+              onClick={() => setFullScreenPage('allocation')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                fullScreenPage === 'allocation'
+                  ? isDark ? 'bg-[#1c3166] text-blue-100 shadow-sm shadow-blue-900/40 border border-blue-500/40' : 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                  : isDark
+                  ? 'text-slate-300 hover:text-white hover:bg-slate-800/80 font-semibold'
+                  : 'text-slate-600 hover:text-blue-900 hover:bg-white/60 font-semibold'
+              }`}
+              title="View Subject Staff Allocation (Swipe Up / Down Arrow)"
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>Subject Staffs ({allocationRows.length})</span>
+            </button>
+          </div>
 
-              <button
-                onClick={() => setFullScreenPage('allocation')}
-                className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  fullScreenPage === 'allocation'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : isDark
-                    ? 'text-slate-400 hover:text-white'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="View Subject Staff Allocation (Swipe Up / Down Arrow)"
-              >
-                <Users className="h-3.5 w-3.5" />
-                <span>Subject Staffs ({allocationRows.length})</span>
-              </button>
-            </div>
-
-            {/* Right: Controls & Actions (Image 4 Buttons) */}
-            <div className="flex items-center gap-1.5 sm:gap-2 ml-auto sm:ml-0 flex-wrap">
+          {/* Right Zone: Perfectly Spaced & Segmented Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Group A: Inspection & Export Tools */}
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFacultyInGrid(!showFacultyInGrid)}
-                className={`h-8 px-2 sm:px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
+                className={`h-8.5 px-3 rounded-xl text-xs gap-1.5 font-semibold border transition-all flex items-center ${
                   showFacultyInGrid
                     ? isDark
-                      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                      ? "border-blue-500/50 bg-blue-600/20 text-blue-300 shadow-xs"
+                      : "border-blue-300 bg-blue-50 text-blue-700 shadow-xs"
                     : isDark
-                    ? "border-white/10 bg-white/5 text-slate-300"
-                    : "border-slate-200 bg-white text-slate-700"
+                    ? "border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:border-blue-500/40 hover:text-blue-300 shadow-xs"
+                    : "border-slate-200/90 bg-white/90 text-slate-700 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 shadow-xs"
                 }`}
               >
-                <Users className="h-3.5 w-3.5 text-emerald-500" />
-                <span className="hidden md:inline">{showFacultyInGrid ? "Hide Staff" : "Show Staff"}</span>
-                <span className="md:hidden">Staff</span>
+                <Users className={`h-3.5 w-3.5 ${isDark ? "text-blue-400" : "text-blue-600"}`} />
+                <span>{showFacultyInGrid ? "Hide Staff" : "Show Staff"}</span>
               </Button>
 
-              {/* Image 4: Export PDF Dropdown */}
+              {/* Export PDF Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={exporting || publishing || generatedResults.filter(r => r.status === 'ok').length === 0}
-                    className={`h-8 px-2.5 sm:px-3 rounded-lg font-bold border gap-1.5 shadow-sm transition-all text-xs ${
-                      isDark 
-                        ? 'border-white/15 bg-white/10 hover:bg-white/15 text-white' 
-                        : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
-                    }`}
+                    className={`h-8.5 px-3 rounded-xl font-semibold border ${
+                      isDark
+                        ? "border-slate-700 bg-slate-800/80 hover:bg-slate-700 hover:border-blue-500/40 text-slate-300 hover:text-blue-300"
+                        : "border-slate-200/90 bg-white/90 hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-700"
+                    } gap-1.5 shadow-xs transition-all text-xs flex items-center`}
                   >
                     {exporting ? (
                       <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-                        <span className="hidden sm:inline">Exporting...</span>
+                        <Loader2 className={`h-3.5 w-3.5 animate-spin ${isDark ? "text-blue-400" : "text-blue-600"}`} />
+                        <span>Exporting...</span>
                       </>
                     ) : (
                       <>
-                        <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                        <FileDown className={`h-3.5 w-3.5 ${isDark ? "text-blue-400" : "text-blue-600"}`} />
                         <span>Export PDF</span>
-                        <ChevronDown className="h-3 w-3 opacity-60 ml-0.5" />
+                        <ChevronDown className={`h-3 w-3 opacity-60 ml-0.5 ${isDark ? "text-blue-400" : "text-blue-600"}`} />
                       </>
                     )}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className={`w-64 rounded-xl p-1.5 shadow-xl border z-[70] ${
-                  isDark ? "bg-[#18182a] border-white/10 text-white" : "bg-white border-slate-200 text-slate-800"
-                }`}>
+                <DropdownMenuContent align="end" className={`w-64 rounded-2xl p-1.5 shadow-2xl border ${
+                  isDark
+                    ? "border-blue-500/30 bg-slate-900/95 text-slate-100"
+                    : "border-blue-200/80 bg-white/95 text-slate-900"
+                } backdrop-blur-xl z-[70]`}>
                   <DropdownMenuItem
                     onClick={() => handleExportPDF('all')}
                     disabled={exporting}
-                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                    className={`cursor-pointer gap-2.5 py-2.5 rounded-xl px-3 ${isDark ? "focus:bg-blue-600/20 focus:text-blue-300 text-slate-200" : "focus:bg-blue-50 focus:text-blue-700 text-slate-900"} transition-colors`}
                   >
-                    <FileText className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <FileText className="h-4 w-4 text-blue-600 shrink-0" />
                     <div>
-                      <div className="font-semibold text-xs">Export All Classes (PDF)</div>
-                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      <div className={`font-semibold text-xs ${isDark ? "text-slate-100" : "text-slate-900"}`}>Export All Classes (PDF)</div>
+                      <div className="text-[10px] text-blue-600/70">
                         All generated classes &amp; sections combined
                       </div>
                     </div>
@@ -2805,12 +2297,12 @@ export default function GenerateReviewPage() {
                   <DropdownMenuItem
                     onClick={() => handleExportPDF('year')}
                     disabled={exporting}
-                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                    className={`cursor-pointer gap-2.5 py-2.5 rounded-xl px-3 ${isDark ? "focus:bg-blue-600/20 focus:text-blue-300 text-slate-200" : "focus:bg-blue-50 focus:text-blue-700 text-slate-900"} transition-colors`}
                   >
-                    <Layers className="h-4 w-4 text-purple-400 shrink-0" />
+                    <Layers className="h-4 w-4 text-blue-600 shrink-0" />
                     <div>
-                      <div className="font-semibold text-xs">Export Year {activeTab} (All Sections)</div>
-                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      <div className={`font-semibold text-xs ${isDark ? "text-slate-100" : "text-slate-900"}`}>Export Year {activeTab} (All Sections)</div>
+                      <div className="text-[10px] text-blue-600/70">
                         Combined PDF of all Year {activeTab} sections
                       </div>
                     </div>
@@ -2819,108 +2311,243 @@ export default function GenerateReviewPage() {
                   <DropdownMenuItem
                     onClick={() => handleExportPDF('current')}
                     disabled={exporting}
-                    className="cursor-pointer gap-2.5 py-2.5 rounded-lg px-3 focus:bg-emerald-500/10 focus:text-emerald-500 transition-colors"
+                    className={`cursor-pointer gap-2.5 py-2.5 rounded-xl px-3 ${isDark ? "focus:bg-blue-600/20 focus:text-blue-300 text-slate-200" : "focus:bg-blue-50 focus:text-blue-700 text-slate-900"} transition-colors`}
                   >
-                    <Printer className="h-4 w-4 text-sky-400 shrink-0" />
+                    <Printer className="h-4 w-4 text-blue-600 shrink-0" />
                     <div>
-                      <div className="font-semibold text-xs">Export Current Class (PDF)</div>
-                      <div className={`text-[10px] ${isDark ? "text-white/40" : "text-slate-400"}`}>
+                      <div className={`font-semibold text-xs ${isDark ? "text-slate-100" : "text-slate-900"}`}>Export Current Class (PDF)</div>
+                      <div className="text-[10px] text-blue-600/70">
                         Year {activeTab} — Section {activeSection}
                       </div>
                     </div>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
 
-              {/* Image 4: Publish Timetables Button */}
-              <Button
-                size="sm"
-                onClick={handlePublish}
-                disabled={publishing || exporting || generatedResults.filter(r => r.status === 'ok').length === 0}
-                className="h-8 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-lg gap-1.5 font-bold px-3 sm:px-3.5 shadow-md shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/35 text-xs shrink-0"
-              >
-                {publishing ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span className="hidden sm:inline">Publishing...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span>Publish Timetables</span>
-                  </>
-                )}
-              </Button>
+            {/* Divider */}
+            <div className={`h-5 w-px ${isDark ? "bg-slate-700" : "bg-slate-200"} mx-0.5`} />
 
-              {/* Discard & Reconfigure */}
+            {/* Group B: Primary Publish Action */}
+            <Button
+              size="sm"
+              onClick={handlePublish}
+              disabled={publishing || exporting || generatedResults.filter(r => r.status === 'ok').length === 0}
+              className={`h-8.5 rounded-xl gap-1.5 font-bold px-4 shadow-sm transition-all text-xs shrink-0 text-white ${
+                isDark ? "bg-[#1d4ed8] hover:bg-[#2563eb] border border-blue-500/40 shadow-blue-900/30" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/25 border-0"
+              } active:scale-95 flex items-center`}
+            >
+              {publishing ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Publishing...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Publish Timetables</span>
+                </>
+              )}
+            </Button>
+
+            {/* Divider */}
+            <div className={`h-5 w-px ${isDark ? "bg-slate-700" : "bg-slate-200"} mx-0.5`} />
+
+            {/* Group C: Navigation & Discard */}
+            <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setIsFullScreen(false);
+                  if (cacheKey) sessionStorage.removeItem(cacheKey);
                   setGeneratedResults([]);
+                  navigate('/admin');
                 }}
-                className={`h-8 px-2 sm:px-2.5 rounded-lg text-xs gap-1 font-semibold border ${
+                className={`h-8.5 px-3 rounded-xl text-xs gap-1.5 font-semibold border ${
                   isDark
-                    ? 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm'
-                }`}
-                title="Discard generation and return to configuration"
+                    ? "border-slate-700 bg-slate-800/80 hover:bg-amber-950/40 hover:border-amber-500/40 text-slate-300 hover:text-amber-300"
+                    : "border-slate-200/90 bg-white/90 hover:bg-amber-50 hover:border-amber-300 text-slate-700 hover:text-amber-800"
+                } shadow-xs flex items-center transition-all`}
+                title="Discard generation and return to dashboard"
               >
                 <RotateCcw className="h-3.5 w-3.5 text-amber-500" />
-                <span className="hidden xl:inline">Discard</span>
+                <span>Discard</span>
               </Button>
 
-              {/* Exit to Dashboard */}
               <Button
                 size="sm"
                 onClick={() => navigate('/admin')}
-                className="h-8 px-2.5 sm:px-3 rounded-lg text-xs gap-1.5 font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 shadow-sm"
+                className={`h-8.5 px-3.5 rounded-xl text-xs gap-1.5 font-bold ${
+                isDark
+                  ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-xs"
+                  : "bg-blue-700 hover:bg-blue-800 text-white border border-blue-600/50 shadow-xs"
+              } flex items-center transition-all`}
                 title="Back to Dashboard"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Dashboard</span>
+                <span>Dashboard</span>
               </Button>
             </div>
-          </header>
+          </div>
+        </header>
 
-          {/* Slide Presentation Container: Zero Document Scroll, Pure Up/Down Motion */}
+        {/* Slide Presentation Container: Zero Document Scroll, Pure Up/Down Motion */}
+        <div
+          className="flex-1 min-h-0 w-full overflow-hidden relative mt-1.5 z-10"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onWheel={handleWheelSlide}
+        >
           <div
-            className="flex-1 min-h-0 w-full overflow-hidden relative mt-1.5"
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-            onWheel={handleWheelSlide}
+            className={`w-full h-full flex flex-col transition-transform duration-500 ease-in-out ${
+              fullScreenPage === 'timetable' ? 'translate-y-0' : '-translate-y-full'
+            }`}
           >
-            <div
-              className={`w-full h-full flex flex-col transition-transform duration-500 ease-in-out ${
-                fullScreenPage === 'timetable' ? 'translate-y-0' : '-translate-y-full'
-              }`}
-            >
-              {/* ── PAGE 1: FULL VIEWPORT TIMETABLE ── */}
-              <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pb-1">
-                <div className="flex-1 min-h-0 w-full overflow-hidden">
-                  <FullScreenGrid
-                    grid={activeResult.grid}
-                    onSwapSlots={handleSwapSlots}
-                    getFaculty={getFacultyNamesForCell}
-                    showFaculty={showFacultyInGrid}
-                  />
-                </div>
+            {/* ── PAGE 1: FULL VIEWPORT TIMETABLE ── */}
+            <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pb-1">
+              <div className="flex-1 min-h-0 w-full overflow-hidden">
+                <FullScreenGrid
+                  grid={activeResult.grid}
+                  onSwapSlots={handleSwapSlots}
+                  getFaculty={getFacultyNamesForCell}
+                  showFaculty={showFacultyInGrid}
+                  isDark={isDark}
+                />
               </div>
+            </div>
 
-              {/* ── PAGE 2: FULL VIEWPORT SUBJECT STAFFS ALLOCATION ── */}
-              <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pt-1">
-                <div className="flex-1 min-h-0 w-full overflow-hidden">
-                  <FullScreenAllocationTable
-                    rows={allocationRows}
-                    isDark={isDark}
-                  />
-                </div>
+            {/* ── PAGE 2: FULL VIEWPORT SUBJECT STAFFS ALLOCATION ── */}
+            <div className="w-full h-full shrink-0 flex flex-col relative overflow-hidden pt-1">
+              <div className="flex-1 min-h-0 w-full overflow-hidden">
+                <FullScreenAllocationTable
+                  rows={allocationRows}
+                  isDark={isDark}
+                />
               </div>
             </div>
           </div>
         </div>
-      )}
-    </main>
+
+        {/* Faculty Conflict Dialog */}
+        <Dialog open={conflictModalOpen} onOpenChange={setConflictModalOpen}>
+          <DialogContent className="max-w-xl rounded-2xl p-6 shadow-2xl transition-colors z-[70] bg-white/95 backdrop-blur-xl border border-blue-200/80 text-slate-900">
+            <DialogHeader className="pb-3 border-b border-blue-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-500 shrink-0">
+                  <AlertTriangle className="h-6 w-6" />
+                </div>
+                <div>
+                  <DialogTitle className="text-base font-bold text-slate-900">
+                    Faculty Schedule Conflict Detected
+                  </DialogTitle>
+                  <p className="text-xs mt-0.5 text-blue-700/80">
+                    {conflictData?.source && conflictData?.target ? (
+                      <>
+                        Attempted swap between <strong>{DAYS[conflictData.source.day]} P{conflictData.source.period + 1}</strong> and <strong>{DAYS[conflictData.target.day]} P{conflictData.target.period + 1}</strong> causes a clash.
+                      </>
+                    ) : (
+                      "The requested hour change causes a faculty clash."
+                    )}
+                  </p>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="py-4 space-y-3 max-h-[55vh] overflow-y-auto">
+              {conflictData?.conflicts.map((c, idx) => (
+                <div
+                  key={idx}
+                  className="p-3.5 rounded-xl border border-red-200 bg-red-50/70 text-red-900 text-xs space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1.5 text-sm text-red-600">
+                      <Users className="h-4 w-4" />
+                      {c.facultyName}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-red-500/20 text-red-700 border border-red-500/30">
+                      Double-Booking Clash
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    <div>
+                      <span className="font-semibold text-slate-700">Moving Subject:</span>{" "}
+                      <span className="font-semibold underline">{c.movingSubject || '(Empty)'}</span> → to {c.targetSlot.dayName} {c.targetSlot.periodLabel} ({c.targetSlot.time})
+                    </div>
+                    <div className="p-2.5 rounded-lg text-xs leading-relaxed border bg-white border-red-200 text-red-800">
+                      ⚠️ <strong>Clash Details:</strong> {c.reason}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="p-3 rounded-xl border border-blue-200/60 bg-blue-50/60 text-xs flex items-start gap-2 text-blue-800">
+                <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                <span>
+                  Faculty members cannot teach two different classrooms during the same hour. The change was halted to prevent timetable collision. You can cancel to keep the valid schedule or force swap if you plan to reallocate the conflicting class.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-blue-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setConflictModalOpen(false);
+                  setConflictData(null);
+                }}
+                className="rounded-xl text-xs font-semibold border-blue-200 text-blue-800 hover:bg-blue-50"
+              >
+                Cancel (Keep Current)
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleForceSwap}
+                className="rounded-xl text-xs font-semibold"
+              >
+                Force Swap Anyway
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  // Fallback if no timetable generated and not loading/generating
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff] text-slate-900 p-4 select-none relative overflow-hidden">
+      <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-blue-200/40 via-blue-100/30 to-transparent blur-3xl opacity-75 pointer-events-none" />
+      <div className="p-8 rounded-3xl bg-white/85 backdrop-blur-2xl border border-blue-200/80 shadow-[0_16px_48px_rgba(37,99,235,0.12),0_0_10px_-2px_rgba(37,99,235,0.06),inset_0_1px_1px_0_rgba(255,255,255,0.9)] flex flex-col items-center gap-4 max-w-md text-center z-10">
+        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-500/15 to-blue-600/15 border border-blue-200/80 text-blue-600 shadow-sm shadow-blue-500/10">
+          <AlertCircle className="h-8 w-8" />
+        </div>
+        <div>
+          <h2 className="text-lg font-extrabold text-slate-900">Timetable Generation Incomplete</h2>
+          <p className="text-xs text-blue-700/80 mt-1">
+            Could not automatically generate valid timetables for the selected parameters.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            onClick={() => handleGenerate()}
+            className="rounded-xl font-bold px-4 py-2 text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/25 border-0"
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+            Retry Generation
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/admin')}
+            className="rounded-xl font-semibold px-4 py-2 text-xs border-blue-200 text-blue-800 hover:bg-blue-50"
+          >
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    </div>
   );
+
 }

@@ -13,19 +13,17 @@
        1. Base Palette (The "What") - HSL Channels
        ---------------------------------------------------- */
 
-    /* Olive Palette - Premium, Organic, Attractive */
-    --color-olive-50: 84 30% 96%;
-    --color-olive-100: 84 25% 92%;
-    --color-olive-200: 84 25% 84%;
-    --color-olive-300: 84 30% 74%;
-    --color-olive-400: 84 35% 60%;
-    --color-olive-500: 84 45% 48%;
-    /* Smooth Olive */
-    --color-olive-600: 84 50% 38%;
-    /* Deep Rich Olive for Primary */
-    --color-olive-700: 84 55% 30%;
-    --color-olive-800: 84 60% 22%;
-    --color-olive-900: 84 65% 15%;
+    /* Apple Pro Indigo / Sapphire Palette - Modern, Sleek, Aesthetic */
+    --color-indigo-50: 226 100% 97%;
+    --color-indigo-100: 226 100% 94%;
+    --color-indigo-200: 228 96% 89%;
+    --color-indigo-300: 231 93% 82%;
+    --color-indigo-400: 234 89% 74%;
+    --color-indigo-500: 239 84% 67%;
+    --color-indigo-600: 243 75% 59%;
+    --color-indigo-700: 244 58% 51%;
+    --color-indigo-800: 244 55% 41%;
+    --color-indigo-900: 242 47% 34%;
 
     /* Slate Neutrals - Clean, Modern, Professional */
     --color-slate-50: 210 20% 98%;
@@ -42,7 +40,7 @@
 
     /* Status Colors */
     --color-danger: 0 84% 60%;
-    --color-success: 142 71% 45%;
+    --color-success: 239 84% 67%;
     --color-warning: 38 92% 50%;
 
 
@@ -50,97 +48,102 @@
        2. Semantic Variables (The "Where")
        ---------------------------------------------------- */
 
-    /* Backgrounds & Text */
-    --background: var(--color-slate-50);
-    --foreground: var(--color-slate-900);
+    /* Backgrounds & Text — Radiant Lavender-Indigo Light Canvas */
+    --background: 235 60% 98.5%;
+    --foreground: 226 50% 15%;
 
-    /* Card / Surface */
-    --card: 0 0% 100%;
-    --card-foreground: var(--color-slate-900);
+    /* Card / Surface — Radiant luminous off-white with delicate lavender warmth */
+    --card: 235 55% 99.4%;
+    --card-foreground: 226 50% 15%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: var(--color-slate-900);
+    --popover: 235 55% 99.4%;
+    --popover-foreground: 226 50% 15%;
 
-    /* Primary Actions */
-    --primary: var(--color-olive-600);
+    /* Primary Actions — Electric Royal Violet / Indigo */
+    --primary: 246 80% 59%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary / Muted Actions */
-    --secondary: var(--color-olive-100);
-    --secondary-foreground: var(--color-olive-800);
+    /* Secondary / Muted Actions — Soft Violet Wash */
+    --secondary: 235 90% 95%;
+    --secondary-foreground: 246 75% 42%;
 
-    --muted: var(--color-slate-100);
-    --muted-foreground: var(--color-slate-500);
+    --muted: 235 45% 96%;
+    --muted-foreground: 230 22% 48%;
 
     /* Accents */
-    --accent: var(--color-olive-50);
-    --accent-foreground: var(--color-olive-900);
+    --accent: 235 85% 94%;
+    --accent-foreground: 246 75% 42%;
 
     /* Statuses */
     --destructive: var(--color-danger);
     --destructive-foreground: 0 0% 100%;
 
-    /* Borders & Inputs */
-    --border: var(--color-slate-200);
-    --input: var(--color-slate-200);
-    --ring: var(--color-olive-500);
+    /* Borders & Inputs — Subtle Purple-Indigo Tinted Borders */
+    --border: 230 60% 90%;
+    --input: 230 55% 92%;
+    --ring: 246 80% 59%;
 
     /* Corner Radius */
     --radius: 0.75rem;
 
-    /* Sidebar Specifics */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: var(--color-slate-700);
-    --sidebar-primary: var(--color-olive-600);
+    /* Sidebar Specifics — Light Lavender Frosted Sidebar */
+    --sidebar-background: 235 55% 98%;
+    --sidebar-foreground: 230 35% 32%;
+    --sidebar-primary: 246 80% 59%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: var(--color-olive-100);
-    --sidebar-accent-foreground: var(--color-olive-900);
-    --sidebar-border: var(--color-slate-200);
-    --sidebar-ring: var(--color-olive-600);
+    --sidebar-accent: 235 85% 94%;
+    --sidebar-accent-foreground: 246 75% 42%;
+    --sidebar-border: 230 60% 90%;
+    --sidebar-ring: 246 80% 59%;
 
     /* Extras */
-    --gradient-primary: linear-gradient(135deg, hsl(var(--color-olive-600)), hsl(var(--color-olive-400)));
+    --gradient-primary: linear-gradient(135deg, hsl(246 80% 59%), hsl(265 85% 62%));
   }
 
   .dark {
-    /* Dark Mode Mappings */
-    --background: var(--color-slate-950);
-    --foreground: var(--color-slate-50);
+    /* Cosmic Midnight Navy Canvas & Panels (matching SONA TTG PRO) */
+    --background: 224 44% 6%;
+    --foreground: 210 20% 98%;
 
-    --card: var(--color-slate-900);
-    --card-foreground: var(--color-slate-50);
+    /* Elevated Dark Navy Cards & Popovers */
+    --card: 225 36% 11%;
+    --card-foreground: 210 20% 98%;
 
-    --popover: var(--color-slate-900);
-    --popover-foreground: var(--color-slate-50);
+    --popover: 225 36% 11%;
+    --popover-foreground: 210 20% 98%;
 
-    --primary: var(--color-olive-500);
-    --primary-foreground: var(--color-slate-950);
+    /* Radiant Electric Indigo Primary Accent */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: var(--color-slate-800);
-    --secondary-foreground: var(--color-slate-50);
+    /* Deep Navy-Slate Secondary Surfaces */
+    --secondary: 225 32% 16%;
+    --secondary-foreground: 210 20% 95%;
 
-    --muted: var(--color-slate-800);
-    --muted-foreground: var(--color-slate-400);
+    --muted: 225 30% 13%;
+    --muted-foreground: 217 19% 65%;
 
-    --accent: var(--color-slate-800);
-    --accent-foreground: var(--color-slate-50);
+    --accent: 225 35% 18%;
+    --accent-foreground: 210 20% 98%;
 
-    --destructive: 0 62% 30%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: var(--color-slate-800);
-    --input: var(--color-slate-800);
-    --ring: var(--color-olive-400);
+    --border: 225 28% 18%;
+    --input: 225 28% 18%;
+    --ring: 239 84% 67%;
 
-    /* Sidebar Dark */
-    --sidebar-background: var(--color-slate-950);
-    --sidebar-foreground: var(--color-slate-300);
-    --sidebar-primary: var(--color-olive-500);
+    /* Cosmic Midnight Sidebar */
+    --sidebar-background: 224 44% 6%;
+    --sidebar-foreground: 217 19% 65%;
+    --sidebar-primary: 239 84% 67%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: var(--color-slate-800);
-    --sidebar-accent-foreground: var(--color-slate-50);
-    --sidebar-border: var(--color-slate-800);
-    --sidebar-ring: var(--color-olive-400);
+    --sidebar-accent: 225 36% 14%;
+    --sidebar-accent-foreground: 239 84% 75%;
+    --sidebar-border: 225 28% 15%;
+    --sidebar-ring: 239 84% 67%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(239 84% 67%), hsl(258 90% 66%));
   }
 }
 
@@ -159,6 +162,91 @@
 
   .shadow-apple-xl {
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+  }
+
+  /* Professional Neon Glassmorphism System — Controlled & Refined */
+  .glass-card {
+    background-color: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(199, 210, 254, 0.65);
+    box-shadow: 0 4px 20px -4px rgba(99, 102, 241, 0.08), 0 0 12px -2px rgba(99, 102, 241, 0.06), inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  }
+
+  .dark .glass-card {
+    background-color: rgba(11, 15, 30, 0.72);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.5), 0 0 14px -3px rgba(99, 102, 241, 0.12), inset 0 1px 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .glass-card-hover {
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .glass-card-hover:hover {
+    transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.45);
+    box-shadow: 0 8px 30px -4px rgba(99, 102, 241, 0.14), 0 0 18px -2px rgba(99, 102, 241, 0.16), inset 0 1px 1px 0 rgba(255, 255, 255, 0.95);
+  }
+
+  .dark .glass-card-hover:hover {
+    border-color: rgba(99, 102, 241, 0.38);
+    box-shadow: 0 8px 32px -4px rgba(0, 0, 0, 0.6), 0 0 20px -3px rgba(99, 102, 241, 0.22), inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-nav {
+    background-color: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid rgba(199, 210, 254, 0.6);
+    box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.05);
+  }
+
+  .dark .glass-nav {
+    background-color: rgba(9, 12, 25, 0.82);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid rgba(99, 102, 241, 0.15);
+    box-shadow: 0 0 24px -5px rgba(0, 0, 0, 0.6);
+  }
+
+  .glass-header {
+    background-color: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(199, 210, 254, 0.55);
+    box-shadow: 0 1px 12px 0 rgba(99, 102, 241, 0.04);
+  }
+
+  .dark .glass-header {
+    background-color: rgba(8, 11, 23, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+    box-shadow: 0 1px 12px 0 rgba(0, 0, 0, 0.3);
+  }
+
+  /* Controlled Neon Rim Glows (Subtle, Tight, Professional) */
+  .neon-glow-indigo {
+    box-shadow: 0 0 12px -2px rgba(99, 102, 241, 0.25);
+  }
+
+  .neon-glow-cyan {
+    box-shadow: 0 0 12px -2px rgba(6, 182, 212, 0.25);
+  }
+
+  .neon-glow-purple {
+    box-shadow: 0 0 12px -2px rgba(168, 85, 247, 0.25);
+  }
+
+  .neon-glow-amber {
+    box-shadow: 0 0 12px -2px rgba(245, 158, 11, 0.25);
+  }
+
+  .neon-glow-emerald {
+    box-shadow: 0 0 12px -2px rgba(16, 185, 129, 0.25);
   }
 
   .glass-panel {
@@ -257,10 +345,10 @@
 }
 
 .dark .glass-card {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(15, 21, 39, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.16);
 }
 
 .glass-card-hover {
@@ -274,6 +362,6 @@
 }
 
 .dark .glass-card-hover:hover {
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 12px 20px -10px rgba(0, 0, 0, 0.4);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.6), 0 0 15px rgba(99, 102, 241, 0.12);
 }

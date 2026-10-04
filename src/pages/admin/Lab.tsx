@@ -146,27 +146,27 @@ const Lab = () => {
   const setSelection = useTimetableStore((s) => s.setSelection);
 
   // ── Theme tokens ────────────────────────────────────────────────────────────
-  const tblBg        = isDark ? "bg-slate-900"          : "bg-white border border-slate-200";
-  const tblHeaderBg  = isDark ? "bg-slate-800/90"       : "bg-slate-50";
-  const tblBorder    = isDark ? "border-slate-700/60"   : "border-slate-200";
-  const tblDivide    = isDark ? "divide-slate-800"      : "divide-slate-100";
-  const tblRowHover  = isDark ? "hover:bg-slate-800/50" : "hover:bg-slate-50";
+  const tblBg        = isDark ? "bg-slate-900"          : "bg-white/95 border border-indigo-100 shadow-[0_4px_24px_-4px_rgba(99,102,241,0.06)] rounded-2xl overflow-hidden";
+  const tblHeaderBg  = isDark ? "bg-slate-800/90"       : "bg-indigo-50/70 border-b border-indigo-100/80";
+  const tblBorder    = isDark ? "border-slate-700/60"   : "border-indigo-100/90";
+  const tblDivide    = isDark ? "divide-slate-800"      : "divide-indigo-50/80";
+  const tblRowHover  = isDark ? "hover:bg-slate-800/50" : "hover:bg-indigo-50/30";
   const tblText      = isDark ? "text-slate-200"        : "text-slate-800";
-  const tblTextMuted = isDark ? "text-slate-400"        : "text-slate-500";
+  const tblTextMuted = isDark ? "text-slate-400"        : "text-indigo-900/60";
   const tblTextDim   = isDark ? "text-slate-500"        : "text-slate-400";
-  const tblHeadText  = isDark ? "text-slate-400"        : "text-slate-500";
-  const tblCellName  = isDark ? "text-white"            : "text-slate-900";
-  const tblInputBg   = isDark ? "bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500" : "bg-slate-100 border-slate-200 text-slate-800 placeholder:text-slate-400";
-  const tblSelectBg  = isDark ? "bg-slate-800 border-slate-700 text-slate-100" : "bg-slate-100 border-slate-200 text-slate-800";
-  const tblViewToggleBg = isDark ? "bg-slate-800 border-slate-700" : "bg-slate-100 border-slate-200";
-  const tblViewInactive = isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700";
-  const tblDeleteBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-red-500 hover:text-red-400" : "bg-white border-slate-200 text-slate-600 hover:border-red-400 hover:text-red-500";
-  const tblExportBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-emerald-500 hover:text-emerald-400" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600";
-  const tblActionBtn = isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-slate-100 hover:bg-slate-200 text-slate-700";
-  const tblActionDel = isDark ? "bg-slate-700 hover:bg-red-900/60 text-slate-400 hover:text-red-400" : "bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500";
-  const tblTypeBadge = isDark ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-700";
-  const tblEmptyText = isDark ? "text-slate-500" : "text-slate-400";
-  const tblEmptyIcon = isDark ? "opacity-30" : "opacity-20";
+  const tblHeadText  = isDark ? "text-slate-400"        : "text-indigo-950/70 font-bold";
+  const tblCellName  = isDark ? "text-white"            : "text-slate-900 font-semibold";
+  const tblInputBg   = isDark ? "bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500" : "bg-white border-indigo-100 text-slate-800 placeholder:text-slate-400 focus:border-indigo-500 shadow-sm";
+  const tblSelectBg  = isDark ? "bg-slate-800 border-slate-700 text-slate-100" : "bg-white border-indigo-100 text-slate-800 focus:border-indigo-500 shadow-sm";
+  const tblViewToggleBg = isDark ? "bg-slate-800 border-slate-700" : "bg-indigo-50/70 border-indigo-100";
+  const tblViewInactive = isDark ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-indigo-700";
+  const tblDeleteBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-red-500 hover:text-red-400" : "bg-white border-indigo-100 text-slate-600 hover:border-red-400 hover:text-red-500 shadow-sm";
+  const tblExportBtn = isDark ? "bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500 hover:text-indigo-400" : "bg-white border-indigo-100 text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50/50 shadow-sm font-semibold";
+  const tblActionBtn = isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700";
+  const tblActionDel = isDark ? "bg-slate-700 hover:bg-red-900/60 text-slate-400 hover:text-red-400" : "bg-indigo-50 hover:bg-red-50 text-slate-400 hover:text-red-500";
+  const tblTypeBadge = isDark ? "bg-slate-700 text-slate-200" : "bg-indigo-50 text-indigo-700 border border-indigo-100 font-semibold";
+  const tblEmptyText = isDark ? "text-slate-500" : "text-indigo-900/40";
+  const tblEmptyIcon = isDark ? "opacity-30" : "opacity-30 text-indigo-400";
   // ────────────────────────────────────────────────────────────────────────────
 
   const [labs, setLabs] = useState<Lab[]>([]);
@@ -295,7 +295,7 @@ const Lab = () => {
         ...labForm,
         lab_code: generatedCode,
         department_id: adminDepartmentId, // Fixed: use department_id as expected by DB
-        departments: [adminDepartmentId], 
+        departments: allAdminDeptIds.length > 0 ? allAdminDeptIds : [adminDepartmentId], 
         year: null,
         section: null,
         allowed_classes: [],
@@ -432,20 +432,7 @@ const Lab = () => {
     setSelectedLabForSchedule(lab);
     setActiveTab("schedules");
 
-    // Fetch ALL lab-type subjects from ALL departments so subjects can be mapped to department names.
-    try {
-      const { data: subjs, error: subjsError } = await (supabase as any)
-        .from('subjects')
-        .select('*, departments(name)')
-        .eq('type', 'lab')
-        .order('year')
-        .order('name');
-
-      if (subjsError) throw subjsError;
-      setItAdsLabs(subjs || []);
-    } catch (error) {
-      console.error('Error loading subjects for lab:', error);
-    }
+    await loadAllLabSubjects();
   };
 
   const loadLabs = async () => {
@@ -518,6 +505,7 @@ const Lab = () => {
   useEffect(() => {
     loadLabs();
     loadLabSchedules();
+    loadAllLabSubjects();
   }, []);  // runs once on mount; loadLabs reads admin depts from localStorage
 
   const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
@@ -528,34 +516,21 @@ const Lab = () => {
     );
   };
 
-  const loadITandADSLabs = async () => {
+  const loadAllLabSubjects = async () => {
     try {
-      const { data: depts, error: deptError } = await (supabase as any)
-        .from('departments')
-        .select('id, name')
-        .or('name.ilike.%IT%,name.ilike.%Information Technology%,name.ilike.%ADS%,name.ilike.%Applied Data Science%');
+      const { data: subjs, error: subjsError } = await (supabase as any)
+        .from('subjects')
+        .select('*, departments(name)')
+        .eq('type', 'lab')
+        .order('year')
+        .order('name');
 
-      if (deptError) throw deptError;
-
-      if (depts && depts.length > 0) {
-        const deptIds = depts.map((d: any) => d.id);
-        const { data: subjs, error: subjsError } = await (supabase as any)
-          .from('subjects')
-          .select('id, name, year, department_id, hours_per_week, departments(name)')
-          .eq('type', 'lab')
-          .in('department_id', deptIds);
-
-        if (subjsError) throw subjsError;
-        setItAdsLabs(subjs || []);
-      }
+      if (subjsError) throw subjsError;
+      setItAdsLabs(subjs || []);
     } catch (error) {
-      console.error('Error loading IT/ADS labs:', error);
+      console.error('Error loading lab subjects:', error);
     }
   };
-
-  useEffect(() => {
-    loadITandADSLabs();
-  }, []);
 
   const handleAddSchedule = async (slot: { day: number, startTime: string, endTime: string, slotNumber: number, labId: string }, subjectId: string, allocationInfo?: string) => {
     if (!slot || !subjectId) {
@@ -600,18 +575,6 @@ const Lab = () => {
     }
 
     try {
-      // Determine duration: use subject's hours_per_week if available, or default to 1 (for manual/custom entries)
-      const duration = selectedLabSubjectData?.hours_per_week || 1;
-
-      // 1. Check if the starting slot + duration exceeds the daily periods
-      // periods is globally available in the file
-      if (slot.slotNumber + duration - 1 > periods.length) {
-        toast.error(`Cannot schedule ${duration} hours starting at Period ${slot.slotNumber}. It exceeds the daily limit.`);
-        return;
-      }
-
-      const slotsToBook = [];
-
       // Parse dept, year, section from allocationInfo
       let parsedDept = "";
       let parsedYear = "";
@@ -625,6 +588,27 @@ const Lab = () => {
         parsedYear = String(selectedLabSubjectData.year || "").trim();
         parsedDept = selectedLabSubjectData.departments?.name || "";
       }
+
+      // Determine duration: check editableHours first, else calculate remaining unbooked hours for this section, capped at remaining periods in day
+      const bookedForThisSection = parsedSection && selectedLabSubjectData ? getBookedHoursForSection(selectedLabSubjectData, parsedSection) : 0;
+      const targetHours = selectedLabSubjectData?.hours_per_week || 1;
+      const remainingHours = Math.max(1, targetHours - bookedForThisSection);
+      const periodsRemainingInDay = periods.length - slot.slotNumber + 1;
+
+      let duration = editableHours[subjectId] !== undefined
+        ? editableHours[subjectId]
+        : Math.min(remainingHours, periodsRemainingInDay);
+
+      if (duration < 1) duration = 1;
+
+      // 1. Check if the starting slot + duration exceeds the daily periods
+      // periods is globally available in the file
+      if (slot.slotNumber + duration - 1 > periods.length) {
+        toast.error(`Cannot schedule ${duration} hours starting at Period ${slot.slotNumber}. It exceeds the daily limit (${periods.length} periods).`);
+        return;
+      }
+
+      const slotsToBook = [];
 
       // 2. Prepare slots and check for collisions
       for (let i = 0; i < duration; i++) {
@@ -713,11 +697,7 @@ const Lab = () => {
       toast.success(`Lab session added successfully (${duration} hour${duration > 1 ? 's' : ''})`);
 
       // Trigger reload of schedules
-      const { data: schedulesData } = await (supabase as any)
-        .from('lab_schedules')
-        .select('*')
-        .in('lab_id', labs.map(lab => lab.id));
-      setLabSchedules(schedulesData || []);
+      await loadLabSchedules();
     } catch (error: any) {
       console.error('Error adding lab schedule:', error);
       toast.error(`Failed to add lab session: ${error.message}`);
@@ -734,11 +714,7 @@ const Lab = () => {
 
       if (error) throw error;
       toast.success("Lab session removed successfully");
-      const { data: schedulesData } = await (supabase as any)
-        .from('lab_schedules')
-        .select('*')
-        .in('lab_id', labs.map(lab => lab.id));
-      setLabSchedules(schedulesData || []);
+      await loadLabSchedules();
     } catch (error: any) {
       console.error('Error removing lab schedule:', error);
       toast.error(`Failed to remove lab session: ${error.message}`);
@@ -789,11 +765,7 @@ const Lab = () => {
         ? `Removed all ${idsToDelete.length} continuous slot(s)`
         : 'Lab session removed successfully'
       );
-      const { data: schedulesData } = await (supabase as any)
-        .from('lab_schedules')
-        .select('*')
-        .in('lab_id', labs.map(lab => lab.id));
-      setLabSchedules(schedulesData || []);
+      await loadLabSchedules();
     } catch (error: any) {
       console.error('Error removing lab schedule:', error);
       toast.error(`Failed to remove lab session: ${error.message}`);
@@ -837,13 +809,13 @@ const Lab = () => {
     return "";
   };
 
-  // Helper to check if a specific section of a subject is already booked in lab_schedules
-  const isSectionBookedForSubject = (subj: any, section: string): boolean => {
+  // Helper to count booked hours for a specific section of a subject in lab_schedules
+  const getBookedHoursForSection = (subj: any, section: string): number => {
     const targetSubjName = subj.name.toLowerCase().trim();
     const targetDeptName = subj.departments?.name?.toLowerCase().trim() || '';
     const targetYear = String(subj.year).trim().toLowerCase();
 
-    return labSchedules.some(s => {
+    return labSchedules.filter(s => {
       const parsed = parseScheduleInfo(s.semester || '');
       const sSubjName = (parsed.subject || parsed.raw || '').toLowerCase().trim();
 
@@ -874,7 +846,14 @@ const Lab = () => {
       }
 
       return true;
-    });
+    }).length;
+  };
+
+  // Helper to check if a specific section of a subject is already fully booked in lab_schedules
+  const isSectionBookedForSubject = (subj: any, section: string): boolean => {
+    const booked = getBookedHoursForSection(subj, section);
+    const target = editableHours[subj.id] !== undefined ? editableHours[subj.id] : (subj.hours_per_week || 2);
+    return booked >= target;
   };
 
   const getLabNameForSchedule = (schedule: LabScheduleDetail) => {
@@ -940,11 +919,7 @@ const Lab = () => {
         toast.success("Extra class added successfully");
         
         // Refresh
-        const { data: schedulesData } = await (supabase as any)
-          .from('lab_schedules')
-          .select('*')
-          .in('lab_id', labs.map(lab => lab.id));
-        setLabSchedules(schedulesData || []);
+        await loadLabSchedules();
         setExtraClassDialog(false);
         setExtraClassForm({ day: "", period: "", subject: "", notes: "" });
 
@@ -1096,11 +1071,13 @@ const Lab = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+        isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+      }`}>
         <AdminNavbar />
-        <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <main className="md:pl-72 transition-all duration-300 relative z-10 pt-16 md:pt-0">
           <section className="container py-8 md:pt-16">
-            <div className="text-center">Loading...</div>
+            <div className="text-center font-bold text-lg">Loading lab assets...</div>
           </section>
         </main>
       </div>
@@ -1108,20 +1085,41 @@ const Lab = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+      <main className="md:pl-72 transition-all duration-300 relative z-10 pt-16 md:pt-0">
         <SelectionHeader />
-        <section className="container py-4">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
           <div className="space-y-6">
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="schedules" className="flex items-center gap-2 font-bold">
+              <TabsList className={`grid w-full grid-cols-2 p-1.5 rounded-2xl border backdrop-blur-xl h-auto shadow-sm transition-all ${
+                isDark ? "bg-[#090d1c]/80 border-indigo-500/25" : "bg-white/80 border-indigo-200/70"
+              }`}>
+                <TabsTrigger value="schedules" className="flex items-center justify-center gap-2 font-semibold py-2.5 rounded-xl">
                   <Calendar className="h-4 w-4" />
                   Lab Schedule Allocation
                 </TabsTrigger>
-                <TabsTrigger value="labs" className="flex items-center gap-2 font-bold">
+                <TabsTrigger value="labs" className="flex items-center justify-center gap-2 font-semibold py-2.5 rounded-xl">
                   <Settings className="h-4 w-4" />
                   Manage Labs
                 </TabsTrigger>
@@ -1180,7 +1178,7 @@ const Lab = () => {
                   </div>
                   <Button
                     onClick={() => setLabDialog(true)}
-                    className="h-10 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-450 hover:to-teal-555 text-slate-950 font-bold shadow-lg shadow-emerald-500/10 transition-all flex items-center gap-2"
+                    className="h-10 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2"
                   >
                     <Plus className="h-4 w-4" />
                     <span>Add Lab</span>
@@ -1247,13 +1245,13 @@ const Lab = () => {
                         <div className="flex flex-wrap gap-1">
                           {(lab.allowed_classes && lab.allowed_classes.length > 0)
                             ? lab.allowed_classes.map((cls, idx) => (
-                                <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 text-[10px] font-medium border border-indigo-800/40">
                                   Yr {cls.year} • {cls.section}
                                 </span>
                               ))
                             : (lab.year || lab.section)
-                              ? <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">{lab.year} {lab.section}</span>
-                              : <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 text-[10px] font-medium border border-emerald-900/30">All Classes</span>
+                              ? <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 text-[10px] font-medium border border-indigo-800/40">{lab.year} {lab.section}</span>
+                              : <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 text-[10px] font-medium border border-indigo-800/40">All Classes</span>
                           }
                         </div>
                       )
@@ -1264,7 +1262,7 @@ const Lab = () => {
                       sortable: true,
                       render: (lab) => (
                         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          lab.is_active ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-900/30' : 'bg-slate-800 text-slate-400'
+                          lab.is_active ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/40' : 'bg-slate-800 text-slate-400'
                         }`}>
                           {lab.is_active ? 'Active' : 'Inactive'}
                         </span>
@@ -1291,7 +1289,7 @@ const Lab = () => {
                       onClick={onToggleSelect}
                       className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-slate-950 ${
                         isSelected
-                          ? "border-emerald-500 shadow-md shadow-emerald-500/5 bg-slate-900/40"
+                          ? "border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30"
                           : "border-slate-855 hover:border-slate-700 hover:bg-slate-900/10"
                       }`}
                     >
@@ -1301,7 +1299,7 @@ const Lab = () => {
                             <span className={`font-semibold ${tblCellName}`}>{lab.name}</span>
                             <span className={`text-xs font-mono ${tblTextDim}`}>{lab.lab_code}</span>
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                              lab.is_active ? 'bg-emerald-955/60 text-emerald-400 border border-emerald-900/30' : 'bg-slate-800 text-slate-450'
+                              lab.is_active ? 'bg-indigo-950/60 text-indigo-300 border border-indigo-800/40' : 'bg-slate-800 text-slate-450'
                             }`}>{lab.is_active ? 'Active' : 'Inactive'}</span>
                           </div>
                           <div className={`flex items-center gap-3 mt-2 text-xs flex-wrap ${tblTextMuted}`}>
@@ -1313,20 +1311,20 @@ const Lab = () => {
                           {(lab.allowed_classes && lab.allowed_classes.length > 0) ? (
                             <div className="flex gap-1 flex-wrap mt-2.5">
                               {lab.allowed_classes.map((cls, idx) => (
-                                <span key={idx} className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
                                   Yr {cls.year} • {cls.section}
                                 </span>
                               ))}
                             </div>
                           ) : (lab.year || lab.section) ? (
                             <div className="flex gap-1 flex-wrap mt-2.5">
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
                                 {lab.year} {lab.section}
                               </span>
                             </div>
                           ) : (
                             <div className="flex gap-1 flex-wrap mt-2.5">
-                              <span className="px-1.5 py-0.5 rounded bg-emerald-955/60 text-emerald-400 border border-emerald-900/30">
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40">
                                 All Classes
                               </span>
                             </div>
@@ -1337,7 +1335,7 @@ const Lab = () => {
                             checked={isSelected}
                             onCheckedChange={(checked) => onToggleSelect()}
                             onClick={(e) => e.stopPropagation()}
-                            className="border-slate-750 bg-slate-950 data-[state=checked]:bg-emerald-500"
+                            className="border-slate-750 bg-slate-950 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                           />
                           <button
                             onClick={(e) => { e.stopPropagation(); openScheduleViewDialog(lab); }}
@@ -1356,7 +1354,7 @@ const Lab = () => {
                 {/* Lab Switcher Top Bar */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-card border border-border shadow-sm">
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shrink-0">
+                    <div className="h-10 w-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500 shrink-0">
                       <FlaskConical className="h-5 w-5" />
                     </div>
                     <div>
@@ -1378,7 +1376,7 @@ const Lab = () => {
                           }
                         }}
                       >
-                        <SelectTrigger className="h-10 min-w-[260px] md:min-w-[320px] rounded-xl font-bold text-xs bg-background border-2 border-emerald-500/50 text-foreground shadow-sm">
+                        <SelectTrigger className="h-10 min-w-[260px] md:min-w-[320px] rounded-xl font-bold text-xs bg-background border-2 border-indigo-500/40 text-foreground shadow-sm">
                           <SelectValue placeholder="Choose a Laboratory..." />
                         </SelectTrigger>
                         <SelectContent className="max-h-[320px]">
@@ -1398,7 +1396,7 @@ const Lab = () => {
                         onClick={() => exportLabSchedulePDF(selectedLabForSchedule)}
                         className="h-10 px-4 rounded-xl border border-border hover:bg-accent transition-all font-semibold flex items-center gap-2 shrink-0"
                       >
-                        <Download className="h-4 w-4 text-emerald-500" />
+                        <Download className="h-4 w-4 text-indigo-500" />
                         <span>Export PDF</span>
                       </Button>
                     )}
@@ -1477,7 +1475,7 @@ const Lab = () => {
                                 return (
                                   <TableCell key={period.id} className="text-center p-2 border-r text-xs align-middle">
                                     {scheduleForPeriod && parsedInfo ? (
-                                      <div className="relative group w-full h-full min-h-[55px] flex flex-col items-center justify-center p-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                      <div className="relative group w-full h-full min-h-[55px] flex flex-col items-center justify-center p-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
                                         {(() => {
                                           const matchedSubj = (parsedInfo.subject || parsedInfo.raw)
                                             ? itAdsLabs.find(s =>
@@ -1576,7 +1574,7 @@ const Lab = () => {
                                             role="combobox"
                                             className="h-10 w-full justify-between border-none bg-transparent hover:bg-muted/50 focus:ring-0 shadow-none px-2"
                                           >
-                                            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold truncate">Accessible</span>
+                                            <span className="text-indigo-600 dark:text-indigo-400 text-xs font-bold truncate">Accessible</span>
                                             <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
                                           </Button>
                                         </PopoverTrigger>
@@ -1639,7 +1637,7 @@ const Lab = () => {
                                                               {isEditingHours && (
                                                                 <button
                                                                   onClick={e => { e.stopPropagation(); handleSaveHours(subj.id); }}
-                                                                  className="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded font-bold hover:bg-emerald-600"
+                                                                  className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold hover:bg-indigo-700"
                                                                 >Save</button>
                                                               )}
                                                             </div>
@@ -1658,14 +1656,19 @@ const Lab = () => {
                                                               allowedSectionsForYear.includes(section) ||
                                                               allowedSectionsForYear.includes('All Sections');
                                                             
-                                                            const alreadyBooked = isSectionBookedForSubject(subj, section);
-                                                            const isAvailable = isLabAllowed && !alreadyBooked;
+                                                            const bookedHours = getBookedHoursForSection(subj, section);
+                                                            const targetHours = currentHours || subj.hours_per_week || 2;
+                                                            const isFullyBooked = bookedHours >= targetHours;
+                                                            const isPartiallyBooked = bookedHours > 0 && bookedHours < targetHours;
+                                                            const isAvailable = isLabAllowed && !isFullyBooked;
 
                                                             const title = !isLabAllowed
                                                               ? `Sec ${section} not allowed in this lab`
-                                                              : alreadyBooked
-                                                                ? `Sec ${section} already allocated for this subject`
-                                                                : `Assign to Sec ${section}`;
+                                                              : isFullyBooked
+                                                                ? `Sec ${section} already fully allocated (${bookedHours}/${targetHours} hrs)`
+                                                                : isPartiallyBooked
+                                                                  ? `Sec ${section}: ${bookedHours}/${targetHours} hrs allocated (${targetHours - bookedHours} hrs remaining). Click to allocate remaining slot.`
+                                                                  : `Assign to Sec ${section} (${targetHours} hrs/week)`;
 
                                                             return (
                                                               <Button
@@ -1674,12 +1677,14 @@ const Lab = () => {
                                                                 variant="outline"
                                                                 disabled={!isAvailable}
                                                                 title={title}
-                                                                className={`h-7 w-7 p-0 text-[10px] font-bold transition-colors ${
-                                                                  alreadyBooked
-                                                                    ? 'opacity-40 cursor-not-allowed bg-red-50 border-red-200 text-red-400'
-                                                                    : isAvailable
-                                                                      ? 'hover:bg-emerald-500 hover:text-white hover:border-emerald-500 cursor-pointer'
-                                                                      : 'opacity-30 cursor-not-allowed'
+                                                                className={`h-7 px-2 text-[10px] font-bold transition-colors ${
+                                                                  isFullyBooked
+                                                                    ? 'opacity-40 cursor-not-allowed bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900 text-red-500'
+                                                                    : isPartiallyBooked
+                                                                      ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-600 hover:text-white cursor-pointer'
+                                                                      : isAvailable
+                                                                        ? 'hover:bg-indigo-600 hover:text-white hover:border-indigo-600 cursor-pointer'
+                                                                        : 'opacity-30 cursor-not-allowed'
                                                                 }`}
                                                                 onClick={(e) => {
                                                                   e.stopPropagation();
@@ -1700,6 +1705,7 @@ const Lab = () => {
                                                                 }}
                                                               >
                                                                 {section}
+                                                                {isPartiallyBooked && <span className="ml-1 text-[8px] opacity-75">({bookedHours}/{targetHours}h)</span>}
                                                               </Button>
                                                             );
                                                           })}
@@ -1727,11 +1733,11 @@ const Lab = () => {
                     {/* Legend */}
                     <div className="flex gap-6 text-sm justify-center pt-2">
                       <div className="flex items-center gap-2">
-                        <div className="w-3.5 h-3.5 bg-emerald-500/20 border border-emerald-500 rounded"></div>
+                        <div className="w-3.5 h-3.5 bg-indigo-500/20 border border-indigo-500 rounded"></div>
                         <span className="text-xs font-semibold">Allocated Lab Session</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-emerald-600 font-bold text-xs">Accessible</span>
+                        <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">Accessible</span>
                         <span className="text-xs font-semibold">Add Session</span>
                       </div>
                     </div>
@@ -1805,7 +1811,7 @@ const Lab = () => {
                     <SelectValue placeholder="Select Subject or Type Custom" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="custom" className="font-semibold text-emerald-600">Custom Entry (Type Below)</SelectItem>
+                    <SelectItem value="custom" className="font-semibold text-indigo-600 dark:text-indigo-400">Custom Entry (Type Below)</SelectItem>
                       {itAdsLabs.map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.name} (Year {s.year})</SelectItem>
                       ))}
@@ -1835,7 +1841,7 @@ const Lab = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setExtraClassDialog(false)}>Cancel</Button>
-            <Button onClick={handleManualAddSchedule} className="bg-emerald-600 hover:bg-emerald-700 text-white">Add Class</Button>
+            <Button onClick={handleManualAddSchedule} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Add Class</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

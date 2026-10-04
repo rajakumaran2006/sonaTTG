@@ -337,9 +337,9 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
 
       {/* ── Inline editor (shown when embedded=true, otherwise Dialog) ── */}
       {embedded && isDialogOpen && editingConfig && (
-        <div className="border-2 border-emerald-200 rounded-2xl p-5 mt-4 bg-emerald-50/30 space-y-4">
+        <div className="border border-indigo-200 dark:border-indigo-800/40 rounded-2xl p-5 mt-4 bg-indigo-50/20 dark:bg-indigo-950/20 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-sm text-emerald-900">
+            <h3 className="font-bold text-sm text-foreground">
               {isCreating ? 'Create' : 'Edit'} Special Hours Configuration
             </h3>
             <Button
@@ -753,7 +753,7 @@ function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: Sp
                                 onClick={() => toggleSlot(sec, day, p)}
                                 className={`h-8 w-16 p-0 text-[10px] font-bold rounded-lg transition-all ${
                                   isSelected 
-                                    ? "bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm" 
+                                    ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm" 
                                     : "hover:bg-slate-50 border-slate-200"
                                 }`}
                               >
@@ -776,7 +776,7 @@ function SpecialHoursEditor({ config, onChange, onSave, onCancel, sections }: Sp
         <Button variant="outline" onClick={onCancel} className="rounded-xl px-4">
           Cancel
         </Button>
-        <Button onClick={onSave} disabled={!config.special_type.trim()} className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl px-5">
+        <Button onClick={onSave} disabled={!config.special_type.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 font-semibold">
           Save Configuration
         </Button>
       </div>

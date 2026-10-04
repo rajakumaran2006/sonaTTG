@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import Navbar from "@/components/navbar/Navbar";
 import { Calendar, GitPullRequest, Users, BarChart3, Plus, Settings, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 type Department = { id: string; name: string };
 
@@ -35,6 +36,7 @@ async function countTimetablePeriods(departmentId: string): Promise<number> {
 }
 
 const SuperAdminDashboard = () => {
+  const { isDark } = useDarkMode();
   const navigate = useNavigate();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [deptId, setDeptId] = useState<string>("");
@@ -158,105 +160,163 @@ const SuperAdminDashboard = () => {
     })();
   }, [deptId]);
 
-  return (
-    <main className="min-h-screen bg-background">
-      <Navbar />
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <section className="px-6 md:px-10 lg:px-12 py-10 md:pt-24 max-w-[1600px] mx-auto w-full space-y-8">
-          <Tabs defaultValue="overview" className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-border/60 pb-6 mb-2">
-              <TabsList className="inline-flex h-11 items-center justify-start rounded-xl bg-muted p-1 text-muted-foreground w-auto min-w-[150px]">
-                <TabsTrigger value="overview" className="inline-flex items-center justify-center whitespace-nowrap rounded-lg px-4 py-2 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Overview
-                </TabsTrigger>
-              </TabsList>
+  const cardGlass = isDark
+    ? "bg-[#090d1c]/80 backdrop-blur-2xl border border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] text-white hover:border-indigo-400/40 hover:shadow-[0_4px_24px_rgba(99,102,241,0.22)]"
+    : "bg-white/80 backdrop-blur-2xl border border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] text-slate-900 hover:border-indigo-300 hover:shadow-[0_4px_20px_rgba(99,102,241,0.14)]";
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={() => setOpenAdd(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 h-10">
-                  <Plus className="h-4.5 w-4.5" />
+  const subCardGlass = isDark
+    ? "bg-[#0d1229]/70 backdrop-blur-xl border border-indigo-500/20 text-white"
+    : "bg-indigo-50/50 backdrop-blur-xl border border-indigo-100 text-slate-900";
+
+  return (
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
+      <Navbar />
+      
+      {/* Content wrapper with pt-16 md:pt-16 so fixed header never covers content */}
+      <main className="md:pl-72 pt-16 md:pt-16 transition-all duration-300 relative z-10">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 w-full space-y-8">
+          <Tabs defaultValue="overview" className="space-y-8">
+            <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-5 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+              isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+            }`}>
+              <div>
+                <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
+                  isDark ? "text-white" : "bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent"
+                }`}>
+                  Super Admin Console
+                </h1>
+                <p className={`text-xs sm:text-sm mt-1.5 leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                  System-wide oversight, department allocations, faculty staffing, and active timetables.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button 
+                  onClick={() => setOpenAdd(true)} 
+                  className="bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl shadow-[0_0_12px_-2px_rgba(99,102,241,0.35)] border border-indigo-400/30 transition-all flex items-center gap-2 h-9 font-bold px-4 text-xs"
+                >
+                  <Plus className="h-4 w-4" />
                   <span>Add Department</span>
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/admin-management')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                  <Users className="h-4.5 w-4.5" />
+                <Button 
+                  variant="outline" 
+                  onClick={() => navigate('/super-admin/admin-management')} 
+                  className={`rounded-xl border transition-all flex items-center gap-2 h-9 font-semibold px-3.5 text-xs ${
+                    isDark 
+                      ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10 hover:border-indigo-400/40" 
+                      : "bg-white border-indigo-200/80 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300"
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Manage Admins</span>
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/csv-upload')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                  <Upload className="h-4.5 w-4.5" />
+                <Button 
+                  variant="outline" 
+                  onClick={() => navigate('/csv-upload')} 
+                  className={`rounded-xl border transition-all flex items-center gap-2 h-9 font-semibold px-3.5 text-xs ${
+                    isDark 
+                      ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10 hover:border-indigo-400/40" 
+                      : "bg-white border-indigo-200/80 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300"
+                  }`}
+                >
+                  <Upload className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Bulk Import</span>
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/super-admin/labs')} className="rounded-xl border border-input hover:bg-muted/50 transition-all flex items-center gap-1.5 h-10 bg-background text-foreground">
-                  <Settings className="h-4.5 w-4.5" />
-                  <span>System Settings</span>
+                <Button 
+                  variant="outline" 
+                  onClick={() => navigate('/super-admin/labs')} 
+                  className={`rounded-xl border transition-all flex items-center gap-2 h-9 font-semibold px-3.5 text-xs ${
+                    isDark 
+                      ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10 hover:border-indigo-400/40" 
+                      : "bg-white border-indigo-200/80 text-slate-700 hover:bg-indigo-50 hover:border-indigo-300"
+                  }`}
+                >
+                  <Settings className="h-3.5 w-3.5 text-indigo-400" />
+                  <span>Settings</span>
                 </Button>
               </div>
             </div>
 
-            <TabsContent value="overview" className="space-y-6">
-              <section className="mb-8">
+            <TabsContent value="overview" className="space-y-8">
+              <section>
                 <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
                   {/* Total Departments */}
                   <Card 
-                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-emerald-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    className={`rounded-2xl p-6 transition-all duration-300 cursor-pointer flex flex-col justify-between ${cardGlass}`}
                     onClick={() => navigate('/super-admin/departments')}
                   >
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Total Departments</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.departments}</div>
-                      <p className="text-[10px] text-muted-foreground mt-1">Manage academic branches</p>
-                    </CardContent>
+                    <div>
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-indigo-300/80" : "text-indigo-900/70"}`}>Total Departments</span>
+                      <div className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2 text-indigo-600 dark:text-indigo-400">{overview.departments}</div>
+                    </div>
+                    <p className="text-xs font-semibold text-muted-foreground mt-4 flex items-center gap-1 group-hover:text-indigo-400">
+                      Manage academic branches →
+                    </p>
                   </Card>
 
                   {/* Total Faculty */}
                   <Card 
-                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-blue-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    className={`rounded-2xl p-6 transition-all duration-300 cursor-pointer flex flex-col justify-between ${cardGlass}`}
                     onClick={() => navigate('/super-admin/faculty')}
                   >
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Total Faculty</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.faculty}</div>
-                      <p className="text-[10px] text-muted-foreground mt-1">Active teaching staff</p>
-                    </CardContent>
+                    <div>
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-sky-300/80" : "text-sky-900/70"}`}>Total Faculty</span>
+                      <div className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2 text-sky-600 dark:text-sky-400">{overview.faculty}</div>
+                    </div>
+                    <p className="text-xs font-semibold text-muted-foreground mt-4">Active teaching staff →</p>
                   </Card>
 
                   {/* Active Timetables */}
                   <Card 
-                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-violet-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    className={`rounded-2xl p-6 transition-all duration-300 cursor-pointer flex flex-col justify-between ${cardGlass}`}
                     onClick={() => navigate('/current-timetables')}
                   >
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Active Timetables</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.timetables}</div>
-                      <p className="text-[10px] text-muted-foreground mt-1">Live section schedules</p>
-                    </CardContent>
+                    <div>
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-purple-300/80" : "text-purple-900/70"}`}>Active Timetables</span>
+                      <div className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2 text-purple-600 dark:text-purple-400">{overview.timetables}</div>
+                    </div>
+                    <p className="text-xs font-semibold text-muted-foreground mt-4">Live section schedules →</p>
                   </Card>
 
                   {/* Total Subjects */}
                   <Card 
-                    className="rounded-2xl border border-border bg-card/50 shadow-sm hover:shadow-md hover:border-amber-500/30 transition-all duration-300 cursor-pointer flex flex-col justify-between"
+                    className={`rounded-2xl p-6 transition-all duration-300 cursor-pointer flex flex-col justify-between ${cardGlass}`}
                   >
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Total Subjects</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold tracking-tight text-foreground">{overview.subjects}</div>
-                      <p className="text-[10px] text-muted-foreground mt-1">Curriculum courses</p>
-                    </CardContent>
+                    <div>
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-amber-300/80" : "text-amber-900/70"}`}>Total Subjects</span>
+                      <div className="text-3xl sm:text-4xl font-extrabold tracking-tight mt-2 text-amber-500 dark:text-amber-400">{overview.subjects}</div>
+                    </div>
+                    <p className="text-xs font-semibold text-muted-foreground mt-4">Curriculum courses</p>
                   </Card>
                 </div>
               </section>
 
               {/* Timetable Summary Section */}
-              <section className="mb-8 p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm space-y-6">
+              <section className={`p-7 rounded-2xl backdrop-blur-2xl border transition-all duration-300 space-y-6 ${
+                isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+              }`}>
                 <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-foreground">
+                    <h2 className="text-xl font-bold tracking-tight">
                       Timetable Summary
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5">Overview of all active timetables across departments</p>
@@ -264,81 +324,91 @@ const SuperAdminDashboard = () => {
                 </header>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Total Classes</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.totalClasses}</div>
-                    </CardContent>
-                  </Card>
+                  <div className={`rounded-xl p-5 border transition-all shadow-xs ${subCardGlass}`}>
+                    <div className="flex flex-row items-center justify-between pb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Classes</span>
+                    </div>
+                    <div className="text-3xl font-extrabold text-foreground mt-2">{timetableSummary.totalClasses}</div>
+                    <p className="text-[11px] text-muted-foreground mt-2">Active section cohorts</p>
+                  </div>
 
-                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Total Periods</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.totalPeriods}</div>
-                    </CardContent>
-                  </Card>
+                  <div className={`rounded-xl p-5 border transition-all shadow-xs ${subCardGlass}`}>
+                    <div className="flex flex-row items-center justify-between pb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Total Periods</span>
+                    </div>
+                    <div className="text-3xl font-extrabold text-foreground mt-2">{timetableSummary.totalPeriods}</div>
+                    <p className="text-[11px] text-muted-foreground mt-2">Weekly instructional slots</p>
+                  </div>
 
-                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Avg Periods/Class</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.avgPeriodsPerClass}</div>
-                    </CardContent>
-                  </Card>
+                  <div className={`rounded-xl p-5 border transition-all shadow-xs ${subCardGlass}`}>
+                    <div className="flex flex-row items-center justify-between pb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Avg Periods/Class</span>
+                    </div>
+                    <div className="text-3xl font-extrabold text-foreground mt-2">{timetableSummary.avgPeriodsPerClass}</div>
+                    <p className="text-[11px] text-muted-foreground mt-2">Periods per section week</p>
+                  </div>
 
-                  <Card className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
-                    <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-                      <span className="text-sm font-semibold text-muted-foreground">Active Departments</span>
-                    </CardHeader>
-                    <CardContent className="pt-2">
-                      <div className="text-3xl font-extrabold text-foreground">{timetableSummary.departmentBreakdown.length}</div>
-                    </CardContent>
-                  </Card>
+                  <div className={`rounded-xl p-5 border transition-all shadow-xs ${subCardGlass}`}>
+                    <div className="flex flex-row items-center justify-between pb-1">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Active Departments</span>
+                    </div>
+                    <div className="text-3xl font-extrabold text-foreground mt-2">{timetableSummary.departmentBreakdown.length}</div>
+                    <p className="text-[11px] text-muted-foreground mt-2">Scheduled academic branches</p>
+                  </div>
                 </div>
 
                 {/* Department Breakdown */}
                 {timetableSummary.departmentBreakdown.length > 0 && (
-                  <Card className="rounded-2xl border border-border/50 shadow-sm bg-card/40">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold text-muted-foreground">Department Breakdown</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                        {timetableSummary.departmentBreakdown.map((dept) => (
-                          <div key={dept.id} className="flex items-center justify-between p-3 bg-muted/30 border border-border/30 rounded-xl transition-all hover:bg-muted/50">
-                            <span className="font-semibold text-sm text-foreground">{dept.name}</span>
-                            <span className="text-xs font-medium px-2 py-1 bg-background border border-border rounded-lg text-muted-foreground">{dept.count} classes</span>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className={`rounded-xl p-5 border ${subCardGlass}`}>
+                    <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Department Breakdown</div>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      {timetableSummary.departmentBreakdown.map((dept) => (
+                        <div key={dept.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                          isDark 
+                            ? "bg-[#111736] border-indigo-500/25 hover:border-indigo-400/40" 
+                            : "bg-white border-indigo-100 hover:border-indigo-300 shadow-xs"
+                        }`}>
+                          <span className="font-bold text-sm text-foreground">{dept.name}</span>
+                          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-lg border ${
+                            isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                          }`}>{dept.count} classes</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </section>
 
               <section className="grid gap-8 md:grid-cols-3">
-                <div className="md:col-span-2 p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm space-y-6">
-                  <header className="flex items-center justify-between gap-4">
+                <div className={`md:col-span-2 p-7 rounded-2xl backdrop-blur-2xl border transition-all duration-300 space-y-6 ${
+                  isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+                }`}>
+                  <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h2 className="text-xl font-bold text-foreground">Department Summary</h2>
+                      <h2 className="text-xl font-bold tracking-tight">Department Summary</h2>
                       <p className="text-xs text-muted-foreground mt-0.5">Overview of the selected department</p>
                     </div>
-                    <Button variant="secondary" onClick={() => navigate('/super-admin/departments')} className="h-9 rounded-xl text-xs font-semibold px-4">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => navigate('/super-admin/departments')} 
+                      className={`h-9 rounded-xl text-xs font-semibold px-4 border ${
+                        isDark ? "border-indigo-500/25 bg-white/5 hover:bg-white/10" : "border-indigo-200 bg-white hover:bg-indigo-50"
+                      }`}
+                    >
                       Manage Departments
                     </Button>
                   </header>
 
                   <div className="max-w-md">
                     <Select value={deptId} onValueChange={setDeptId}>
-                      <SelectTrigger className="h-10 rounded-xl bg-background border border-input text-foreground hover:bg-muted/50 transition-colors">
+                      <SelectTrigger className={`h-11 rounded-xl border text-foreground transition-colors ${
+                        isDark ? "bg-[#0e1326] border-indigo-500/25 hover:border-indigo-400/40" : "bg-white border-indigo-200 hover:border-indigo-300"
+                      }`}>
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
-                      <SelectContent className="bg-popover border border-border text-popover-foreground rounded-xl">
+                      <SelectContent className={`border rounded-xl backdrop-blur-xl ${
+                        isDark ? "bg-[#0d1229] border-indigo-500/30 text-white" : "bg-white border-indigo-200 text-slate-900"
+                      }`}>
                         {departments.map((d) => (
                           <SelectItem key={d.id} value={d.id} className="rounded-lg py-2 cursor-pointer">{d.name}</SelectItem>
                         ))}
@@ -348,14 +418,10 @@ const SuperAdminDashboard = () => {
 
                   <div className="grid gap-4 md:grid-cols-3">
                     {stats.map((s) => (
-                      <Card key={s.label} className="rounded-2xl border border-border/60 shadow-sm bg-card/50">
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-xs font-semibold text-muted-foreground leading-tight">{s.label}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-3xl font-extrabold text-foreground">{s.value}</div>
-                        </CardContent>
-                      </Card>
+                      <div key={s.label} className={`rounded-xl p-5 border shadow-xs ${subCardGlass}`}>
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground leading-tight">{s.label}</div>
+                        <div className="text-3xl font-extrabold text-foreground mt-2">{s.value}</div>
+                      </div>
                     ))}
                   </div>
 
@@ -363,7 +429,7 @@ const SuperAdminDashboard = () => {
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <Button
                       onClick={() => navigate('/current-timetables')}
-                      className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground h-10 rounded-xl px-4 text-xs font-semibold transition-all shadow-sm"
+                      className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white h-10 rounded-xl px-4 text-xs font-bold transition-all shadow-[0_0_12px_-2px_rgba(99,102,241,0.3)]"
                     >
                       <Calendar className="h-4 w-4" />
                       View Current Timetables
@@ -371,25 +437,31 @@ const SuperAdminDashboard = () => {
                     <Button
                       onClick={() => navigate('/pull-requests')}
                       variant="outline"
-                      className="flex items-center gap-2 border border-input bg-background hover:bg-muted/50 h-10 rounded-xl px-4 text-xs font-semibold transition-all"
+                      className={`flex items-center gap-2 border h-10 rounded-xl px-4 text-xs font-semibold transition-all ${
+                        isDark ? "border-indigo-500/25 bg-white/5 hover:bg-white/10" : "border-indigo-200 bg-white hover:bg-indigo-50"
+                      }`}
                     >
-                      <GitPullRequest className="h-4 w-4" />
+                      <GitPullRequest className="h-4 w-4 text-indigo-400" />
                       Pull Requests
                     </Button>
                   </div>
                 </div>
 
-                <aside className="p-6 rounded-3xl border border-border bg-card/30 backdrop-blur-sm shadow-sm flex flex-col justify-between">
+                <aside className={`p-7 rounded-2xl backdrop-blur-2xl border flex flex-col justify-between ${
+                  isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+                }`}>
                   <div>
-                    <h2 className="text-xl font-bold text-foreground mb-4">
+                    <h2 className="text-xl font-bold tracking-tight mb-4">
                       Recent Activity
                     </h2>
-                    <ul className="space-y-4 max-h-[380px] overflow-y-auto pr-2">
+                    <ul className="space-y-3 max-h-[380px] overflow-y-auto pr-2">
                       {recent.length === 0 && (
-                        <li className="text-xs text-muted-foreground py-4 text-center">No recent changes</li>
+                        <li className="text-xs text-muted-foreground py-6 text-center">No recent changes</li>
                       )}
                       {recent.map((a) => (
-                        <li key={a.id} className="flex flex-col gap-1 p-3 rounded-xl bg-muted/30 border border-border/30 hover:bg-muted/50 transition-colors">
+                        <li key={a.id} className={`flex flex-col gap-1 p-3.5 rounded-xl border transition-colors ${
+                          isDark ? "bg-[#0e1326] border-indigo-500/20 hover:bg-[#131a33]" : "bg-indigo-50/40 border-indigo-100 hover:bg-indigo-50/70"
+                        }`}>
                           <span className="text-sm font-semibold text-foreground leading-snug">{a.title}</span>
                           <time className="text-[10px] text-muted-foreground mt-1 self-end font-mono">
                             {new Date(a.at).toLocaleString()}
@@ -404,35 +476,47 @@ const SuperAdminDashboard = () => {
 
           </Tabs>
         </section>
-      </div>
+      </main>
 
       <Dialog open={openAdd} onOpenChange={setOpenAdd}>
-        <DialogContent>
+        <DialogContent className={`border rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
+          isDark ? "bg-[#090d1c]/95 border-indigo-500/30 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+        }`}>
           <DialogHeader>
             <DialogTitle>Add Department</DialogTitle>
           </DialogHeader>
           <div className="grid gap-2 py-2">
-            <Input placeholder="Department name" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} />
+            <Input 
+              placeholder="Department name" 
+              value={newDeptName} 
+              onChange={(e) => setNewDeptName(e.target.value)} 
+              className={`rounded-xl ${isDark ? "bg-[#0e1326] border-indigo-500/25" : "bg-white border-indigo-200"}`}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenAdd(false)}>Cancel</Button>
-            <Button onClick={async () => {
-              const name = newDeptName.trim();
-              if (!name) { toast.error('Please enter a name'); return; }
-              const { error } = await (supabase as any).from('departments').insert({ name });
-              if (error) { toast.error('Failed to add department'); return; }
-              toast.success('Department added');
-              setNewDeptName("");
-              setOpenAdd(false);
-              // refresh
-              const { data } = await (supabase as any).from('departments').select('*').order('name');
-              setDepartments(data || []);
-              setOverview((o) => ({ ...o, departments: (data || []).length }));
-            }}>Save</Button>
+            <Button variant="outline" onClick={() => setOpenAdd(false)} className="rounded-xl">Cancel</Button>
+            <Button 
+              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-sm shadow-indigo-500/25"
+              onClick={async () => {
+                const name = newDeptName.trim();
+                if (!name) { toast.error('Please enter a name'); return; }
+                const { error } = await (supabase as any).from('departments').insert({ name });
+                if (error) { toast.error('Failed to add department'); return; }
+                toast.success('Department added');
+                setNewDeptName("");
+                setOpenAdd(false);
+                // refresh
+                const { data } = await (supabase as any).from('departments').select('*').order('name');
+                setDepartments(data || []);
+                setOverview((o) => ({ ...o, departments: (data || []).length }));
+              }}
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </main>
+    </div>
   );
 };
 

@@ -1,5 +1,6 @@
 import { useTimetableStore } from "@/store/timetableStore";
 import { useLocation } from "react-router-dom";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/admin": { title: "Dashboard", subtitle: "Role & Performance Overview" },
@@ -24,8 +25,13 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   "/pull-requests": { title: "Pull Requests", subtitle: "Review Schedule Submissions" },
 };
 
-const SelectionHeader = () => {
+interface SelectionHeaderProps {
+  compact?: boolean;
+}
+
+const SelectionHeader = ({ compact = false }: SelectionHeaderProps) => {
   const { pathname } = useLocation();
+  const { isDark } = useDarkMode();
   const isSuperAdminRoute = pathname.startsWith("/super-admin") || 
                             pathname.startsWith("/pull-requests") || 
                             pathname.startsWith("/current-timetables");
@@ -48,21 +54,29 @@ const SelectionHeader = () => {
   }
 
   return (
-    <div className={`sticky z-20 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b transition-all duration-300 ${
+    <div className={`sticky z-20 w-full backdrop-blur-2xl border-b transition-all duration-300 shrink-0 ${
       isSuperAdminRoute ? "top-16 md:top-14" : "top-16 md:top-0"
+    } ${
+      isDark
+        ? "bg-[#070a14]/80 border-indigo-500/15 shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+        : "bg-white/80 border-indigo-200/60 shadow-[0_1px_12px_rgba(99,102,241,0.05)]"
     }`}>
-      <div className="container px-4 h-16 flex items-center gap-4">
-
+      <div className={`max-w-7xl mx-auto px-6 sm:px-8 flex items-center justify-between transition-all duration-200 ${
+        compact ? "h-11 sm:h-12" : "h-14 sm:h-16"
+      }`}>
         {/* Page Title */}
         <div className="flex flex-col justify-center">
-          <h1 className="text-lg font-extrabold tracking-tight text-foreground leading-none text-xl">
-            {meta.title.toUpperCase()}
+          <h1 className={`font-extrabold tracking-tight leading-tight ${
+            isDark ? "text-foreground" : "text-slate-900"
+          } ${compact ? "text-lg" : "text-xl"}`}>
+            {meta.title}
           </h1>
-          <p className="text-[11px] font-semibold tracking-widest text-muted-foreground uppercase mt-0.5">
+          <p className={`font-semibold ${
+            isDark ? "text-muted-foreground" : "text-indigo-600/80"
+          } ${compact ? "text-[11px]" : "text-xs mt-0.5"}`}>
             {meta.subtitle}
           </p>
         </div>
-
       </div>
     </div>
   );

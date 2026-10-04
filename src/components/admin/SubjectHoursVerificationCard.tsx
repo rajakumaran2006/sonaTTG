@@ -85,18 +85,18 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
 
   return (
     <Card
-      className={`rounded-2xl border transition-all duration-300 shadow-sm overflow-hidden ${
+      className={`rounded-2xl border backdrop-blur-2xl transition-all duration-300 overflow-hidden ${
         isDark
-          ? "bg-[#0e0e1b] border-white/10 text-white"
-          : "bg-white border-slate-200 text-slate-900"
+          ? "bg-[#090d1c]/80 border-indigo-500/25 text-white shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+          : "bg-white/80 border-indigo-200/70 text-slate-900 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
       } ${className}`}
     >
       <div
         className={`p-4 sm:px-6 sm:py-4.5 cursor-pointer select-none transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3.5 ${
           isDark
             ? "hover:bg-white/[0.02]"
-            : "hover:bg-slate-50/70"
-        } ${expanded ? (isDark ? "border-b border-white/10" : "border-b border-slate-100") : ""}`}
+            : "hover:bg-indigo-50/40"
+        } ${expanded ? (isDark ? "border-b border-indigo-500/15" : "border-b border-indigo-100/70") : ""}`}
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3.5">
@@ -104,8 +104,8 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
             className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
               isValid
                 ? isDark
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
-                  : "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                  ? "bg-indigo-500/15 text-indigo-400 border border-indigo-500/25"
+                  : "bg-indigo-50 text-indigo-600 border border-indigo-200"
                 : isDark
                 ? "bg-amber-500/15 text-amber-400 border border-amber-500/25"
                 : "bg-amber-50 text-amber-600 border border-amber-200"
@@ -128,8 +128,8 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
                 className={`text-xs font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 ${
                   isValid
                     ? isDark
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                      : "bg-emerald-50 border-emerald-300 text-emerald-700"
+                      ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-300"
+                      : "bg-indigo-50 border-indigo-300 text-indigo-700"
                     : isDark
                     ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
                     : "bg-amber-50 border-amber-300 text-amber-800"
@@ -137,7 +137,7 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    isValid ? "bg-emerald-500" : "bg-amber-500"
+                    isValid ? "bg-indigo-500" : "bg-amber-500"
                   }`}
                 />
                 {isValid
@@ -165,11 +165,11 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
               </span>
             </div>
 
-            <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-center">
-              <span className="text-[10px] text-emerald-700 dark:text-emerald-300 uppercase font-bold tracking-wider block">
+            <div className="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-center">
+              <span className="text-[10px] text-indigo-700 dark:text-indigo-300 uppercase font-bold tracking-wider block">
                 Allocated
               </span>
-              <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400">
+              <span className="text-xs font-bold font-mono text-indigo-600 dark:text-indigo-400">
                 {totalAllocatedHours}h
               </span>
             </div>
@@ -334,7 +334,7 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                               s.type === "lab"
-                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                                ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
                                 : s.type === "elective" || s.type === "open elective"
                                 ? "bg-purple-500/15 text-purple-600 dark:text-purple-300"
                                 : s.type === "special"
@@ -352,7 +352,7 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
                           <span
                             className={
                               s.isMatch
-                                ? "text-emerald-600 dark:text-emerald-400"
+                                ? "text-indigo-600 dark:text-indigo-400"
                                 : diff < 0
                                 ? "text-rose-600 dark:text-rose-400"
                                 : "text-amber-600 dark:text-amber-400"
@@ -363,7 +363,7 @@ export const SubjectHoursVerificationCard: React.FC<SubjectHoursVerificationCard
                         </td>
                         <td className="py-2.5 px-3.5 text-right">
                           {s.isMatch ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
                               <Check className="h-3.5 w-3.5" />
                               Exact Match
                             </span>

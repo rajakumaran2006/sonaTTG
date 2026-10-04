@@ -77,7 +77,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 <RefreshCw className="w-4 h-4" />
                 Reload
               </Button>
-              <Button onClick={this.handleGoDashboard} className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Button onClick={this.handleGoDashboard} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
                 <Home className="w-4 h-4" />
                 Go to Dashboard
               </Button>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { getSubjectsForYear, getOpenElectiveHours, getOpenElectiveConfig, setOpenElectiveConfig } from "@/lib/supabaseService";
+import { getSubjectsForYear, getOpenElectiveHours, getOpenElectiveConfig, setOpenElectiveConfig, hasEvenSemesterSubjects } from "@/lib/supabaseService";
 import { useTimetableStore } from "@/store/timetableStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
+import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock, Sparkles } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 interface SubjectRow {
   id: string;
@@ -40,6 +42,7 @@ interface SubjectRow {
 }
 
 const YearSubjects = () => {
+  const { isDark } = useDarkMode();
   const { id, year } = useParams();
   const navigate = useNavigate();
   const superAdmin = localStorage.getItem("superAdmin") === "true";
@@ -190,6 +193,7 @@ const YearSubjects = () => {
   }, [year]);
 
   const semesterType = useTimetableStore((s) => s.semesterType);
+  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
 
   useEffect(() => {
     if (!isLoggedIn) { navigate('/', { replace: true }); return; }
@@ -204,7 +208,14 @@ const YearSubjects = () => {
       if (d?.name) setDeptName(d.name);
       const list = await (async () => {
         try {
-          const arr = await getSubjectsForYear(targetDeptId, year, semesterType);
+          let arr = await getSubjectsForYear(targetDeptId, year, semesterType);
+          if (arr.length === 0 && semesterType === 'even') {
+            const hasEven = await hasEvenSemesterSubjects(targetDeptId, year);
+            if (!hasEven) {
+              arr = await getSubjectsForYear(targetDeptId, year, 'odd');
+              setSemesterType('odd');
+            }
+          }
           return (arr || []).map((s: any) => ({
             id: s.id,
             name: s.name,
@@ -231,7 +242,7 @@ const YearSubjects = () => {
         (supabase as any).from('special_hours_config').select('*').eq('department_id', targetDeptId).eq('year', year).eq('is_active', true).order('special_type'),
         getOpenElectiveConfig(targetDeptId, year).catch(() => ({ hours: 5, group_name: "Open elective", is_shared_slot: true }))
       ]);
-      const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section))));
+      const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section)))).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       setSections(secs);
       setFacultyInYear(fsaRes?.count || 0);
       setSpecialHours(shRes.data || []);
@@ -1085,77 +1096,138 @@ const YearSubjects = () => {
   const SubjectTable = CustomTable<SubjectRow>;
 
   return (
-    <main className="min-h-screen bg-background">
-      {userType === 'super' ? <Navbar /> : <AdminNavbar />}
-      <div className={`${"md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80"} pt-16 ${
-        userType === 'super' ? "md:pt-14" : "md:pt-0"
-      } transition-all duration-300`}>
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
+      {userType === 'super' ? <Navbar /> : userType === 'faculty' ? <FacultyNavbar /> : <AdminNavbar />}
+      <main className={`transition-all duration-300 relative z-10 ${
+        userType === 'faculty' ? "" : "md:pl-72"
+      } ${
+        userType === 'super' ? "pt-16 md:pt-16" : userType === 'faculty' ? "" : "pt-16 md:pt-0"
+      }`}>
         <SelectionHeader />
-        <section className="container py-4">
-        <header className="mb-6 flex items-center justify-between">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
+        <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+          isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+        }`}>
           <div>
-            <h1 className="text-2xl font-bold">{deptName || 'Department'} — Year {year}</h1>
-            <div className="text-sm text-muted-foreground mt-1.5 space-y-1">
-              <div className="flex flex-wrap gap-x-4 items-center">
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  Total Hours: <span className="font-bold text-slate-900 dark:text-white">{grandTotalHours}h</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-normal ml-1.5">
-                    ({totalHours}h Subjects + {totalSpecialHours}h Special)
-                  </span>
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-xs">
-                <span className="font-medium text-slate-700 dark:text-slate-300">
-                  Theory: <span className="font-bold text-slate-900 dark:text-white">{theoryHours}h</span>
-                </span>
-                <span className="text-slate-300 dark:text-slate-700">|</span>
-                <span className="font-medium text-slate-700 dark:text-slate-300">
-                  Lab: <span className="font-bold text-slate-900 dark:text-white">{labHours}h</span>
-                </span>
-                {electiveHours > 0 && (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">
-                      Professional Elective: <span className="font-bold text-slate-900 dark:text-white">{electiveHours}h</span>
-                    </span>
-                  </>
-                )}
-                {openElectiveHours > 0 && (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">
-                      Open Elective: <span className="font-bold text-slate-900 dark:text-white">{openElectiveHours}h</span>
-                    </span>
-                  </>
-                )}
-                {totalSpecialHours > 0 && (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700">|</span>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">
-                      Special Hours: <span className="font-bold text-slate-900 dark:text-white">{totalSpecialHours}h</span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal ml-1">
-                        ({specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ')})
-                      </span>
-                    </span>
-                  </>
-                )}
-              </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 text-xs font-bold border border-indigo-500/20 mb-2">
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Curriculum &amp; Subject Allocation</span>
             </div>
+            <h1 className="text-3xl font-extrabold tracking-tight">{deptName || 'Department'} — Year {year}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage subject catalog, syllabus credit hours, electives, and lab allocations
+            </p>
           </div>
-          <Button variant="outline" onClick={() => {
-            if (userType === 'super') {
-              if (id) navigate(`/super-admin/departments/${id}`);
-              else navigate('/super-admin/departments');
-            } else {
-              navigate(userType === 'admin' ? '/admin/subjects' : '/faculty/subjects');
-            }
-          }}>Back</Button>
+          <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+            <div className={`flex items-center gap-1 p-1 rounded-xl border ${
+              isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/70 border-indigo-100"
+            }`}>
+              <button
+                type="button"
+                onClick={() => setSemesterType("odd")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  semesterType === "odd"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/30 border border-indigo-400/40"
+                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Odd Sem
+              </button>
+              <button
+                type="button"
+                onClick={() => setSemesterType("even")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  semesterType === "even"
+                    ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/30 border border-amber-400/40"
+                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Even Sem
+              </button>
+            </div>
+            <Button 
+              variant="outline" 
+              className={`rounded-xl border font-semibold ${
+                isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
+              }`}
+              onClick={() => {
+                if (userType === 'super') {
+                  if (id) navigate(`/super-admin/departments/${id}`);
+                  else navigate('/super-admin/departments');
+                } else {
+                  navigate(userType === 'admin' ? '/admin/subjects' : '/faculty/subjects');
+                }
+              }}
+            >
+              Back
+            </Button>
+          </div>
         </header>
 
+        {/* Quick hours summary pill bar */}
+        <div className="p-4 rounded-3xl border border-border/60 bg-card/50 backdrop-blur-xl shadow-sm flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="px-3.5 py-1.5 rounded-2xl bg-background/60 border border-border/40 backdrop-blur-md">
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider mr-1.5">Total Hours:</span>
+              <span className="text-sm font-bold text-foreground">{grandTotalHours}h</span>
+              <span className="text-[11px] text-muted-foreground ml-1.5">({totalHours}h Subjects + {totalSpecialHours}h Special)</span>
+            </div>
+            <div className="px-3.5 py-1.5 rounded-2xl bg-background/60 border border-border/40 backdrop-blur-md text-xs">
+              <span className="text-muted-foreground font-medium">Theory: </span>
+              <span className="font-bold text-foreground">{theoryHours}h</span>
+              <span className="text-muted-foreground mx-2">•</span>
+              <span className="text-muted-foreground font-medium">Lab: </span>
+              <span className="font-bold text-foreground">{labHours}h</span>
+              {electiveHours > 0 && (
+                <>
+                  <span className="text-muted-foreground mx-2">•</span>
+                  <span className="text-muted-foreground font-medium">PE: </span>
+                  <span className="font-bold text-foreground">{electiveHours}h</span>
+                </>
+              )}
+              {openElectiveHours > 0 && (
+                <>
+                  <span className="text-muted-foreground mx-2">•</span>
+                  <span className="text-muted-foreground font-medium">OE: </span>
+                  <span className="font-bold text-foreground">{openElectiveHours}h</span>
+                </>
+              )}
+            </div>
+          </div>
+          {totalSpecialHours > 0 && (
+            <div className="px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs">
+              <span className="text-amber-600 dark:text-amber-400 font-medium">Special: </span>
+              <span className="font-bold text-amber-700 dark:text-amber-300">{totalSpecialHours}h</span>
+              <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 ml-1.5">
+                ({specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ')})
+              </span>
+            </div>
+          )}
+        </div>
+
         {userType !== 'faculty' && (
-          <Card className="rounded-xl mb-6">
+          <Card className="rounded-3xl border border-border/60 bg-card/50 backdrop-blur-xl shadow-sm p-2 mb-6">
             <CardHeader>
-              <CardTitle className="text-base">Add new subject</CardTitle>
+              <CardTitle className="text-lg font-semibold tracking-tight">Add new subject</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3">
@@ -1250,38 +1322,38 @@ const YearSubjects = () => {
 
 
 
-        <Card className="rounded-xl mb-6 shadow-sm border border-border bg-card">
+        <Card className="rounded-3xl border border-border/60 bg-card/50 backdrop-blur-xl shadow-sm p-2 mb-6">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">Year statistics</CardTitle>
+            <CardTitle className="text-lg font-semibold tracking-tight">Year Statistics</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-6 md:grid-cols-5 sm:grid-cols-2 grid-cols-1">
-              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Total sections</div>
+            <div className="grid gap-4 md:grid-cols-5 sm:grid-cols-2 grid-cols-1">
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
+                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Sections</div>
                 <div className="text-2xl font-bold text-foreground mt-1">{sections.length}</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">Configured in timetables</div>
               </div>
-              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Faculty teaching</div>
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
+                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Faculty Teaching</div>
                 <div className="text-2xl font-bold text-foreground mt-1">{facultyInYear}</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">Total teaching faculty</div>
               </div>
-              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Total hours/week</div>
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
+                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Hours / Wk</div>
                 <div className="text-2xl font-bold text-foreground mt-1">{grandTotalHours}h</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
                   {totalHours}h Subjects + {totalSpecialHours}h Special
                 </div>
               </div>
-              <div className="bg-muted/30 p-4 rounded-xl border border-border/50">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Theory vs Lab hours</div>
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
+                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Theory vs Lab</div>
                 <div className="text-2xl font-bold text-foreground mt-1">
                   {theoryHours}h / {labHours}h
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5 font-medium">Theory vs Lab hours</div>
+                <div className="text-[10px] text-muted-foreground mt-0.5 font-medium">Theory vs Lab distribution</div>
               </div>
-              <div className="bg-muted/30 p-4 rounded-xl border border-border/50 sm:col-span-2 md:col-span-1">
-                <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Special Hours</div>
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm sm:col-span-2 md:col-span-1">
+                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Special Hours</div>
                 <div className="text-2xl font-bold text-foreground mt-1">{totalSpecialHours}h</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5 truncate" title={specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ') || 'No special hours'}>
                   {specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ') || 'None configured'}
@@ -1292,77 +1364,65 @@ const YearSubjects = () => {
         </Card>
 
         {/* Tab Navbar for Theory, Lab, Open Electives, Special Hours */}
-        <div className="flex border-b border-border/80 pb-0.5 mb-6 gap-6 items-center">
+        <div className="flex flex-wrap p-1.5 rounded-2xl bg-card/50 border border-border/60 backdrop-blur-xl gap-2 mb-6 shadow-sm">
           <button
             onClick={() => setActiveTab('theory')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all relative ${
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'theory'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
             }`}
           >
             Theory / Electives
-            {activeTab === 'theory' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
-            )}
           </button>
           <button
             onClick={() => setActiveTab('lab')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all relative ${
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'lab'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
             }`}
           >
             Labs
-            {activeTab === 'lab' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
-            )}
           </button>
           <button
             onClick={() => setActiveTab('open elective')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all relative ${
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'open elective'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
             }`}
           >
             Open Electives
-            {activeTab === 'open elective' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
-            )}
           </button>
           <button
             onClick={() => setActiveTab('special')}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all relative ${
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'special'
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-bold'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
             }`}
           >
             Special Hours
-            {activeTab === 'special' && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500 rounded-full" />
-            )}
           </button>
         </div>
 
         {activeTab === 'open elective' && (
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 p-4 rounded-2xl bg-card border border-border/80 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 p-4 rounded-3xl bg-card/50 border border-border/60 backdrop-blur-xl shadow-sm">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
-                <Layers className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Group:</span>
-                <span className="text-xs font-extrabold text-emerald-800 dark:text-emerald-200">{oeGroupName}</span>
+              <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 px-3.5 py-1.5 rounded-2xl">
+                <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Group:</span>
+                <span className="text-xs font-bold text-indigo-800 dark:text-indigo-200">{oeGroupName}</span>
               </div>
-              <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-xl border border-border">
+              <div className="flex items-center gap-2 bg-background/60 px-3.5 py-1.5 rounded-2xl border border-border/40 backdrop-blur-md">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs font-semibold text-foreground">Total Hours:</span>
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{openElectiveTotalHours}h</span>
+                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{openElectiveTotalHours}h</span>
               </div>
               {oeIsSharedSlot && (
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-xl bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
                   Shared Slot
                 </span>
               )}
@@ -1376,7 +1436,7 @@ const YearSubjects = () => {
                   setOeConfigHoursInput(openElectiveTotalHours);
                   setOeConfigOpen(true);
                 }}
-                className="flex items-center gap-2 border-emerald-300 text-emerald-700 dark:text-emerald-400 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold"
+                className="flex items-center gap-2 border-indigo-300 text-indigo-700 dark:text-indigo-400 dark:border-indigo-700/50 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 font-semibold"
               >
                 <Settings className="h-4 w-4" />
                 <span>Group & Slot Config</span>
@@ -1390,7 +1450,7 @@ const YearSubjects = () => {
           <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Settings className="h-5 w-5 text-emerald-500" />
+                <Settings className="h-5 w-5 text-indigo-500" />
                 Open Elective Group & Slot Config
               </DialogTitle>
             </DialogHeader>
@@ -1434,7 +1494,7 @@ const YearSubjects = () => {
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Currently selected: <strong className="text-emerald-600 dark:text-emerald-400">{oeConfigHoursInput || 0}h / week</strong>
+                  Currently selected: <strong className="text-indigo-600 dark:text-indigo-400">{oeConfigHoursInput || 0}h / week</strong>
                 </p>
               </div>
 
@@ -1448,7 +1508,7 @@ const YearSubjects = () => {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-6 px-2 text-[11px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-semibold"
+                    className="h-6 px-2 text-[11px] text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-semibold"
                     onClick={() => {
                       const defs = ['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2'];
                       setOeSelectedSlots(defs);
@@ -1485,8 +1545,8 @@ const YearSubjects = () => {
                             }}
                             className={`h-7 rounded-md font-semibold text-[11px] border transition-all ${
                               isSelected
-                                ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm font-bold scale-[1.03]'
-                                : 'bg-muted/40 border-transparent hover:border-emerald-300 text-slate-700 dark:text-slate-300 hover:bg-emerald-50/50'
+                                ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm font-bold scale-[1.03]'
+                                : 'bg-muted/40 border-transparent hover:border-indigo-300 text-slate-700 dark:text-slate-300 hover:bg-indigo-50/50'
                             }`}
                           >
                             {isSelected ? '✓' : `P${period}`}
@@ -1499,15 +1559,15 @@ const YearSubjects = () => {
               </div>
 
               {/* 4. Shared Slot Toggle */}
-              <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-start gap-3">
+              <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800/40 bg-indigo-50/50 dark:bg-indigo-950/20 flex items-start gap-3">
                 <Checkbox
                   id="sharedSlotCheck"
                   checked={oeIsSharedSlot}
                   onCheckedChange={(c) => setOeIsSharedSlot(Boolean(c))}
-                  className="mt-1 border-emerald-400 data-[state=checked]:bg-emerald-600"
+                  className="mt-1 border-indigo-400 data-[state=checked]:bg-indigo-600"
                 />
                 <label htmlFor="sharedSlotCheck" className="cursor-pointer space-y-0.5">
-                  <div className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  <div className="text-xs font-bold text-indigo-800 dark:text-indigo-300">
                     Shared Slot across all sections
                   </div>
                   <div className="text-[11px] text-muted-foreground leading-normal">
@@ -1528,12 +1588,12 @@ const YearSubjects = () => {
                     </div>
                   ) : (
                     subjects.filter(s => s.type === 'open elective').map(s => (
-                      <div key={s.id} className="p-2.5 flex items-center justify-between text-xs bg-emerald-50/40 dark:bg-emerald-950/20">
+                      <div key={s.id} className="p-2.5 flex items-center justify-between text-xs bg-indigo-50/40 dark:bg-indigo-950/20">
                         <div className="flex items-center gap-2">
-                          <Checkbox checked disabled className="border-emerald-500 bg-emerald-500 text-white cursor-default" />
+                          <Checkbox checked disabled className="border-indigo-500 bg-indigo-500 text-white cursor-default" />
                           <span className="font-semibold text-foreground truncate">{s.name}</span>
                         </div>
-                        <Badge variant="outline" className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 font-bold">
+                        <Badge variant="outline" className="text-[10px] bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 font-bold">
                           {oeGroupName || "Open elective"}
                         </Badge>
                       </div>
@@ -1546,7 +1606,7 @@ const YearSubjects = () => {
             <div className="flex justify-end gap-2 pt-2 border-t border-border">
               <Button variant="outline" onClick={() => setOeConfigOpen(false)}>Cancel</Button>
               <Button
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
                 onClick={async () => {
                   const targetDeptId = id || sessionUser?.department_id;
                   const finalGroupName = oeGroupName.trim() || "Open elective";
@@ -1620,7 +1680,7 @@ const YearSubjects = () => {
                 onClick={onToggleSelect}
                 className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
                   isSelected 
-                    ? 'border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30 text-foreground' 
+                    ? 'border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30 text-foreground' 
                     : 'border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm'
                 }`}
               >
@@ -1642,7 +1702,7 @@ const YearSubjects = () => {
                       checked={isSelected}
                       onCheckedChange={() => onToggleSelect()}
                       onClick={(e) => e.stopPropagation()}
-                      className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                      className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                     />
                     {userType !== 'faculty' && (
                       s.configId ? (
@@ -1682,7 +1742,7 @@ const YearSubjects = () => {
                 onClick={onToggleSelect}
                 className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
                   isSelected 
-                    ? 'border-emerald-500 shadow-md shadow-emerald-500/5 bg-muted/30 text-foreground' 
+                    ? 'border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30 text-foreground' 
                     : 'border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm'
                 }`}
               >
@@ -1740,7 +1800,7 @@ const YearSubjects = () => {
                       checked={isSelected}
                       onCheckedChange={() => onToggleSelect()}
                       onClick={(e) => e.stopPropagation()}
-                      className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                      className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                     />
                     {userType !== 'faculty' && (
                       <button 
@@ -1855,7 +1915,6 @@ const YearSubjects = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
 
       {/* Elective Grouping Dialog */}
       <Dialog open={groupingOpen} onOpenChange={setGroupingOpen}>
@@ -1978,7 +2037,8 @@ const YearSubjects = () => {
           </div>
         </DialogContent>
       </Dialog>
-  </main>
+      </main>
+    </div>
   );
 };
 

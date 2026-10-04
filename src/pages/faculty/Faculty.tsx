@@ -18,8 +18,9 @@ import { useTimetableStore } from "@/store/timetableStore";
 import { supabase } from "@/integrations/supabase/client";
 import { getDepartments, createFaculty, deleteFaculty, deleteFacultyBulk, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 import Papa from "papaparse";
-import { Upload, FileText, AlertTriangle, CheckCircle, X, LayoutGrid, List, Trash2 } from "lucide-react";
+import { Upload, FileText, AlertTriangle, CheckCircle, X, LayoutGrid, List, Trash2, Sparkles } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
@@ -29,6 +30,7 @@ type SubjectSection = { subjectId: string; sections: string[] };
 type FacultyElective = { id?: string; facultyId: string; departmentId: string; subjectId?: string | null; year: string; section: string };
 
 const FacultyPage = () => {
+  const { isDark } = useDarkMode();
   const navigate = useNavigate();
   const isLoggedIn = useMemo(() => {
     const superAdmin = localStorage.getItem("superAdmin") === "true";
@@ -970,26 +972,59 @@ const FacultyPage = () => {
     return configs;
   }, [facultyYears, isAdmin, departments]);
 
+  const cardGlass = isDark
+    ? "bg-[#090d1c]/80 backdrop-blur-2xl border border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] text-white"
+    : "bg-white/80 backdrop-blur-2xl border border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] text-slate-900";
+
+  const subCardGlass = isDark
+    ? "bg-[#0d1229]/70 backdrop-blur-xl border border-indigo-500/20 text-white"
+    : "bg-indigo-50/50 backdrop-blur-xl border border-indigo-100 text-slate-900";
+
   return (
-    <main className="min-h-screen bg-background">
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
       {isFaculty ? <FacultyNavbar /> : isAdmin ? <AdminNavbar /> : <Navbar />}
-      <div className={`md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300 pt-16 ${
-        isAdmin ? "md:pt-0" : "md:pt-14"
+      <main className={`transition-all duration-300 relative z-10 ${
+        isFaculty ? "" : "md:pl-72"
+      } ${
+        isAdmin ? "pt-16 md:pt-0" : isFaculty ? "" : "pt-16 md:pt-16"
       }`}>
         <SelectionHeader />
-        <section className="container py-4">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
           {allocatedDepts.length > 0 && (
-            <div className="flex border-b border-border/60 mb-6 overflow-x-auto whitespace-nowrap scrollbar-none gap-2 pb-2">
+            <div className={`flex p-1.5 rounded-2xl border backdrop-blur-xl gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shadow-sm ${
+              isDark ? "bg-[#090d1c]/80 border-indigo-500/20" : "bg-white/80 border-indigo-200/60"
+            }`}>
               {allocatedDepts.map((dept) => {
                 const isActive = dept.id === deptFilterId;
                 return (
                   <button
                     key={dept.id}
                     onClick={() => handleDepartmentSwitch(dept.id, dept.name)}
-                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-300 border ${
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
                       isActive
-                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-450 shadow-sm"
-                        : "text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-slate-900 border-transparent"
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25 border border-indigo-400/40"
+                        : isDark
+                          ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                          : "text-slate-600 hover:text-indigo-900 hover:bg-indigo-50/60"
                     }`}
                   >
                     {dept.name}
@@ -999,35 +1034,51 @@ const FacultyPage = () => {
             </div>
           )}
 
-        {/* Summary cards */}
-        <div className="grid gap-4 md:grid-cols-4 mb-6">
-          <Card className="rounded-xl">
-            <CardHeader className="p-4 pb-0">
-              <CardTitle className="text-sm font-medium">Total Faculty</CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-2">
-              <div className="text-3xl font-semibold">{faculty.length}</div>
-              <div className="text-xs text-muted-foreground">
-                {deptFilterId === 'ALL' ? 'All departments' : (departments.find(d => d.id === deptFilterId)?.name || '-')}
+          <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+            isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+          }`}>
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 text-xs font-bold border border-indigo-500/20 mb-2">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Faculty Directory</span>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="rounded-xl">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 flex-wrap gap-2">
-            <CardTitle className="text-base">Faculty list</CardTitle>
-            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-extrabold tracking-tight">Faculty Members</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Manage teaching faculty, view department allocations, and handle CSV rosters
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
               <Button
                 variant="outline"
                 onClick={() => setUploadOpen(true)}
-                className="flex items-center gap-2"
+                className={`rounded-xl border font-semibold ${
+                  isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
+                } flex items-center gap-2`}
               >
                 <Upload className="h-4 w-4" />
-                Upload CSV
+                <span>Upload CSV</span>
               </Button>
-              <Button onClick={() => { setAddOpen(true); }}>Add Faculty</Button>
+              <Button onClick={() => setAddOpen(true)} className="rounded-xl font-bold shadow-md bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-400/40">
+                Add Faculty
+              </Button>
             </div>
+          </header>
+
+        {/* Summary cards */}
+        <div className="grid gap-6 md:grid-cols-4">
+          <div className={`relative rounded-3xl p-6 ${cardGlass}`}>
+            <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent pointer-events-none" />
+            <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Faculty</div>
+            <div className="text-3xl font-black mt-2" style={{ fontFamily: 'Outfit, sans-serif' }}>{faculty.length}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {deptFilterId === 'ALL' ? 'All departments' : (departments.find(d => d.id === deptFilterId)?.name || '-')}
+            </div>
+          </div>
+        </div>
+
+        <Card className={`rounded-3xl p-2 ${cardGlass}`}>
+          <CardHeader className="flex flex-row items-center justify-between pb-3 flex-wrap gap-2">
+            <CardTitle className="text-lg font-semibold tracking-tight">Faculty List</CardTitle>
           </CardHeader>
           <CardContent>
             <FacultyTable
@@ -1100,7 +1151,7 @@ const FacultyPage = () => {
                   onClick={onToggleSelect}
                   className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-full bg-card ${
                     isSelected
-                      ? "border-emerald-500 shadow-md bg-muted/30 text-foreground"
+                      ? "border-indigo-500/50 shadow-md shadow-indigo-500/10 bg-indigo-500/[0.04] ring-1 ring-indigo-500/30 text-foreground"
                       : "border-border hover:border-muted-foreground/35 hover:bg-muted/10 text-foreground shadow-sm"
                   }`}
                 >
@@ -1115,7 +1166,7 @@ const FacultyPage = () => {
                       checked={isSelected}
                       onCheckedChange={() => onToggleSelect()}
                       onClick={(e) => e.stopPropagation()}
-                      className="border-border bg-background data-[state=checked]:bg-emerald-500"
+                      className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                     />
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -1673,10 +1724,8 @@ const FacultyPage = () => {
               </div>
           </DialogContent>
         </Dialog>
-      </section>
-      </div>
 
-      {/* View Faculty Details Modal */}
+        {/* View Faculty Details Modal */}
       <Dialog open={viewFacultyOpen} onOpenChange={setViewFacultyOpen}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -2199,7 +2248,7 @@ const FacultyPage = () => {
 
             {parsedData.length > 0 && (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-green-600">
+                <div className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
                   <CheckCircle className="h-4 w-4" />
                   {parsedData.length} records parsed successfully
                 </div>
@@ -2237,7 +2286,9 @@ const FacultyPage = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </main>
+      </section>
+      </main>
+    </div>
   );
 };
 

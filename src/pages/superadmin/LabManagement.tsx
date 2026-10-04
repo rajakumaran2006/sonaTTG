@@ -23,8 +23,9 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Search, ChevronDown } from "lucide-react";
+import { Check, ChevronsUpDown, Search, ChevronDown, Beaker, Sparkles, Building } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 interface Department {
   id: string;
@@ -71,6 +72,7 @@ interface LabScheduleDetail {
 
 const LabManagement = () => {
   const navigate = useNavigate();
+  const { isDark } = useDarkMode();
   const [labs, setLabs] = useState<Lab[]>([]);
   const [labSchedules, setLabSchedules] = useState<LabScheduleDetail[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -383,59 +385,122 @@ const LabManagement = () => {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-background">
+      <div className={`min-h-screen relative flex items-center justify-center transition-colors duration-300 ${
+        isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+      }`}>
         <Navbar />
-        <section className="container py-10">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-muted-foreground">Loading...</div>
-          </div>
-        </section>
-      </main>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+          <p className={`text-xs font-semibold ${isDark ? "text-indigo-400" : "text-indigo-600"}`}>Loading facilities...</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      <Navbar />
-      <div className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <section className="container py-10 md:pt-24">
-        <header className="mb-8 flex justify-end">
-          <div className="flex items-center gap-4">
-            <div className="w-48">
-              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Departments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-departments">All Departments</SelectItem>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={() => setLabDialog(true)}>
-              <Plus className="mr-2 h-4 w-4" /> Add Lab
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/super-admin')}>
-              Back to Dashboard
-            </Button>
-          </div>
-        </header>
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background refraction orbs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/10 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
 
-        <Tabs defaultValue="labs" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="labs" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Labs
-            </TabsTrigger>
-            <TabsTrigger value="schedules" className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Schedules
-            </TabsTrigger>
-          </TabsList>
+      <Navbar />
+
+      <main className="md:pl-72 pt-16 md:pt-16 transition-all duration-300 relative z-10">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 w-full space-y-8">
+          {/* Header Banner */}
+          <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-5 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+            isDark
+              ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+              : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+          }`}>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full border ${
+                  isDark
+                    ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+                    : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                }`}>
+                  Laboratory Infrastructure
+                </span>
+                <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  {labs.length} {labs.length === 1 ? 'lab facility' : 'lab facilities'}
+                </span>
+              </div>
+              <h1 className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${
+                isDark ? "text-white" : "bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent"
+              }`}>
+                Lab Management
+              </h1>
+              <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Configure laboratory facilities, workstation capacities, and weekly usage schedules.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="w-52">
+                <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                  <SelectTrigger className={`h-10 rounded-xl text-xs border ${
+                    isDark ? "bg-white/[0.04] border-indigo-500/25 text-white" : "bg-white border-indigo-200/80 text-slate-800"
+                  }`}>
+                    <SelectValue placeholder="All Departments" />
+                  </SelectTrigger>
+                  <SelectContent className={`rounded-xl border backdrop-blur-2xl ${
+                    isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200"
+                  }`}>
+                    <SelectItem value="all-departments">All Departments</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id} className="cursor-pointer">
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={() => setLabDialog(true)}
+                className="h-10 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs px-4 shadow-sm shadow-indigo-500/25 border border-indigo-400/30 flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" /> Add Lab
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/super-admin')}
+                className={`h-10 rounded-xl border text-xs font-semibold px-4 transition-all ${
+                  isDark ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10" : "bg-white border-indigo-200 text-slate-700 hover:bg-indigo-50"
+                }`}
+              >
+                Dashboard
+              </Button>
+            </div>
+          </div>
+
+          <Tabs defaultValue="labs" className="space-y-6">
+            <TabsList className={`p-1 rounded-xl border ${
+              isDark ? "bg-[#0a0e1e]/80 border-indigo-500/20" : "bg-indigo-50/60 border-indigo-200/70"
+            }`}>
+              <TabsTrigger value="labs" className="flex items-center gap-2 rounded-lg text-xs font-semibold px-4 py-2">
+                <Settings className="h-3.5 w-3.5" />
+                Labs
+              </TabsTrigger>
+              <TabsTrigger value="schedules" className="flex items-center gap-2 rounded-lg text-xs font-semibold px-4 py-2">
+                <Calendar className="h-3.5 w-3.5" />
+                Schedules
+              </TabsTrigger>
+            </TabsList>
 
           <Dialog open={labDialog} onOpenChange={setLabDialog}>
             <DialogContent className="max-w-2xl">
@@ -506,131 +571,183 @@ const LabManagement = () => {
 
 
 
-            <div className="grid gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {labs.map((lab) => (
-                <Card key={lab.id} className="relative">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-base font-semibold leading-tight">{lab.name}</CardTitle>
-                        <CardDescription className="text-xs">
+                <div
+                  key={lab.id}
+                  className={`group relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 flex flex-col justify-between overflow-hidden ${
+                    isDark
+                      ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] hover:border-indigo-400/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.6),0_0_20px_-2px_rgba(99,102,241,0.25)]"
+                      : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] hover:border-indigo-300 hover:shadow-[0_8px_28px_rgba(99,102,241,0.12)]"
+                  }`}
+                >
+                  <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
+
+                  <div>
+                    <div className={`flex items-start justify-between gap-3 pb-3 border-b ${
+                      isDark ? "border-indigo-500/15" : "border-indigo-100"
+                    }`}>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 border ${
+                            isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                          }`}>
+                            <Beaker className="h-4 w-4" />
+                          </div>
+                          <h3 className={`text-base font-bold truncate leading-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                            {lab.name}
+                          </h3>
+                        </div>
+                        <p className={`text-xs mt-1 ml-9 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                           {lab.building && `${lab.building}, `}
                           {lab.floor && `${lab.floor}, `}
                           {lab.room_number && `Room ${lab.room_number}`}
-                        </CardDescription>
+                        </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={lab.is_active ? "default" : "secondary"} className="text-[10px] py-0.5 px-2">
-                          {lab.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground text-xs">Capacity</span>
-                      <span className="font-medium text-sm">{lab.capacity} students</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground text-xs">Location</span>
-                      <span className="font-medium text-right text-sm truncate max-w-[60%]">
-                        {lab.building}{lab.floor ? `, ${lab.floor}` : ''}{lab.room_number ? `, Room ${lab.room_number}` : ''}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-sm text-muted-foreground">Available Departments:</span>
-                      <div className="flex flex-wrap gap-1">
-                        {lab.departments && lab.departments.length > 0 ? (
-                          lab.departments.map((deptId) => {
-                            const dept = departments.find(d => d.id === deptId);
-                            return (
-                              <Badge key={deptId} variant="outline" className="text-[10px]">
-                                {dept?.name || 'Unknown'}
-                              </Badge>
-                            );
-                          })
-                        ) : (
-                          <Badge variant="outline" className="text-[10px]">
-                            No departments (field may not exist in current schema)
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {lab.description}
-                    </p>
-                    <div className="flex gap-2 pt-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openScheduleViewDialog(lab)}
-                        className="flex-1 h-8"
+                      <Badge
+                        variant={lab.is_active ? "default" : "secondary"}
+                        className={`text-[10px] py-0.5 px-2 font-semibold border ${
+                          lab.is_active
+                            ? isDark
+                              ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30"
+                              : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                            : "bg-slate-500/10 text-slate-400 border-slate-500/20"
+                        }`}
                       >
-                        <Eye className="h-3 w-3 mr-1" />
-                        Edit
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLab(lab.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                        {lab.is_active ? "Active" : "Inactive"}
+                      </Badge>
                     </div>
-                  </CardContent>
-                </Card>
+
+                    <div className="space-y-2.5 pt-3.5 text-xs">
+                      <div className={`flex items-center justify-between p-2 rounded-xl border ${
+                        isDark ? "bg-white/[0.03] border-indigo-500/15" : "bg-indigo-50/40 border-indigo-100"
+                      }`}>
+                        <span className={isDark ? "text-slate-400" : "text-slate-500"}>Capacity</span>
+                        <span className={`font-black text-sm ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
+                          {lab.capacity} students
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className={`text-[11px] font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          Associated Branches:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {lab.departments && lab.departments.length > 0 ? (
+                            lab.departments.map((deptId) => {
+                              const dept = departments.find(d => d.id === deptId);
+                              return (
+                                <Badge key={deptId} variant="outline" className={`text-[10px] ${
+                                  isDark ? "border-indigo-500/30 text-indigo-300 bg-indigo-500/10" : "border-indigo-200 text-indigo-700 bg-indigo-50"
+                                }`}>
+                                  {dept?.name || 'Unknown'}
+                                </Badge>
+                              );
+                            })
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">General access</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {lab.description && (
+                        <p className={`text-[11px] line-clamp-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          {lab.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openScheduleViewDialog(lab)}
+                      className={`flex-1 h-8 rounded-xl text-xs font-semibold border transition-all ${
+                        isDark ? "bg-white/5 border-indigo-500/20 text-slate-200 hover:bg-white/10" : "bg-white border-indigo-200 text-slate-700 hover:bg-indigo-50"
+                      }`}
+                    >
+                      <Eye className="h-3 w-3 mr-1" />
+                      Manage Schedule
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-rose-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl"
+                      onClick={() => handleDeleteLab(lab.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               ))}
             </div>
           </TabsContent>
 
-
           <TabsContent value="schedules" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Lab Schedules</h2>
-              {/* Add Schedule button removed for read-only view */}
-            </div>
-
-
             <div className="space-y-4">
               {labs.map((lab) => {
                 const labScheds = labSchedules.filter(schedule => schedule.lab_id === lab.id);
                 if (labScheds.length === 0) return null;
 
                 return (
-                  <Card key={lab.id}>
-                    <CardHeader>
-                      <CardTitle>{lab.name} - Schedule</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {labScheds.map((schedule) => (
-                          <div key={schedule.id} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                            <div className="flex-1">
-                              <div className="font-medium">
-                                {dayNames[schedule.day_of_week - 1]} - Slot {schedule.slot_number}
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                {schedule.start_time} - {schedule.end_time}
-                              </div>
+                  <div
+                    key={lab.id}
+                    className={`rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 ${
+                      isDark
+                        ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] text-white"
+                        : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] text-slate-900"
+                    }`}
+                  >
+                    <h3 className="text-base font-bold mb-4 flex items-center gap-2">
+                      <Beaker className="h-4 w-4 text-indigo-400" />
+                      {lab.name} - Schedule
+                    </h3>
+                    <div className="space-y-2">
+                      {labScheds.map((schedule) => (
+                        <div
+                          key={schedule.id}
+                          className={`flex items-center justify-between p-3.5 rounded-xl border ${
+                            isDark ? "bg-white/[0.03] border-indigo-500/15" : "bg-indigo-50/40 border-indigo-100"
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="font-bold text-xs">
+                              {dayNames[schedule.day_of_week - 1]} - Slot {schedule.slot_number}
                             </div>
-                            <div className="text-right">
-                              <div className="font-medium">{schedule.max_capacity} students</div>
-                              <Badge variant={schedule.is_available ? "default" : "secondary"}>
-                                {schedule.is_available ? "Available" : "Unavailable"}
-                              </Badge>
+                            <div className={`text-[11px] mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                              {schedule.start_time} - {schedule.end_time}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
+                          <div className="text-right flex items-center gap-3">
+                            <span className={`text-xs font-semibold ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
+                              {schedule.max_capacity} students
+                            </span>
+                            <Badge variant={schedule.is_available ? "default" : "secondary"} className={`text-[10px] ${
+                              schedule.is_available
+                                ? isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                                : "bg-slate-500/10 text-slate-400"
+                            }`}>
+                              {schedule.is_available ? "Available" : "Unavailable"}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </TabsContent>
         </Tabs>
         </section>
-      </div>
+      </main>
 
       {/* Schedule View Modal */}
       <Dialog open={scheduleViewDialog} onOpenChange={setScheduleViewDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className={`max-w-6xl max-h-[80vh] overflow-y-auto rounded-2xl border backdrop-blur-2xl shadow-2xl ${
+          isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+        }`}>
           <DialogHeader>
             <DialogTitle>
               Schedule for {selectedLabForSchedule?.name} ({selectedLabForSchedule?.lab_code})
@@ -793,8 +910,7 @@ const LabManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-    </main>
+    </div>
   );
 };
 

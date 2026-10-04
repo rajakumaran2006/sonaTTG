@@ -25,6 +25,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { getSubjectsForYear } from "@/lib/supabaseService";
 import { exportTimetablesToPdf, TimetableExportClassItem } from "@/lib/timetablePdfExport";
+import { useDarkMode } from "@/context/DarkModeContext";
 
 const cellClass = (type: string) => {
   switch (type) {
@@ -55,6 +56,7 @@ const PERIOD_TIME_LABELS: Record<(typeof DISPLAY_COLUMNS)[number], string> = {
 };
 
 function Timetable() {
+  const { isDark } = useDarkMode();
   const { toast } = useToast();
   const selected = useTimetableStore((s) => s.selectedSubjects);
   const special = useTimetableStore((s) => s.special);
@@ -870,14 +872,36 @@ function Timetable() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className={`min-h-screen relative overflow-x-hidden transition-colors duration-300 ${
+      isDark ? "bg-[#060814] text-white" : "bg-[#f8faff] text-slate-900"
+    }`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
+
       <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 animate-fade-in-up pt-16 md:pt-0">
+      <main className="md:pl-72 animate-fade-in-up pt-16 md:pt-0 relative z-10 transition-all duration-300">
         <SelectionHeader />
-        <section className="container py-8">
-          <div className="flex items-start justify-between mb-6">
+        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-3xl font-bold" style={{ fontFamily: 'Poppins' }}>Generated Timetable</h1>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-2">
+                <span>Timetable Viewer</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">Generated Timetable</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 {selection.department ? `${selection.department}` : 'Department not selected'}
                 {selection.year ? ` • Year: ${selection.year}` : ''}
@@ -885,7 +909,7 @@ function Timetable() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex bg-muted p-1 rounded-lg border border-border shadow-sm">
+              <div className="flex bg-card/50 backdrop-blur-xl p-1 rounded-2xl border border-border/60 shadow-sm">
                 <Button
                   variant={viewMode === 'table' ? 'secondary' : 'ghost'}
                   size="sm"
@@ -930,9 +954,9 @@ function Timetable() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-10 gap-1.5" disabled={exportingAllPdf}>
                       {exportingAllPdf ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
+                        <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
                       ) : (
-                        <FileDown className="h-4 w-4 text-emerald-600" />
+                        <FileDown className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                       )}
                       PDF
                       <ChevronDown className="h-3 w-3 opacity-60" />
@@ -947,7 +971,7 @@ function Timetable() {
                       </div>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={exportAllClassesPDF} className="cursor-pointer gap-2 py-2">
-                      <FileText className="h-4 w-4 text-emerald-500" />
+                      <FileText className="h-4 w-4 text-indigo-500" />
                       <div>
                         <div className="font-semibold text-xs">All Classes in Department</div>
                         <div className="text-[10px] text-muted-foreground">Combined PDF of all saved sections</div>
@@ -994,9 +1018,9 @@ function Timetable() {
           {validationResult && (
             <div className="mb-6 space-y-3">
               {validationResult.valid ? (
-                <Alert className="border-green-200 bg-green-50">
-                  <CheckCircle className="h-4 w-4 text-green-600" />
-                  <AlertDescription className="text-green-800">
+                <Alert className="border-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-950/20">
+                  <CheckCircle className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <AlertDescription className="text-indigo-900 dark:text-indigo-200">
                     <strong>Lab settings applied successfully!</strong>
                     {Object.keys(validationResult.labDays).length > 0 && (
                       <div className="mt-2 text-sm">
@@ -1038,17 +1062,17 @@ function Timetable() {
           )}
 
           {viewMode === 'table' ? (
-            <Card className="rounded-2xl p-4 overflow-auto border-olive-100 shadow-sm bg-white/50 backdrop-blur-sm">
+            <Card className="rounded-2xl p-4 overflow-auto border-border/60 shadow-sm bg-card/60 backdrop-blur-md">
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="bg-olive-50/30">
-                    <th className="text-left p-2 align-bottom font-bold text-olive-900">Day</th>
+                  <tr className="bg-muted/40">
+                    <th className="text-left p-2 align-bottom font-bold text-foreground">Day</th>
                     {DISPLAY_COLUMNS.map((label, i) => (
                       <th key={i} className="text-left p-2 align-bottom">
                         <div className="flex flex-col">
-                          <span className="font-bold text-olive-900">{label}</span>
+                          <span className="font-bold text-foreground">{label}</span>
                           {PERIOD_TIME_LABELS[label] && (
-                            <span className="text-[10px] text-olive-600/70 font-medium uppercase tracking-tighter">{PERIOD_TIME_LABELS[label]}</span>
+                            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tighter">{PERIOD_TIME_LABELS[label]}</span>
                           )}
                         </div>
                       </th>
@@ -1057,8 +1081,8 @@ function Timetable() {
                 </thead>
                 <tbody>
                   {timetable.map((row, dayIdx) => (
-                    <tr key={dayIdx} className="border-t border-olive-100/50 hover:bg-olive-50/20 transition-colors">
-                      <td className="p-2 font-bold text-olive-800 bg-olive-50/20">{DAYS[dayIdx]}</td>
+                    <tr key={dayIdx} className="border-t border-border/40 hover:bg-muted/30 transition-colors">
+                      <td className="p-2 font-bold text-foreground bg-muted/20">{DAYS[dayIdx]}</td>
                       {(() => {
                         const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
                         return displayRow.map((cell, i) => {
@@ -1096,7 +1120,7 @@ function Timetable() {
                                   ? 'ring-3 ring-amber-400 shadow-amber-200 shadow-lg scale-105 bg-amber-50'
                                   : cell
                                     ? isOpenElective ? 'bg-purple-100 text-purple-900 border border-purple-200' : cellClass(type)
-                                    : 'bg-slate-50 text-slate-400 border border-dashed border-slate-200'
+                                    : 'bg-indigo-50/40 text-indigo-300 border border-dashed border-indigo-200/60'
                                 } ${editable && swapSource && !cellSelected ? 'ring-1 ring-amber-200/60' : ''}`}
                                 title={editMode
                                   ? `Click to ${swapSource ? 'swap with' : 'select'} this cell${cell ? ` (${cell})` : ''}`
@@ -1125,11 +1149,11 @@ function Timetable() {
           ) : (
             <div className="grid gap-6">
               {timetable.map((row, dayIdx) => (
-                <Card key={dayIdx} className="overflow-hidden border-olive-100 shadow-sm bg-white/50 backdrop-blur-sm group hover:shadow-md transition-all">
-                  <CardHeader className="bg-gradient-to-r from-olive-50 to-transparent py-3 px-6 border-b border-olive-100">
-                    <h3 className="font-bold text-xl text-olive-900 tracking-tight">{DAYS[dayIdx]}</h3>
+                <Card key={dayIdx} className="overflow-hidden border-border/60 shadow-sm bg-card/60 backdrop-blur-md group hover:shadow-md transition-all">
+                  <CardHeader className="bg-muted/30 py-3 px-6 border-b border-border/60">
+                    <h3 className="font-bold text-xl text-foreground tracking-tight">{DAYS[dayIdx]}</h3>
                   </CardHeader>
-                  <div className="divide-y divide-olive-50">
+                  <div className="divide-y divide-border/40">
                     {(() => {
                       const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
                       const items = displayRow.map((cell, i) => {
@@ -1164,7 +1188,7 @@ function Timetable() {
                         return (
                           <div
                             key={i}
-                            className={`flex items-center justify-between p-5 bg-white/70 hover:bg-olive-50/30 transition-all ${
+                            className={`flex items-center justify-between p-5 bg-card/40 hover:bg-muted/30 transition-all ${
                               editable ? 'cursor-pointer hover:shadow-md' : ''
                             } ${cellSelected ? 'ring-2 ring-amber-400 bg-amber-50 shadow-md' : ''}`}
                             onClick={() => handleCellClick(dayIdx, i)}
@@ -1172,7 +1196,7 @@ function Timetable() {
                           >
                             <div className="flex flex-col gap-1.5 flex-1 pr-4">
                               <div className="flex items-center gap-3">
-                                <span className="text-[10px] font-extrabold text-olive-700 bg-olive-100 px-2 py-0.5 rounded-full uppercase tracking-wider">{label}</span>
+                                <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/50 dark:border-indigo-800/40 px-2 py-0.5 rounded-full uppercase tracking-wider">{label}</span>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{time}</span>
                                 {cellSelected && (
                                   <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
@@ -1184,8 +1208,8 @@ function Timetable() {
                             </div>
                             {staff && (
                               <div className="flex flex-col items-end gap-1">
-                                <span className="text-[10px] uppercase font-extrabold tracking-widest text-slate-400">Staff In-Charge</span>
-                                <div className="text-sm font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">{staff}</div>
+                                <span className="text-[10px] uppercase font-extrabold tracking-widest text-indigo-900/60 dark:text-slate-400">Staff In-Charge</span>
+                                <div className="text-sm font-semibold text-indigo-950 dark:text-slate-200 bg-indigo-50/70 dark:bg-slate-800 px-3 py-1 rounded-lg border border-indigo-100 dark:border-slate-700 shadow-sm">{staff}</div>
                               </div>
                             )}
                           </div>
@@ -1208,7 +1232,7 @@ function Timetable() {
           {editDropdown && (
             <div
               ref={dropdownRef}
-              className="fixed z-50 min-w-[240px] max-h-[320px] overflow-y-auto rounded-xl border-2 border-slate-200 bg-white shadow-2xl animate-fade-in-up"
+              className="fixed z-50 min-w-[240px] max-h-[320px] overflow-y-auto rounded-xl border border-indigo-100 bg-white/95 backdrop-blur-xl shadow-2xl animate-fade-in-up"
               style={{
                 left: Math.min(editDropdown.x, window.innerWidth - 260),
                 top: Math.min(editDropdown.y, window.innerHeight - 340),
@@ -1238,7 +1262,7 @@ function Timetable() {
                       key={subjectName}
                       className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors flex items-center gap-2 ${
                         isCurrentlyAssigned
-                          ? 'bg-olive-100 text-olive-900 font-bold'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-bold'
                           : 'hover:bg-slate-50 text-slate-700'
                       }`}
                       onClick={() => assignSubjectToCell(editDropdown.day, editDropdown.period, subjectName)}
@@ -1247,7 +1271,7 @@ function Timetable() {
                         subj?.type === 'lab' ? 'bg-blue-400' :
                         subj?.type === 'elective' || subj?.type === 'open elective' ? 'bg-purple-400' :
                         !subj ? 'bg-amber-400' :
-                        'bg-emerald-400'
+                        'bg-indigo-500'
                       }`} />
                       <span className="truncate">{subjectName}</span>
                       {subj?.type && (
@@ -1256,7 +1280,7 @@ function Timetable() {
                         </span>
                       )}
                       {isCurrentlyAssigned && (
-                        <CheckCircle className="h-3.5 w-3.5 text-olive-600 flex-shrink-0 ml-auto" />
+                        <CheckCircle className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400 flex-shrink-0 ml-auto" />
                       )}
                     </button>
                   );

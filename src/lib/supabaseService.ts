@@ -434,7 +434,7 @@ export async function saveTimetable(
 
   const { error } = await (supabase as any)
     .from('timetables')
-    .upsert(payload);
+    .upsert(payload, { onConflict: 'department_id,year,section' });
   
   if (error) throw error;
 }

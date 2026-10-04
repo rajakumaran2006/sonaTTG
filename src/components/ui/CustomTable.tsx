@@ -300,7 +300,7 @@ export function CustomTable<T>({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={searchPlaceholder}
-            className="pl-10 h-10 rounded-xl bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-emerald-500/50 focus-visible:border-emerald-500"
+            className="pl-10 h-10 rounded-xl bg-background border-input text-foreground placeholder:text-muted-foreground focus-visible:ring-indigo-500/50 focus-visible:border-indigo-500"
           />
         </div>
 
@@ -367,7 +367,7 @@ export function CustomTable<T>({
             <button
               onClick={() => setViewMode("table")}
               className={`p-1.5 rounded-lg transition-all ${
-                viewMode === "table" ? "bg-background text-emerald-600 shadow-sm" : "text-muted-foreground hover:text-foreground"
+                viewMode === "table" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
               title="Table view"
             >
@@ -376,7 +376,7 @@ export function CustomTable<T>({
             <button
               onClick={() => setViewMode("list")}
               className={`p-1.5 rounded-lg transition-all ${
-                viewMode === "list" ? "bg-background text-emerald-600 shadow-sm" : "text-muted-foreground hover:text-foreground"
+                viewMode === "list" ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
               title="List view"
             >

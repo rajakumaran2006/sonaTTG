@@ -212,29 +212,35 @@ const Index = () => {
         setChecking(false);
       }
     })();
-  }, [selection.department, selection.year, selection.section]);
+  }, [selection]);
 
-  // ── Theme tokens ────────────────────────────────────────────────────────────
-  const bg = isDark ? "bg-[#0a0a0a]" : "bg-[#f5f5f7]";
-  const cardBg = isDark ? "bg-[#141414]" : "bg-white";
-  const cardBorder = isDark ? "border-white/[0.06]" : "border-slate-200/80";
-  const divider = isDark ? "border-white/[0.06]" : "border-slate-100";
-  const textPrimary = isDark ? "text-white" : "text-slate-900";
-  const textSecondary = isDark ? "text-white/50" : "text-slate-500";
-  const textMuted = isDark ? "text-white/30" : "text-slate-400";
-  const inputBg = isDark ? "bg-white/[0.05] border-white/10 text-white" : "bg-slate-50 border-slate-200 text-slate-900";
-  const editBtn = isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-slate-100 text-slate-700 hover:bg-slate-200";
-  const actionHoverBg = isDark ? "hover:bg-white/[0.04]" : "";
+  // ── Theme tokens (Professional Neon Glassmorphism) ────────────────────────────
+  const bg = isDark ? "bg-[#060814]" : "bg-gradient-to-br from-[#f8faff] via-[#f5f8ff] to-[#fbf9ff]";
+  const cardBg = isDark ? "bg-[#0c1022]/75 backdrop-blur-2xl" : "bg-white/80 backdrop-blur-2xl";
+  const cardBorder = isDark 
+    ? "border-indigo-500/20 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.1),inset_0_1px_1px_0_rgba(255,255,255,0.06)]" 
+    : "border-indigo-200/60 shadow-[0_4px_20px_-4px_rgba(99,102,241,0.08),0_0_10px_-2px_rgba(99,102,241,0.06),inset_0_1px_1px_0_rgba(255,255,255,0.9)]";
+  const divider = isDark ? "border-indigo-500/15" : "border-indigo-100/70";
+  const textPrimary = isDark ? "text-slate-100" : "text-slate-900";
+  const textSecondary = isDark ? "text-indigo-400/80" : "text-indigo-900/70";
+  const textMuted = isDark ? "text-slate-500" : "text-slate-500";
+  const inputBg = isDark 
+    ? "bg-[#10162e]/60 border-indigo-500/25 text-white backdrop-blur-md hover:border-indigo-400/40 hover:bg-[#141b38]/70" 
+    : "bg-indigo-50/40 border-indigo-200/70 text-slate-900 hover:border-indigo-400/60 hover:bg-indigo-50/60";
+  const editBtn = isDark 
+    ? "bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 border border-indigo-500/30 shadow-[0_0_8px_-2px_rgba(99,102,241,0.3)]" 
+    : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 shadow-xs";
+  const actionHoverBg = isDark ? "hover:bg-white/[0.04]" : "hover:bg-indigo-50/50";
   // ────────────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
       <div className={`min-h-screen ${bg} transition-colors duration-300`}>
         <AdminNavbar />
-        <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80">
+        <main className="md:pl-72 transition-all duration-300">
           <div className="flex items-center justify-center min-h-screen">
             <div className="flex flex-col items-center gap-4">
-              <div className="w-10 h-10 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin" />
+              <div className="w-10 h-10 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin shadow-[0_0_12px_rgba(99,102,241,0.4)]" />
               <p className={`text-sm font-medium tracking-wide ${textSecondary}`}>Loading dashboard…</p>
             </div>
           </div>
@@ -250,9 +256,9 @@ const Index = () => {
       icon: BookOpen,
       href: "/admin/subjects",
       linkLabel: "Manage Subjects",
-      gradient: isDark ? "from-emerald-500/[0.08] to-teal-500/[0.03]" : "from-emerald-500/10 to-teal-500/5",
-      iconColor: "text-emerald-500",
-      iconBg: isDark ? "bg-emerald-500/10" : "bg-emerald-500/10",
+      gradient: isDark ? "from-indigo-500/[0.08] to-purple-500/[0.03]" : "from-indigo-500/[0.08] via-purple-500/[0.04] to-transparent",
+      iconColor: isDark ? "text-indigo-400" : "text-indigo-600",
+      iconBg: isDark ? "bg-indigo-500/15 border-indigo-500/30 shadow-[0_0_10px_-2px_rgba(99,102,241,0.25)]" : "bg-gradient-to-br from-indigo-500/15 to-purple-500/15 border-indigo-200/80 shadow-sm shadow-indigo-500/10",
     },
     {
       label: "Faculty",
@@ -260,9 +266,9 @@ const Index = () => {
       icon: Users,
       href: "/admin/faculty",
       linkLabel: "Manage Faculty",
-      gradient: isDark ? "from-sky-500/[0.08] to-blue-500/[0.03]" : "from-sky-500/10 to-blue-500/5",
-      iconColor: "text-sky-500",
-      iconBg: isDark ? "bg-sky-500/10" : "bg-sky-500/10",
+      gradient: isDark ? "from-sky-500/[0.08] to-blue-500/[0.03]" : "from-purple-500/[0.08] via-indigo-500/[0.04] to-transparent",
+      iconColor: isDark ? "text-sky-400" : "text-purple-600",
+      iconBg: isDark ? "bg-sky-500/15 border-sky-500/30 shadow-[0_0_10px_-2px_rgba(56,189,248,0.25)]" : "bg-gradient-to-br from-purple-500/15 to-indigo-500/15 border-purple-200/80 shadow-sm shadow-purple-500/10",
     },
     {
       label: "Timetables",
@@ -270,204 +276,229 @@ const Index = () => {
       icon: Calendar,
       href: "/current-timetables",
       linkLabel: "View Timetables",
-      gradient: isDark ? "from-violet-500/[0.08] to-purple-500/[0.03]" : "from-violet-500/10 to-purple-500/5",
-      iconColor: "text-violet-500",
-      iconBg: isDark ? "bg-violet-500/10" : "bg-violet-500/10",
+      gradient: isDark ? "from-violet-500/[0.08] to-purple-500/[0.03]" : "from-violet-500/[0.08] via-indigo-500/[0.04] to-transparent",
+      iconColor: isDark ? "text-violet-400" : "text-violet-600",
+      iconBg: isDark ? "bg-violet-500/15 border-violet-500/30 shadow-[0_0_10px_-2px_rgba(139,92,246,0.25)]" : "bg-gradient-to-br from-violet-500/15 to-indigo-500/15 border-violet-200/80 shadow-sm shadow-violet-500/10",
     },
   ];
 
   const quickActions = [
-    { label: "Add Subjects", icon: BookOpen, path: "/admin/subjects", color: "emerald" },
-    { label: "Manage Faculty", icon: Users, path: "/admin/faculty", color: "sky" },
-    { label: "Bulk Import", icon: Upload, path: "/csv-upload", color: "amber" },
-    { label: "Lab Allocation", icon: Database, path: "/lab", color: "violet" },
+    { label: "Add Subjects", desc: "Manage courses", icon: BookOpen, path: "/admin/subjects", color: "indigo" },
+    { label: "Manage Faculty", desc: "Staff directory", icon: Users, path: "/admin/faculty", color: "sky" },
+    { label: "Bulk Import", desc: "CSV spreadsheet", icon: Upload, path: "/csv-upload", color: "amber" },
+    { label: "Lab Allocation", desc: "Room resources", icon: Database, path: "/lab", color: "violet" },
   ];
 
   const colorMap: Record<string, { icon: string; bg: string; border: string; glow: string }> = {
-    emerald: { 
-      icon: "text-emerald-500 dark:text-emerald-400", 
-      bg: "bg-emerald-500/10 dark:bg-emerald-500/20", 
-      border: "border-emerald-500/20 dark:border-emerald-500/10 hover:border-emerald-500/50",
-      glow: "hover:shadow-[0_4px_20px_rgba(16,185,129,0.1)]"
+    indigo: { 
+      icon: isDark ? "text-indigo-400" : "text-indigo-600", 
+      bg: isDark ? "bg-indigo-500/15 border border-indigo-500/25" : "bg-indigo-50/80 border border-indigo-200/60", 
+      border: isDark ? "border-indigo-500/20 hover:border-indigo-400/50" : "border-indigo-200/70 hover:border-indigo-400/80",
+      glow: isDark ? "hover:shadow-[0_0_14px_-2px_rgba(99,102,241,0.28)]" : "hover:shadow-[0_0_12px_-2px_rgba(99,102,241,0.18)]"
     },
     sky: { 
-      icon: "text-sky-500 dark:text-sky-400", 
-      bg: "bg-sky-500/10 dark:bg-sky-500/20", 
-      border: "border-sky-500/20 dark:border-sky-500/10 hover:border-sky-500/50",
-      glow: "hover:shadow-[0_4px_20px_rgba(56,189,248,0.1)]"
+      icon: isDark ? "text-sky-400" : "text-sky-600", 
+      bg: isDark ? "bg-sky-500/15 border border-sky-500/25" : "bg-sky-50/80 border border-sky-200/60", 
+      border: isDark ? "border-sky-500/20 hover:border-sky-400/50" : "border-sky-200/70 hover:border-sky-400/80",
+      glow: isDark ? "hover:shadow-[0_0_14px_-2px_rgba(56,189,248,0.28)]" : "hover:shadow-[0_0_12px_-2px_rgba(56,189,248,0.18)]"
     },
     amber: { 
-      icon: "text-amber-500 dark:text-amber-400", 
-      bg: "bg-amber-500/10 dark:bg-amber-500/20", 
-      border: "border-amber-500/20 dark:border-amber-500/10 hover:border-amber-500/50",
-      glow: "hover:shadow-[0_4px_20px_rgba(245,158,11,0.1)]"
+      icon: isDark ? "text-amber-400" : "text-amber-600", 
+      bg: isDark ? "bg-amber-500/15 border border-amber-500/25" : "bg-amber-50/80 border border-amber-200/60", 
+      border: isDark ? "border-amber-500/20 hover:border-amber-400/50" : "border-amber-200/70 hover:border-amber-400/80",
+      glow: isDark ? "hover:shadow-[0_0_14px_-2px_rgba(245,158,11,0.28)]" : "hover:shadow-[0_0_12px_-2px_rgba(245,158,11,0.18)]"
     },
     violet: { 
-      icon: "text-violet-500 dark:text-violet-400", 
-      bg: "bg-violet-500/10 dark:bg-violet-500/20", 
-      border: "border-violet-500/20 dark:border-violet-500/10 hover:border-violet-500/50",
-      glow: "hover:shadow-[0_4px_20px_rgba(139,92,246,0.1)]"
+      icon: isDark ? "text-violet-400" : "text-purple-600", 
+      bg: isDark ? "bg-violet-500/15 border border-violet-500/25" : "bg-purple-50/80 border border-purple-200/60", 
+      border: isDark ? "border-violet-500/20 hover:border-purple-400/50" : "border-purple-200/70 hover:border-purple-400/80",
+      glow: isDark ? "hover:shadow-[0_0_14px_-2px_rgba(168,85,247,0.28)]" : "hover:shadow-[0_0_12px_-2px_rgba(168,85,247,0.18)]"
     },
   };
 
   return (
-    <div className={`min-h-screen ${bg} ${textPrimary} transition-colors duration-300`}>
-      <AdminNavbar />
-      <main className="md:pl-72 lg:pl-80 xl:pl-72 2xl:pl-80 transition-all duration-300">
-        <SelectionHeader />
+    <div className={`min-h-screen ${bg} ${textPrimary} transition-colors duration-300 relative overflow-x-hidden`}>
+      {/* Ambient background light orbs for frosted glass refraction */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {isDark ? (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-600/12 via-purple-600/08 to-transparent blur-3xl opacity-70" />
+            <div className="absolute top-1/3 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-cyan-600/08 via-indigo-600/08 to-transparent blur-3xl opacity-60" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-purple-600/08 via-indigo-600/06 to-transparent blur-3xl opacity-50" />
+          </>
+        ) : (
+          <>
+            <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/40 via-purple-200/30 to-transparent blur-3xl opacity-75" />
+            <div className="absolute top-1/4 -right-20 w-80 h-80 rounded-full bg-gradient-to-bl from-purple-200/35 via-indigo-100/40 to-transparent blur-3xl opacity-65" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 rounded-full bg-gradient-to-tr from-indigo-100/40 via-purple-100/30 to-transparent blur-3xl opacity-50" />
+          </>
+        )}
+      </div>
 
-        {/* Content starts immediately below the header — no extra top gap */}
-        <div className="container pt-2 pb-4 space-y-6">
+      <AdminNavbar />
+      <main className="md:pl-72 transition-all duration-300 min-h-screen relative z-10">
+        <SelectionHeader compact />
+
+        {/* Content container — naturally aligned and balanced for single-screen view */}
+        <div className="max-w-7xl mx-auto px-6 sm:px-8 py-5 sm:py-6 space-y-5 sm:space-y-6">
 
           {/* Stats Row */}
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {statCards.map((card) => (
-              <div
-                key={card.label}
-                className={`relative overflow-hidden rounded-2xl ${cardBg} border ${cardBorder} p-6 shadow-sm hover:shadow-md transition-all duration-300 hover:-translate-y-0.5`}
-              >
-                <div className="relative">
-                  <p className={`text-sm font-semibold ${textSecondary} mb-3`}>Total {card.label}</p>
-                  <p className={`text-5xl font-bold tracking-tight ${textPrimary} mb-2 transition-opacity duration-200 ${statsLoading ? 'opacity-30' : 'opacity-100'}`}>
+          <div className="grid gap-4 sm:gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {statCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <div
+                  key={card.label}
+                  className={`relative overflow-hidden rounded-2xl ${cardBg} border ${cardBorder} p-5 transition-all duration-300 hover:-translate-y-0.5 group ${
+                    isDark 
+                      ? 'hover:border-indigo-400/40 hover:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.6),0_0_16px_-2px_rgba(99,102,241,0.2)]' 
+                      : 'hover:border-indigo-300 hover:shadow-[0_4px_20px_-4px_rgba(99,102,241,0.12),0_0_14px_-2px_rgba(99,102,241,0.12)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? textSecondary : 'text-indigo-600'}`}>Total {card.label}</span>
+                    <div className={`w-9 h-9 rounded-xl border flex items-center justify-center ${card.iconBg} ${card.iconColor} transition-transform duration-300 group-hover:scale-105`}>
+                      <Icon className="h-4.5 w-4.5" />
+                    </div>
+                  </div>
+                  <div className={`text-3xl sm:text-4xl font-extrabold tracking-tight ${textPrimary} mt-2 mb-1 transition-opacity duration-200 ${statsLoading ? 'opacity-30' : 'opacity-100'}`}>
                     {statsLoading ? '—' : card.value}
-                  </p>
-                  <p className={`text-sm font-medium ${textMuted} truncate`}>
+                  </div>
+                  <p className={`text-xs font-semibold ${isDark ? textMuted : 'text-indigo-700/80'} truncate`}>
                     {departments.map(d => d.name).join(", ") || "All Allocated Depts"}
                   </p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* Main Content Grid */}
-          <div className="grid gap-6 lg:grid-cols-5">
+          {/* Main Content Grid — equal height matching columns */}
+          <div className="grid gap-5 lg:grid-cols-5 items-stretch">
 
-            {/* Generate Timetable — wider */}
-            <div className={`lg:col-span-3 rounded-2xl ${cardBg} border ${cardBorder} shadow-sm overflow-hidden`}>
-              <div className={`px-6 pt-6 pb-4 border-b ${divider}`}>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <h2 className={`text-base font-bold ${textPrimary}`}>Generate Timetable</h2>
+            {/* Generate Timetable — 3 cols */}
+            <div className={`lg:col-span-3 rounded-2xl ${cardBg} border ${cardBorder} overflow-hidden flex flex-col justify-between`}>
+              <div>
+                <div className={`px-6 py-4 border-b ${divider}`}>
+                  <h2 className={`text-base font-bold tracking-tight ${textPrimary}`}>Generate Timetable</h2>
+                  <p className={`text-xs ${isDark ? textMuted : 'text-slate-500'} mt-0.5 leading-normal`}>Select academic semester and target departments to configure and generate clash-free timetables.</p>
                 </div>
-                <p className={`text-sm ${textMuted}`}>Select departments to configure and generate timetables using the multi-step wizard.</p>
+
+                <div className="p-6 space-y-5">
+                  {/* Academic Semester Selector */}
+                  <div className="space-y-2.5">
+                    <div className="relative flex items-center justify-between gap-2 min-h-[32px]">
+                      <label className={`text-xs font-bold uppercase tracking-wider ${isDark ? textMuted : 'text-indigo-700'} shrink-0`}>Academic Semester</label>
+
+                      {semesterType === "even" && (
+                        <div className="sm:absolute sm:left-1/2 sm:-translate-x-1/2 z-10">
+                          <button
+                            type="button"
+                            onClick={() => setShowImportEvenModal(true)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white transition-all shadow-[0_0_14px_-2px_rgba(99,102,241,0.35)] border border-indigo-300/40 backdrop-blur-md active:scale-95"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            <span>Import Even Sem Subjects</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0 text-right">
+                        {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III, IV)"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <button
+                        type="button"
+                        onClick={() => setSemesterType("odd")}
+                        className={`flex items-center justify-center gap-2.5 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
+                          semesterType === "odd"
+                            ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-400/50 shadow-[0_0_14px_-2px_rgba(99,102,241,0.3)] font-bold"
+                            : `${inputBg} text-slate-700 dark:text-muted-foreground`
+                        }`}
+                      >
+                        <Sun className="h-4 w-4" />
+                        Odd Semester
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSemesterType("even")}
+                        className={`flex items-center justify-center gap-2.5 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
+                          semesterType === "even"
+                            ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-400/50 shadow-[0_0_14px_-2px_rgba(99,102,241,0.3)] font-bold"
+                            : `${inputBg} text-slate-700 dark:text-muted-foreground`
+                        }`}
+                      >
+                        <Moon className="h-4 w-4" />
+                        Even Semester
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Department */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className={`text-xs font-bold uppercase tracking-wider ${isDark ? textMuted : 'text-indigo-700'}`}>Departments</label>
+                      <span className="text-xs font-semibold text-indigo-600 dark:text-muted-foreground">
+                        {selectedDashboardDepts.length} of {departments.length} selected
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[140px] overflow-y-auto pr-1">
+                      {departments.map((d) => {
+                        const isChecked = selectedDashboardDepts.includes(d.name);
+                        return (
+                          <div
+                            key={d.id}
+                            onClick={() => {
+                              if (isChecked) {
+                                setSelectedDashboardDepts(prev => prev.filter(name => name !== d.name));
+                              } else {
+                                setSelectedDashboardDepts(prev => [...prev, d.name]);
+                              }
+                            }}
+                            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 select-none ${
+                              isChecked
+                                ? (isDark 
+                                    ? "bg-indigo-500/15 border-indigo-400/50 text-indigo-300 font-semibold shadow-[0_0_12px_-3px_rgba(99,102,241,0.3)]"
+                                    : "bg-indigo-50/90 border-indigo-400/80 text-indigo-950 font-bold shadow-[0_0_10px_-2px_rgba(99,102,241,0.16)] ring-1 ring-indigo-400/20")
+                                : `${inputBg}`
+                            }`}
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={() => {}}
+                              className="border-indigo-300 dark:border-indigo-500/40 data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600 rounded-md h-4 w-4"
+                            />
+                            <span className="text-xs sm:text-sm font-semibold truncate">{d.name}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="p-6 space-y-6">
-                {/* Academic Semester Selector */}
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Academic Semester</label>
-                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III, IV)"}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSemesterType("odd")}
-                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
-                        semesterType === "odd"
-                          ? "bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/20"
-                          : `${inputBg} border-white/10 hover:border-white/20 text-muted-foreground`
-                      }`}
-                    >
-                      <Sun className="h-4 w-4" />
-                      Odd Semester
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSemesterType("even")}
-                      className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-xs sm:text-sm font-semibold transition-all duration-200 select-none ${
-                        semesterType === "even"
-                          ? "bg-emerald-500 text-white border-emerald-500 shadow-sm shadow-emerald-500/20"
-                          : `${inputBg} border-white/10 hover:border-white/20 text-muted-foreground`
-                      }`}
-                    >
-                      <Moon className="h-4 w-4" />
-                      Even Semester
-                    </button>
-                  </div>
-
-                  {semesterType === "even" && (
-                    <div className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
-                      isDark ? "bg-emerald-500/10 border-emerald-500/25" : "bg-emerald-50 border-emerald-250"
-                    }`}>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <div className="space-y-1">
-                          <p className="font-bold text-emerald-700 dark:text-emerald-300">Even Semester Configuration Active:</p>
-                          <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-slate-700 dark:text-slate-300">
-                            <li><strong>3rd Year:</strong> Open Elective (OE) is added to <strong>Mon-1, Wed-1, Fri-1, Sat-1 &amp; Sat-2</strong>.</li>
-                            <li><strong>4th Year:</strong> Static timetable: All hours Project, Saturday 3rd &amp; 4th hr Seminar, 5th hr Library, 6th &amp; 7th hr Counselling.</li>
-                          </ul>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowImportEvenModal(true)}
-                          className="self-start sm:self-auto shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm flex items-center gap-1.5"
-                        >
-                          <Upload className="h-3.5 w-3.5" />
-                          Import Even Sem Subjects
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Department */}
-                <div className="space-y-2">
-                  <label className={`text-[11px] font-bold uppercase tracking-widest ${textMuted}`}>Departments</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {departments.map((d) => {
-                      const isChecked = selectedDashboardDepts.includes(d.name);
-                      return (
-                        <div
-                          key={d.id}
-                          onClick={() => {
-                            if (isChecked) {
-                              setSelectedDashboardDepts(prev => prev.filter(name => name !== d.name));
-                            } else {
-                              setSelectedDashboardDepts(prev => [...prev, d.name]);
-                            }
-                          }}
-                          className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all duration-200 select-none ${
-                            isChecked
-                              ? "bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-450 font-semibold"
-                              : `${inputBg} border-white/10 hover:border-white/20`
-                          }`}
-                        >
-                          <Checkbox
-                            checked={isChecked}
-                            onCheckedChange={() => {}} // parent onClick handles the change
-                            className="border-white/30 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
-                          />
-                          <span className="text-sm font-semibold truncate">{d.name}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    onClick={() => setShowWizard(true)}
-                    disabled={selectedDashboardDepts.length === 0}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-emerald-500/20 transition-all duration-200 hover:shadow-emerald-500/30 hover:shadow-md"
-                  >
-                    <Zap className="h-4 w-4" />
-                    Generate Timetable
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </div>
+              {/* Actions Footer */}
+              <div className="px-6 pb-6 pt-2 flex items-center justify-end">
+                <button
+                  onClick={() => setShowWizard(true)}
+                  disabled={selectedDashboardDepts.length === 0}
+                  className="inline-flex items-center gap-2.5 px-6 py-3 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_18px_-2px_rgba(99,102,241,0.35)] border border-indigo-400/30 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <Zap className="h-4 w-4" />
+                  Generate Timetable
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
             </div>
 
-            {/* Quick Actions — narrower */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className={`rounded-2xl ${cardBg} border ${cardBorder} shadow-sm overflow-hidden`}>
-                <div className={`px-5 pt-5 pb-3 border-b ${divider}`}>
-                  <h2 className={`text-base font-bold ${textPrimary}`}>Quick Actions</h2>
+            {/* Quick Actions & Pro Tip — 2 cols */}
+            <div className="lg:col-span-2 flex flex-col justify-between gap-4">
+              <div className={`rounded-2xl ${cardBg} border ${cardBorder} overflow-hidden`}>
+                <div className={`px-5 py-4 border-b ${divider}`}>
+                  <h2 className={`text-base font-bold tracking-tight ${textPrimary}`}>Quick Actions</h2>
                 </div>
-                <div className="p-3 grid grid-cols-2 gap-2">
+                <div className="p-4 sm:p-5 grid grid-cols-2 gap-3">
                   {quickActions.map((action) => {
                     const Icon = action.icon;
                     const colors = colorMap[action.color];
@@ -475,29 +506,40 @@ const Index = () => {
                       <button
                         key={action.label}
                         onClick={() => navigate(action.path)}
-                        className={`flex flex-col items-start gap-2.5 p-4 rounded-xl border ${colors.border} ${colors.glow} bg-card/60 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:bg-slate-100/10 active:scale-[0.98] group`}
+                        className={`flex items-center gap-3 p-3.5 rounded-xl border ${colors.border} ${colors.glow} bg-white/70 dark:bg-white/[0.03] backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] group`}
                       >
-                        <div className={`p-2.5 rounded-xl ${colors.bg} transition-transform duration-300 group-hover:scale-110`}>
-                          <Icon className={`h-4.5 w-4.5 ${colors.icon}`} />
+                        <div className={`p-2 rounded-lg ${colors.bg} shrink-0 transition-transform duration-300 group-hover:scale-105`}>
+                          <Icon className={`h-4 w-4 ${colors.icon}`} />
                         </div>
-                        <span className={`text-xs font-semibold leading-tight text-left ${textPrimary}`}>{action.label}</span>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className={`text-xs font-bold leading-tight truncate ${textPrimary}`}>{action.label}</span>
+                          <span className={`text-[10px] ${isDark ? textMuted : 'text-slate-500'} truncate mt-0.5`}>{action.desc}</span>
+                        </div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Tip Card — professional neutral */}
-              <div className={`rounded-2xl border ${cardBorder} ${cardBg} p-5 shadow-sm`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`h-5 w-5 rounded-md flex items-center justify-center ${isDark ? 'bg-white/10' : 'bg-slate-100'}`}>
-                    <Zap className={`h-3 w-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`} />
+              {/* Tip Card — aligned to match bottom of left card */}
+              <div className={`rounded-2xl border ${isDark ? 'border-indigo-500/25 bg-[#0c1024]/75 shadow-[0_0_16px_-4px_rgba(99,102,241,0.15)] backdrop-blur-xl' : 'border-indigo-200/80 bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-white/90 shadow-[0_0_16px_-4px_rgba(99,102,241,0.1)] backdrop-blur-xl'} p-5 flex flex-col justify-between`}>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-6 w-6 rounded-lg flex items-center justify-center ${isDark ? 'bg-indigo-500/20 border border-indigo-500/30 text-indigo-400 shadow-[0_0_8px_-2px_rgba(99,102,241,0.4)]' : 'bg-gradient-to-br from-indigo-600 to-purple-600 text-white shadow-[0_0_10px_-2px_rgba(99,102,241,0.3)]'}`}>
+                        <Zap className="h-3.5 w-3.5" />
+                      </div>
+                      <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>Pro Tip</p>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_8px_-2px_rgba(16,185,129,0.3)] px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Engine Ready
+                    </span>
                   </div>
-                  <p className={`text-xs font-bold uppercase tracking-widest ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Pro Tip</p>
+                  <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Export timetables to PDF or Excel from the review page. Smart constraints prevent faculty and room double-booking automatically.
+                  </p>
                 </div>
-                <p className={`text-sm leading-relaxed ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
-                  Export timetables to PDF or Excel from the review page. Smart constraints prevent faculty double-booking.
-                </p>
               </div>
             </div>
           </div>
