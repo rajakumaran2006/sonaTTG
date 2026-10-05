@@ -48,6 +48,7 @@ const AdminNavbar = () => {
     { label: "Home", href: "/admin", icon: <Home className="h-[18px] w-[18px]" /> },
     { label: "Subjects", href: "/admin/subjects", icon: <BookOpen className="h-[18px] w-[18px]" /> },
     { label: "Faculty", href: "/admin/faculty", icon: <UserCheck className="h-[18px] w-[18px]" /> },
+    { label: "Timetables", href: "/current-timetables", icon: <Calendar className="h-[18px] w-[18px]" /> },
     { label: "Bulk Import", href: "/csv-upload", icon: <FileSpreadsheet className="h-[18px] w-[18px]" /> },
     { label: "Lab Allocation", href: "/lab", icon: <FlaskConical className="h-[18px] w-[18px]" /> },
   ];

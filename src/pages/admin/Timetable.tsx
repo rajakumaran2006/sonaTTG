@@ -1407,10 +1407,10 @@ function Timetable() {
                     <tr key={config.id || idx} className="border-b">
                       <td className="p-2">-</td>
                       <td className="p-2">-</td>
-                      <td className="p-2 capitalize">{config.special_type}</td>
+                      <td className="p-2 capitalize">{(config.special_type || '').replace(/\s*\([^)]*\)\s*$/, '').trim()}</td>
                       <td className="p-2">{config.total_hours}</td>
                       <td className="p-2">special</td>
-                      <td className="p-2">{classCounselorName || '-'}</td>
+                      <td className="p-2">{classCounselorName || (config.special_type && config.special_type.includes('(') ? config.special_type.match(/\(([^)]+)\)/)?.[1]?.trim() : '-')}</td>
                     </tr>
                   ))}
                 </tbody>

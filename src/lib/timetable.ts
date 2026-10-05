@@ -607,9 +607,9 @@ export function placeSaturdaySpecialSlots(
 ): { seminarHours: number; libraryHours: number; counselHours: number } {
   const counselorName = classCounselorInfo?.name || null;
   const counselorId = classCounselorInfo?.id || null;
-  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
-  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
-  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counselling";
+  const seminarLabel = "Seminar";
+  const libraryLabel = "Library";
+  const counselLabel = "Counselling";
 
   const hasSpecialConfigs = specialHoursConfigs && specialHoursConfigs.length > 0;
   const seminarCfg = specialHoursConfigs?.find((c) => /seminar/i.test(c.special_type));
@@ -2799,9 +2799,9 @@ export function generateYear4EvenSemesterTimetable({
   const counselorName = ctx?.classCounselorInfo?.name || null;
   const counselorId = ctx?.classCounselorInfo?.id || null;
 
-  const seminarLabel = counselorName ? `Seminar (${counselorName})` : "Seminar";
-  const libraryLabel = counselorName ? `Library (${counselorName})` : "Library";
-  const counselLabel = counselorName ? `Counselling (${counselorName})` : "Counselling";
+  const seminarLabel = "Seminar";
+  const libraryLabel = "Library";
+  const counselLabel = "Counselling";
 
   grid[5][2] = seminarLabel;
   grid[5][3] = seminarLabel;

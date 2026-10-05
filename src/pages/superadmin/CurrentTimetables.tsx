@@ -22,10 +22,98 @@ import {
   Search, 
   ArrowUpDown, 
   RotateCcw, 
-  GraduationCap 
+  GraduationCap,
+  Maximize2,
+  Edit,
+  LayoutGrid,
+  Printer
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { getDeptShortName } from "@/lib/timetablePdfExport";
+
+const timetableColumns = [
+  { key: 'p1', label: 'I', time: '08:45 - 09:35', type: 'period' },
+  { key: 'p2', label: 'II', time: '09:35 - 10:25', type: 'period' },
+  { key: 'b1', label: 'TEA BREAK', time: '10:25 - 10:45', type: 'break' },
+  { key: 'p3', label: 'III', time: '10:45 - 11:35', type: 'period' },
+  { key: 'p4', label: 'IV', time: '11:35 - 12:25', type: 'period' },
+  { key: 'lunch', label: 'LUNCH', time: '12:25 - 01:15', type: 'lunch' },
+  { key: 'p5', label: 'V', time: '01:15 - 02:05', type: 'period' },
+  { key: 'p6', label: 'VI', time: '02:05 - 02:55', type: 'period' },
+  { key: 'b2', label: 'TEA BREAK', time: '02:55 - 03:15', type: 'break' },
+  { key: 'p7', label: 'VII', time: '03:15 - 04:05', type: 'period' },
+];
+
+const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+const parseGrid = (grid: any): any[][] => {
+  if (Array.isArray(grid)) return grid;
+  if (typeof grid === 'string') {
+    try {
+      const parsed = JSON.parse(grid);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const getDisplayRow = (rawRow: any[] | undefined) => {
+  if (!Array.isArray(rawRow) || rawRow.length === 0) {
+    return Array(10).fill('');
+  }
+  if (
+    rawRow.length >= 10 ||
+    rawRow.some(
+      (c) =>
+        typeof c === 'string' &&
+        (c.toUpperCase().includes('BREAK') || c.toUpperCase().includes('LUNCH'))
+    )
+  ) {
+    const res = [...rawRow.slice(0, 10)];
+    while (res.length < 10) res.push('');
+    return res;
+  }
+  return [
+    rawRow[0] || '',
+    rawRow[1] || '',
+    'BREAK',
+    rawRow[2] || '',
+    rawRow[3] || '',
+    'LUNCH',
+    rawRow[4] || '',
+    rawRow[5] || '',
+    'BREAK',
+    rawRow[6] || '',
+  ];
+};
+
+const getCellDisplay = (cell: any): { title: string; subtitle?: string; isBreak?: boolean; isLunch?: boolean } => {
+  if (!cell) return { title: '-' };
+  if (typeof cell === 'string') {
+    const s = cell.trim();
+    if (!s || s === '-') return { title: '-' };
+    if (s.toUpperCase() === 'BREAK' || s.toUpperCase() === 'TEA BREAK') {
+      return { title: 'TEA BREAK', isBreak: true };
+    }
+    if (s.toUpperCase() === 'LUNCH' || s.toUpperCase() === 'LUNCH BREAK') {
+      return { title: 'LUNCH', isLunch: true };
+    }
+    if (s.includes('\n')) {
+      const parts = s.split('\n').map((p) => p.trim()).filter(Boolean);
+      return { title: parts[0] || '', subtitle: parts.slice(1).join(' / ') };
+    }
+    return { title: s };
+  }
+  if (typeof cell === 'object') {
+    const title = cell.subject || cell.name || cell.code || cell.title || '';
+    const subtitle = cell.faculty || cell.staff || cell.staff_name || cell.faculty_name || '';
+    return { title: String(title), subtitle: subtitle ? String(subtitle) : undefined };
+  }
+  return { title: String(cell) };
+};
 
 // Normalizes year representations (Roman numerals, numbers, text) into comparable integers
 const parseYearOrder = (year: string | number | undefined | null): number => {
@@ -57,6 +145,7 @@ const parseYearOrder = (year: string | number | undefined | null): number => {
 };
 
 const CurrentTimetables = () => {
+  const navigate = useNavigate();
   const { isDark } = useDarkMode();
   const [rows, setRows] = useState<any[]>([]);
   const [deptNames, setDeptNames] = useState<Record<string, string>>({});
@@ -64,6 +153,7 @@ const CurrentTimetables = () => {
   const isLoggedIn = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
   const [viewOpen, setViewOpen] = useState(false);
   const [viewing, setViewing] = useState<{ departmentId: string; year: string; section: string } | null>(null);
+  const [fullPreviewOpen, setFullPreviewOpen] = useState(false);
   
   // Filter & Sort states
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
@@ -88,7 +178,7 @@ const CurrentTimetables = () => {
   useEffect(() => {
     (async () => {
       const [{ data: tts }, { data: depts }] = await Promise.all([
-        (supabase as any).from('timetables').select('department_id,year,section,updated_at').order('updated_at', { ascending: false }),
+        (supabase as any).from('timetables').select('department_id,year,section,updated_at,grid_data').order('updated_at', { ascending: false }),
         (supabase as any).from('departments').select('id,name').order('name'),
       ]);
 
@@ -522,16 +612,28 @@ const CurrentTimetables = () => {
                 </span>
               </div>
 
-              {isLoggedIn && filteredRows.length > 0 && (
+              <div className="flex items-center gap-2.5 flex-wrap self-start sm:self-auto">
                 <Button
                   size="sm"
-                  onClick={() => setDeleteAllOpen(true)}
-                  className="h-9 px-4 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 flex items-center gap-2 self-start sm:self-auto"
+                  onClick={() => setFullPreviewOpen(true)}
+                  disabled={filteredRows.length === 0}
+                  className="h-9 px-4 rounded-xl text-xs font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white shadow-md shadow-indigo-600/20 flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete All{selectedDepartment !== 'all' ? ` (${filteredRows.length})` : ''}
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  Full Timetable
                 </Button>
-              )}
+
+                {isLoggedIn && filteredRows.length > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => setDeleteAllOpen(true)}
+                    className="h-9 px-4 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 flex items-center gap-2"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete All{selectedDepartment !== 'all' ? ` (${filteredRows.length})` : ''}
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="grid gap-4">
@@ -579,18 +681,21 @@ const CurrentTimetables = () => {
                   <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
                     <Button 
                       size="sm" 
-                      onClick={() => { 
-                        setViewing({ 
-                          departmentId: r.department_id, 
-                          year: r.year, 
-                          section: r.section 
-                        }); 
-                        setViewOpen(true); 
+                      onClick={() => {
+                        navigate("/admin/generate-review", {
+                          state: {
+                            loadPublished: true,
+                            departmentId: r.department_id,
+                            departmentName: deptNames[r.department_id] || r.department_id,
+                            year: r.year,
+                            section: r.section,
+                          }
+                        });
                       }}
-                      className="h-9 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-sm shadow-indigo-500/25 border border-indigo-400/30 flex items-center gap-2"
+                      className="h-9 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-500/25 border border-blue-400/30 flex items-center gap-2"
                     >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span>View Timetable</span>
+                      <Maximize2 className="h-3.5 w-3.5" />
+                      <span>Edit in Full Screen</span>
                     </Button>
 
                     <AlertDialog>
@@ -677,21 +782,256 @@ const CurrentTimetables = () => {
             </div>
           </div>
 
-          {/* Timetable Viewer Dialog */}
-          <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-            <DialogContent className={`max-w-[95vw] w-full max-h-[95vh] overflow-hidden rounded-2xl border backdrop-blur-2xl shadow-2xl p-6 ${
-              isDark ? "bg-[#0a0e1e]/98 border-indigo-500/25 text-white" : "bg-white/98 border-indigo-200/80 text-slate-900"
+          {/* Full Timetable Master Preview Dialog */}
+          <Dialog open={fullPreviewOpen} onOpenChange={setFullPreviewOpen}>
+            <DialogContent className={`max-w-[97vw] xl:max-w-[1440px] w-full max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-2xl border backdrop-blur-2xl shadow-2xl ${
+              isDark ? "bg-[#090d1c]/98 border-indigo-500/25 text-white" : "bg-white/98 border-indigo-200/90 text-slate-900"
             }`}>
-              <DialogHeader>
-                <DialogTitle className="text-lg font-bold">Timetable Viewer</DialogTitle>
-              </DialogHeader>
-              <div className="overflow-y-auto max-h-[calc(95vh-100px)]">
-                {viewing && (
-                  <TimetableViewer 
-                    departmentId={viewing.departmentId}
-                    year={viewing.year}
-                    section={viewing.section}
-                  />
+              <div className={`p-4 sm:p-5 pb-3 border-b flex flex-col gap-3 shrink-0 ${
+                isDark ? "border-indigo-500/20 bg-slate-900/60" : "border-indigo-100 bg-slate-50/80"
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-8">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center border shadow-sm ${
+                      isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                    }`}>
+                      <LayoutGrid className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <DialogTitle className="text-lg sm:text-xl font-black tracking-tight">Full Timetable Master Preview</DialogTitle>
+                      <p className={`text-xs mt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                        Viewing all {filteredRows.length} active schedule{filteredRows.length !== 1 ? 's' : ''}
+                        {selectedDepartment !== 'all' ? ` in ${deptNames[selectedDepartment] || selectedDepartment}` : ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.print()}
+                      className="h-8 px-3 rounded-xl text-xs font-semibold gap-1.5"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      <span>Print</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Quick-jump navigation pills for classes */}
+                {filteredRows.length > 1 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pt-1 pb-1 text-xs">
+                    <span className={`text-[11px] font-bold uppercase tracking-wider shrink-0 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      Jump to:
+                    </span>
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                      {filteredRows.map((r, i) => {
+                        const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}`;
+                        return (
+                          <button
+                            key={cardId}
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById(cardId);
+                              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                              isDark
+                                ? "bg-white/5 hover:bg-indigo-600/30 text-slate-300 border-white/10 hover:border-indigo-400/40"
+                                : "bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 border-slate-200 hover:border-indigo-300 shadow-sm"
+                            }`}
+                          >
+                            Yr {r.year} - Sec {r.section} ({deptNames[r.department_id] ? getDeptShortName(deptNames[r.department_id]) : r.department_id})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Scrollable container with all timetables */}
+              <div className="overflow-y-auto p-4 sm:p-6 space-y-8 max-h-[calc(94vh-130px)]">
+                {filteredRows.map((r, idx) => {
+                  const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}`;
+                  const grid = parseGrid(r.grid_data);
+                  const daysCount = grid.length > 0 ? Math.min(Math.max(grid.length, 5), 6) : 6;
+                  const displayDays = dayNames.slice(0, daysCount);
+
+                  return (
+                    <div
+                      key={cardId}
+                      id={cardId}
+                      className={`rounded-2xl border p-5 backdrop-blur-xl shadow-md transition-all ${
+                        isDark
+                          ? "bg-[#0c1228]/80 border-indigo-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+                          : "bg-white border-slate-200/90 shadow-slate-200/60"
+                      }`}
+                    >
+                      {/* Class header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-100/60 dark:border-indigo-500/20 mb-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`h-5 min-w-[20px] px-1.5 rounded-md text-[10px] font-black flex items-center justify-center border ${
+                              isDark ? "bg-white/5 border-white/10 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-600"
+                            }`}>
+                              #{idx + 1}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                              isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                            }`}>
+                              {deptNames[r.department_id] || r.department_id}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
+                            }`}>
+                              Year {r.year}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
+                            }`}>
+                              Section {r.section}
+                            </span>
+                          </div>
+                          <p className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                            Last modified: {new Date(r.updated_at).toLocaleString()}
+                          </p>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setFullPreviewOpen(false);
+                            navigate("/admin/generate-review", {
+                              state: {
+                                loadPublished: true,
+                                departmentId: r.department_id,
+                                departmentName: deptNames[r.department_id] || r.department_id,
+                                year: r.year,
+                                section: r.section,
+                              }
+                            });
+                          }}
+                          className="h-8 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+                        >
+                          <Maximize2 className="h-3.5 w-3.5" />
+                          <span>Edit in Full Screen</span>
+                        </Button>
+                      </div>
+
+                      {/* Timetable Table */}
+                      <div className="overflow-x-auto rounded-xl border border-indigo-100/70 dark:border-indigo-500/20 shadow-inner">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className={isDark ? "bg-[#0b1022] text-white" : "bg-slate-100 text-slate-900"}>
+                              <th className={`p-2.5 text-left font-black border-b border-r border-indigo-100/60 dark:border-indigo-500/20 w-28 ${
+                                isDark ? "text-white" : "text-slate-800"
+                              }`}>
+                                Day / Period
+                              </th>
+                              {timetableColumns.map((col, cIdx) => (
+                                <th
+                                  key={cIdx}
+                                  className={`p-2 text-center font-black border-b border-r border-indigo-100/60 dark:border-indigo-500/20 ${
+                                    col.type === 'break' || col.type === 'lunch'
+                                      ? isDark ? "bg-amber-950/40 text-amber-300 font-black" : "bg-amber-100/80 text-amber-900 font-black"
+                                      : isDark ? "text-white" : "text-slate-900"
+                                  }`}
+                                >
+                                  <div className="font-black text-[13px]">{col.label}</div>
+                                  <div className={`text-[10px] font-bold opacity-90 whitespace-nowrap ${isDark ? "text-sky-300" : "text-indigo-700"}`}>{col.time}</div>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayDays.map((day, dIdx) => {
+                              const rawDayRow = grid[dIdx];
+                              const displayRow = getDisplayRow(rawDayRow);
+
+                              return (
+                                <tr 
+                                  key={dIdx} 
+                                  className={`border-b border-indigo-100/40 dark:border-indigo-500/10 ${
+                                    isDark ? "hover:bg-white/[0.04]" : "hover:bg-indigo-50/40"
+                                  }`}
+                                >
+                                  <td className={`p-2.5 font-black border-r border-indigo-100/60 dark:border-indigo-500/20 ${
+                                    isDark ? "bg-[#0e1529] text-white" : "bg-slate-50 text-slate-900"
+                                  }`}>
+                                    {day}
+                                  </td>
+                                  {displayRow.map((cellRaw, pIdx) => {
+                                    const cellInfo = getCellDisplay(cellRaw);
+                                    const isBreak = cellInfo.isBreak;
+                                    const isLunch = cellInfo.isLunch;
+
+                                    if (isBreak || isLunch) {
+                                      return (
+                                        <td 
+                                          key={pIdx} 
+                                          className={`p-1.5 text-center font-black text-[11px] tracking-wider border-r border-indigo-100/60 dark:border-indigo-500/20 select-none ${
+                                            isLunch 
+                                              ? isDark ? "bg-amber-500/20 text-amber-300 font-black shadow-inner" : "bg-amber-100 text-amber-900 font-black"
+                                              : isDark ? "bg-amber-500/10 text-amber-300 font-black" : "bg-amber-50 text-amber-800 font-bold"
+                                          }`}
+                                        >
+                                          {isLunch ? "LUNCH" : "BREAK"}
+                                        </td>
+                                      );
+                                    }
+
+                                    const hasContent = cellInfo.title && cellInfo.title !== '-';
+
+                                    return (
+                                      <td 
+                                        key={pIdx} 
+                                        className="p-1.5 border-r border-indigo-100/60 dark:border-indigo-500/20 text-center align-middle"
+                                      >
+                                        {hasContent ? (
+                                          <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-center min-h-[48px] ${
+                                            isDark
+                                              ? "bg-[#141e3d] border-blue-400/40 text-white shadow-md shadow-black/30"
+                                              : "bg-indigo-50/90 border-indigo-200 text-indigo-950 shadow-xs"
+                                          }`}>
+                                            <span className={`font-black text-[12px] leading-tight line-clamp-2 ${
+                                              isDark ? "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" : "text-slate-900"
+                                            }`}>
+                                              {cellInfo.title}
+                                            </span>
+                                            {cellInfo.subtitle && (
+                                              <span className={`text-[10px] mt-0.5 line-clamp-1 font-bold ${
+                                                isDark ? "text-sky-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" : "text-indigo-700"
+                                              }`}>
+                                                {cellInfo.subtitle}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className={`h-11 rounded-lg border border-dashed flex items-center justify-center text-xs font-semibold ${
+                                            isDark ? "border-slate-800 text-slate-500 bg-slate-950/20" : "border-slate-200 text-slate-400"
+                                          }`}>
+                                            -
+                                          </div>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredRows.length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-muted-foreground text-sm">No timetables to display.</p>
+                  </div>
                 )}
               </div>
             </DialogContent>

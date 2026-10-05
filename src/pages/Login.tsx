@@ -44,7 +44,11 @@ const Login = () => {
 
     try {
       // 1. Check for Super Admin (Hardcoded)
-      if (trimmedEmail === "admin" && trimmedPassword === "admin") {
+      const isSuperAdmin = 
+        (trimmedEmail === "super admin" || trimmedEmail === "superadmin") && 
+        (trimmedPassword.toLowerCase() === "super admin" || trimmedPassword.toLowerCase() === "superadmin");
+
+      if (isSuperAdmin) {
         localStorage.setItem("superAdmin", "true");
         toast.success("Super Admin login successful");
         navigate("/super-admin", { replace: true });
@@ -52,10 +56,11 @@ const Login = () => {
       }
 
       // 2. Check for Admin in database
+      const adminSearchEmail = trimmedEmail === "admin@gmail.com" ? "admin" : trimmedEmail;
       const { data: adminUsers, error: adminError } = await (supabase as any)
         .from('admin_users')
         .select('*, admin_departments(department_id)')
-        .or(`email.eq.${trimmedEmail},name.eq.${trimmedEmail}`)
+        .or(`email.eq.${trimmedEmail},name.eq.${trimmedEmail},email.eq.${adminSearchEmail},name.eq.${adminSearchEmail}`)
         .eq('is_active', true);
 
       if (adminError) {
@@ -232,9 +237,9 @@ const Login = () => {
                 <div 
                   className="flex flex-col items-center gap-2 group cursor-pointer transition-all duration-300 hover:scale-105"
                   onClick={() => {
-                    setEmail("admin");
-                    setPassword("admin");
-                    toast.info("Super Admin credentials filled: admin / admin");
+                    setEmail("super admin");
+                    setPassword("super admin");
+                    toast.info("Super Admin credentials filled: super admin / super admin");
                   }}
                 >
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-[#141c33] text-slate-500 dark:text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 shadow-sm border border-slate-100 dark:border-indigo-500/20">
@@ -244,7 +249,11 @@ const Login = () => {
                 </div>
                 <div 
                   className="flex flex-col items-center gap-2 group cursor-pointer transition-all duration-300 hover:scale-105"
-                  onClick={() => toast.info("Please enter your Admin credentials")}
+                  onClick={() => {
+                    setEmail("admin");
+                    setPassword("admin");
+                    toast.info("Admin credentials filled: admin / admin");
+                  }}
                 >
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-[#141c33] text-slate-500 dark:text-slate-400 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 shadow-sm border border-slate-100 dark:border-indigo-500/20">
                     <Building2 className="w-5 h-5" />
