@@ -58,6 +58,7 @@ import {
   TimetablePdfOptions,
   TimetableExportSubject
 } from "@/lib/timetablePdfExport";
+import { supabase } from "@/integrations/supabase/client";
 import {
   getDepartmentByName,
   getSubjectsForYear,
@@ -65,6 +66,9 @@ import {
   getSubjectFacultyMapAllSections,
   getSectionSubjects,
   saveTimetable,
+  getFacultyByDepartment,
+  upsertClassCounselor,
+  deactivateClassCounselor,
 } from "@/lib/supabaseService";
 import { generateAllYears, YearSectionResult, verifySubjectHours } from "@/lib/timetable";
 import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
@@ -907,10 +911,12 @@ function FullScreenAllocationTable({
   rows: initialRows,
   isDark = false,
   onRowsChange,
+  classCounselor,
 }: {
   rows: AllocationRow[];
   isDark?: boolean;
   onRowsChange?: (rows: AllocationRow[]) => void;
+  classCounselor?: string;
 }) {
   const [tableRows, setTableRows] = useState<AllocationRow[]>(() => sortAllocationRows(initialRows));
   const [viewType, setViewType] = useState<'table' | 'cards'>('table');
@@ -1492,6 +1498,13 @@ function FullScreenAllocationTable({
             }`}>
             {filteredItems.length} total subjects
           </span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border flex items-center gap-1 ${classCounselor
+              ? (isDark ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-300" : "bg-emerald-100/90 border-emerald-300 text-emerald-800")
+              : (isDark ? "bg-slate-800/60 border-slate-700 text-slate-400" : "bg-white/30 border-white/20 text-white/80")
+            }`}>
+            <span className="opacity-75">CC:</span>
+            <span className="font-bold">{classCounselor || "Not Allocated"}</span>
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -1772,6 +1785,8 @@ export default function GenerateReviewPage() {
   const [totalHoursBySection, setTotalHoursBySection] = useState<Record<string, Record<string, number>>>({});
   const [sectionSubjectsData, setSectionSubjectsData] = useState<Record<string, Record<string, Set<string>>>>({});
   const [customAllocations, setCustomAllocations] = useState<Record<string, AllocationRow[]>>({});
+  const [classCounselorsMap, setClassCounselorsMap] = useState<Record<string, string>>({});
+  const [departmentFaculty, setDepartmentFaculty] = useState<Record<string, { id: string; name: string }[]>>({});
 
   // Generation progress state
   type ProgressStatus = 'idle' | 'running' | 'ok' | 'error';
@@ -1921,7 +1936,8 @@ export default function GenerateReviewPage() {
       { departmentName: activeDept, year: activeTab, section: activeSection },
       generatedResults,
       subjectsData,
-      specialHoursData
+      specialHoursData,
+      classCounselorsMap
     );
 
     if (checkResult.hasConflict) {
@@ -2038,18 +2054,22 @@ export default function GenerateReviewPage() {
     });
 
     // Add active special hours (e.g. Library, Seminar, Counselling)
+    const currentSecKey = `${activeDept}_${activeTab}_${activeSection}`;
+    const assignedCC = classCounselorsMap[currentSecKey] || '';
+
     specialList
       .filter((sp: any) => sp.is_active && (sp.total_hours || 0) > 0)
       .forEach((sp: any) => {
         const cTitle = cleanCourseTitle(sp.special_type);
+        const isCounsel = /counsel|student counselling|counselling|mentor/i.test(cTitle);
         const exists = rows.some((r) => cleanCourseTitle(r.title).toLowerCase() === cTitle.toLowerCase());
         if (!exists) {
           rows.push({
-            code: '—',
+            code: isCounsel ? 'SC' : '—',
             title: cTitle,
             category: 'Special',
             hours: sp.total_hours,
-            faculty: sp.faculty_name || extractFacultyFromTitle(sp.special_type) || '—',
+            faculty: (isCounsel && assignedCC) ? assignedCC : (sp.faculty_name || extractFacultyFromTitle(sp.special_type) || '—'),
           });
         }
       });
@@ -2167,11 +2187,14 @@ export default function GenerateReviewPage() {
       if (extractedFac && (!r.faculty || r.faculty === '—')) {
         r.faculty = extractedFac;
       }
+      if (/counsel|student counselling|counselling|mentor/i.test(r.title) && assignedCC && (!r.faculty || r.faculty === '—')) {
+        r.faculty = assignedCC;
+      }
       r.title = cleanCourseTitle(r.title);
     });
 
     return sortAllocationRows(dedupedRows);
-  }, [subjectsData, specialHoursData, sectionSubjectsData, activeDept, activeTab, activeSection, generatedResults]);
+  }, [subjectsData, specialHoursData, sectionSubjectsData, activeDept, activeTab, activeSection, generatedResults, classCounselorsMap]);
 
   const getFacultyNamesForCell = (cell: string) => {
     if (!cell) return [];
@@ -2190,6 +2213,11 @@ export default function GenerateReviewPage() {
       return [matchedRow.faculty];
     }
 
+    if (/counsel|student counselling|counselling|mentor/i.test(rawClean)) {
+      const cc = classCounselorsMap[secKey];
+      if (cc) return [cc];
+    }
+
     // 2. Extract inline if present, e.g. "Seminar (Mr. D. Jayaprakash)"
     const inlineMatch = cell.match(/\(([^)]+)\)/);
     if (inlineMatch && inlineMatch[1]) {
@@ -2203,7 +2231,8 @@ export default function GenerateReviewPage() {
       activeTab,
       activeSection,
       subjectsData,
-      specialHoursData
+      specialHoursData,
+      classCounselorsMap
     );
   };
 
@@ -2277,6 +2306,25 @@ export default function GenerateReviewPage() {
           setViewTab('timetable');
           setIsFullScreen(true);
           setFullScreenPage('timetable');
+
+          // Fetch class counselor for this published class from DB
+          try {
+            const { data: rpcData } = await supabase.rpc('get_class_counselor_info', {
+              dept_id: deptId,
+              year_param: stateData.year!,
+              section_param: stateData.section!
+            });
+            const ccKey = `${deptName}_${stateData.year}_${stateData.section}`;
+            if (rpcData && rpcData.length > 0 && rpcData[0].faculty_name) {
+              setClassCounselorsMap((prev) => ({ ...prev, [ccKey]: rpcData[0].faculty_name }));
+              setPdfCounselor(rpcData[0].faculty_name);
+            } else {
+              setClassCounselorsMap((prev) => ({ ...prev, [ccKey]: '' }));
+              setPdfCounselor('');
+            }
+          } catch (e) {
+            console.warn("Could not fetch published class counselor:", e);
+          }
 
           const snapKey = `ttg_snap_${deptId}_${stateData.year}_${stateData.section}`;
           if (!localStorage.getItem(snapKey)) {
@@ -2380,6 +2428,8 @@ export default function GenerateReviewPage() {
       const specialHoursMap: Record<string, any[]> = {};
       const secHoursMap: Record<string, Record<string, number>> = {};
       const secSubjectsMap: Record<string, Record<string, Set<string>>> = {};
+      const counselorsMap: Record<string, string> = {};
+      const deptFacultyMap: Record<string, { id: string; name: string }[]> = {};
 
       for (const deptSel of selections) {
         const dept = await getDepartmentByName(deptSel.departmentName);
@@ -2389,9 +2439,52 @@ export default function GenerateReviewPage() {
         }
         deptIdsMap[deptSel.departmentName] = dept.id;
 
+        // Fetch department faculty list
+        const facList = await getFacultyByDepartment(dept.id).catch(() => []);
+        deptFacultyMap[deptSel.departmentName] = facList.map(f => ({ id: f.id, name: f.name }));
+
+        // Fetch active class counselors from database for this department
+        try {
+          const { data: ccData, error: ccErr } = await (supabase as any)
+            .from('class_counselors')
+            .select('year, section, faculty_id')
+            .eq('department_id', dept.id)
+            .eq('is_active', true);
+
+          if (!ccErr && ccData && Array.isArray(ccData)) {
+            ccData.forEach((cc: any) => {
+              const fac = facList.find(f => f.id === cc.faculty_id);
+              if (fac) {
+                counselorsMap[`${deptSel.departmentName}_${cc.year}_${cc.section}`] = fac.name;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn("Could not query class_counselors:", e);
+        }
+
         await Promise.all(
           deptSel.selectedYears.map(async ({ year, sections }) => {
             const key = `${deptSel.departmentName}_${year}`;
+
+            // Check if any section lacks counselor in counselorsMap, try RPC fallback
+            await Promise.all(
+              sections.map(async (sec) => {
+                const secKey = `${deptSel.departmentName}_${year}_${sec}`;
+                if (!counselorsMap[secKey]) {
+                  try {
+                    const { data: rpcData } = await supabase.rpc('get_class_counselor_info', {
+                      dept_id: dept.id,
+                      year_param: year,
+                      section_param: sec
+                    });
+                    if (rpcData && rpcData.length > 0 && rpcData[0].faculty_name) {
+                      counselorsMap[secKey] = rpcData[0].faculty_name;
+                    }
+                  } catch (_) {}
+                }
+              })
+            );
 
             let subjects = await getSubjectsForYear(dept.id, year, semesterType).catch(() => []);
             let specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
@@ -2475,11 +2568,96 @@ export default function GenerateReviewPage() {
       setSpecialHoursData(specialHoursMap);
       setTotalHoursBySection(secHoursMap);
       setSectionSubjectsData(secSubjectsMap);
+      setClassCounselorsMap(counselorsMap);
+      setDepartmentFaculty(deptFacultyMap);
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to load review data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Keep active counselor state in sync with current class
+  useEffect(() => {
+    const secKey = `${activeDept}_${activeTab}_${activeSection}`;
+    if (classCounselorsMap[secKey] !== undefined) {
+      setPdfCounselor(classCounselorsMap[secKey]);
+    } else {
+      const deptId = deptIds[activeDept] || stateData?.departmentId;
+      if (deptId && activeTab && activeSection) {
+        supabase.rpc('get_class_counselor_info', {
+          dept_id: deptId,
+          year_param: activeTab,
+          section_param: activeSection
+        }).then(({ data, error }) => {
+          if (!error && data && data.length > 0 && data[0].faculty_name) {
+            setClassCounselorsMap((prev) => ({ ...prev, [secKey]: data[0].faculty_name }));
+            setPdfCounselor(data[0].faculty_name);
+          } else {
+            setClassCounselorsMap((prev) => ({ ...prev, [secKey]: '' }));
+            setPdfCounselor('');
+          }
+        }).catch(() => {
+          setClassCounselorsMap((prev) => ({ ...prev, [secKey]: '' }));
+          setPdfCounselor('');
+        });
+      } else {
+        setPdfCounselor('');
+      }
+    }
+  }, [activeDept, activeTab, activeSection, classCounselorsMap, deptIds, stateData?.departmentId]);
+
+  const handleCounselorChange = (val: string) => {
+    setPdfCounselor(val);
+    const secKey = `${activeDept}_${activeTab}_${activeSection}`;
+
+    // 1. Update per-class map
+    setClassCounselorsMap((prev) => ({ ...prev, [secKey]: val }));
+
+    // 2. Also assign for special hours (Counselling / Student Counselling / Special)
+    const curRows = customAllocations[secKey] || allocationRows;
+    const hasCounsel = curRows.some((r) => /counsel|counselor|counselling/i.test(r.title));
+
+    let updatedRows: AllocationRow[];
+    if (hasCounsel) {
+      updatedRows = curRows.map((r) => {
+        if (/counsel|counselor|counselling/i.test(r.title) || (r.category === 'Special' && /counsel/i.test(r.title))) {
+          return { ...r, faculty: val.trim() || '—' };
+        }
+        return r;
+      });
+    } else {
+      updatedRows = [
+        ...curRows,
+        {
+          code: 'SC',
+          title: 'Counselling',
+          category: 'Special',
+          hours: 2,
+          faculty: val.trim() || '—',
+        },
+      ];
+    }
+    setCustomAllocations((prev) => ({ ...prev, [secKey]: updatedRows }));
+    setHasUserEdits(true);
+
+    // 3. Persist to class_counselors table in Supabase if faculty matches, or deactivate if cleared
+    const deptId = deptIds[activeDept] || stateData?.departmentId;
+    if (deptId) {
+      const trimmed = val.trim();
+      const facList = departmentFaculty[activeDept] || [];
+      const match = facList.find((f) => f.name.toLowerCase() === trimmed.toLowerCase());
+      if (match) {
+        upsertClassCounselor({
+          departmentId: deptId,
+          facultyId: match.id,
+          year: activeTab,
+          section: activeSection,
+        }).catch((err) => console.warn("Failed to persist class counselor:", err));
+      } else if (!trimmed) {
+        deactivateClassCounselor(deptId, activeTab, activeSection).catch(() => {});
+      }
     }
   };
 
@@ -2691,13 +2869,12 @@ export default function GenerateReviewPage() {
 
     setWefDate(savedWef || '29.06.2026');
 
-    // Pre-populate counselor if available
+    // Pre-populate counselor for active section: from classCounselorsMap or curRows
     const secKey = `${activeDept}_${activeTab}_${activeSection}`;
     const curRows = customAllocations[secKey] || allocationRows;
     const counselRow = curRows.find(r => /counsel|counselor|counselling/i.test(r.title));
-    if (counselRow && counselRow.faculty && counselRow.faculty !== '—') {
-      setPdfCounselor(counselRow.faculty);
-    }
+    const activeCounselor = classCounselorsMap[secKey] || (counselRow && counselRow.faculty && counselRow.faculty !== '—' ? counselRow.faculty : '');
+    setPdfCounselor(activeCounselor || '');
 
     setPdfModalOpen(true);
   };
@@ -2724,7 +2901,7 @@ export default function GenerateReviewPage() {
       wefDate,
       revision,
       timetableIncharge: pdfIncharge,
-      counselorName: pdfCounselor,
+      counselorName: pdfScope === 'current' ? pdfCounselor : undefined,
       hodName: pdfHod,
       principalName: pdfPrincipal,
       semesterType,
@@ -2775,6 +2952,20 @@ export default function GenerateReviewPage() {
         const secKey = `${r.departmentName}_${r.year}_${r.section}`;
         const secAllocRows = customAllocations[secKey];
 
+        // Specific counselor for this class
+        let classCounselor = '';
+        if (scope === 'current') {
+          classCounselor = pdfCounselor;
+        } else {
+          classCounselor = classCounselorsMap[secKey] || '';
+          if (!classCounselor && secAllocRows) {
+            const cr = secAllocRows.find(row => /counsel|counselor|counselling/i.test(row.title));
+            if (cr && cr.faculty && cr.faculty !== '—') {
+              classCounselor = cr.faculty;
+            }
+          }
+        }
+
         let exportSubjects: TimetableExportSubject[] = [];
         let exportSpecialHours: any[] = [];
 
@@ -2792,13 +2983,17 @@ export default function GenerateReviewPage() {
 
           exportSpecialHours = secAllocRows
             .filter(row => ['special', 'seminar', 'library', 'counsel', 'counselling'].some(k => row.category.toLowerCase().includes(k) || row.title.toLowerCase().includes(k)) || ['SC', 'SEM', 'LIB'].includes((row.code || '').trim().toUpperCase()))
-            .map(row => ({
-              name: row.title,
-              title: row.title,
-              type: 'special',
-              hours: row.hours,
-              staff: row.faculty && row.faculty !== '—' ? row.faculty : ''
-            }));
+            .map(row => {
+              const isCounsel = /counsel|student counselling|counselling|mentor/i.test(row.title);
+              const staff = (row.faculty && row.faculty !== '—') ? row.faculty : (isCounsel ? classCounselor : '');
+              return {
+                name: row.title,
+                title: row.title,
+                type: 'special',
+                hours: row.hours,
+                staff: staff,
+              };
+            });
         } else {
           const allYearSubjects = subjectsData[key] || [];
           const sectionSpecificIds = sectionSubjectsData[key]?.[r.section];
@@ -2827,23 +3022,31 @@ export default function GenerateReviewPage() {
 
           const specialFromSubjects = filteredSubjects
             .filter((s) => isSpecial(s.name, s.type, s.code))
-            .map((s) => ({
-              name: s.name,
-              title: s.name,
+            .map((s) => {
+              const isCounsel = /counsel|student counselling|counselling|mentor/i.test(s.name);
+              return {
+                name: s.name,
+                title: s.name,
+                type: 'special',
+                hours: s.hoursPerWeek || 2,
+                staff: s.facultyBySection[r.section] || (isCounsel ? classCounselor : '')
+              };
+            });
+
+          const specialHoursFromConfig = (specialHoursData[key] || []).map((h) => {
+            const isCounsel = /counsel|student counselling|counselling|mentor/i.test(h.name || h.special_type);
+            return {
+              name: h.name || h.special_type,
+              title: h.name || h.special_type,
               type: 'special',
-              hours: s.hoursPerWeek || 2,
-              staff: s.facultyBySection[r.section] || ''
-            }));
+              hours: h.total_hours || 2,
+              staff: h.faculty_name || (isCounsel ? classCounselor : '')
+            };
+          });
 
           exportSpecialHours = [
             ...specialFromSubjects,
-            ...(specialHoursData[key] || []).map((h) => ({
-              name: h.name,
-              title: h.name,
-              type: 'special',
-              hours: h.total_hours || 2,
-              staff: ''
-            }))
+            ...specialHoursFromConfig
           ];
         }
 
@@ -2855,6 +3058,7 @@ export default function GenerateReviewPage() {
           departmentId: deptIds[r.departmentName] || stateData?.departmentId,
           subjects: exportSubjects,
           specialHours: exportSpecialHours,
+          counselorName: classCounselor,
           wefDate: options?.wefDate,
           revision: options?.revision,
           timetableIncharge: options?.timetableIncharge,
@@ -3369,11 +3573,17 @@ export default function GenerateReviewPage() {
               <div className="flex-1 min-h-0 w-full overflow-hidden">
                 <FullScreenAllocationTable
                   rows={customAllocations[`${activeDept}_${activeTab}_${activeSection}`] || allocationRows}
+                  classCounselor={classCounselorsMap[`${activeDept}_${activeTab}_${activeSection}`] || ''}
                   isDark={isDark}
                   onRowsChange={(updated) => {
                     const secKey = `${activeDept}_${activeTab}_${activeSection}`;
                     setCustomAllocations((prev) => ({ ...prev, [secKey]: updated }));
                     setHasUserEdits(true);
+                    const counselRow = updated.find(r => /counsel|counselor|counselling/i.test(r.title));
+                    if (counselRow && counselRow.faculty && counselRow.faculty !== '—') {
+                      setClassCounselorsMap((prev) => ({ ...prev, [secKey]: counselRow.faculty }));
+                      setPdfCounselor(counselRow.faculty);
+                    }
                   }}
                 />
               </div>
@@ -3584,17 +3794,23 @@ export default function GenerateReviewPage() {
                   </div>
                   <div className="space-y-1">
                     <label className={`text-[11px] font-bold block ${isDark ? "text-slate-200" : "text-slate-700"}`}>
-                      Class Counselor
+                      Class Counselor {pdfScope === 'current' ? `(${activeTab} - ${activeSection})` : ''}
                     </label>
                     <Input
                       value={pdfCounselor}
-                      onChange={(e) => setPdfCounselor(e.target.value)}
+                      onChange={(e) => handleCounselorChange(e.target.value)}
                       placeholder="e.g. Mr. M. Murali"
+                      list="class-counselor-options"
                       className={`h-9 text-xs rounded-xl font-semibold ${isDark
                           ? "bg-slate-900/90 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-400"
                           : "bg-white border-slate-300 text-slate-900"
                         }`}
                     />
+                    <datalist id="class-counselor-options">
+                      {(departmentFaculty[activeDept] || []).map((f) => (
+                        <option key={f.id} value={f.name} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="space-y-1">
                     <label className={`text-[11px] font-bold block ${isDark ? "text-slate-200" : "text-slate-700"}`}>

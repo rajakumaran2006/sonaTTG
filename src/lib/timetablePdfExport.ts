@@ -99,18 +99,48 @@ export function getDeptShortName(deptName: string): string {
   return deptName.split(' ').map(w => w[0]).join('').toUpperCase() || 'DEPT';
 }
 
+/** Expands short/abbreviated department names to full official names */
+export function getFullDepartmentName(deptName: string): string {
+  const n = (deptName || '').toLowerCase().trim();
+  // Already long enough — return as-is in uppercase
+  if (n.length > 20) return (deptName || '').toUpperCase().trim();
+  // Short-name expansions
+  if (n === 'it' || n === 'information technology') return 'INFORMATION TECNOLOGY';
+  if (n === 'aids' || n === 'ai&ds' || n === 'ad' || n === 'ai & ds') return 'ARTIFICIAL INTELLIGENCE AND DATA SCIENCE';
+  if (n === 'cse' || n === 'cs') return 'COMPUTER SCIENCE AND ENGINEERING';
+  if (n === 'ece') return 'ELECTRONICS AND COMMUNICATION ENGINEERING';
+  if (n === 'eee') return 'ELECTRICAL AND ELECTRONICS ENGINEERING';
+  if (n === 'mech' || n === 'me') return 'MECHANICAL ENGINEERING';
+  if (n === 'civil' || n === 'ce') return 'CIVIL ENGINEERING';
+  if (n === 'ft') return 'FASHION TECHNOLOGY';
+  if (n === 'mct') return 'MECHATRONICS ENGINEERING';
+  if (n.includes('artificial intelligence') || n.includes('ai')) return 'ARTIFICIAL INTELLIGENCE AND DATA SCIENCE';
+  if (n.includes('information tech')) return 'INFORMATION TECNOLOGY';
+  if (n.includes('computer science')) return 'COMPUTER SCIENCE AND ENGINEERING';
+  if (n.includes('electronics and comm')) return 'ELECTRONICS AND COMMUNICATION ENGINEERING';
+  if (n.includes('electrical')) return 'ELECTRICAL AND ELECTRONICS ENGINEERING';
+  if (n.includes('mechanical')) return 'MECHANICAL ENGINEERING';
+  if (n.includes('fashion')) return 'FASHION TECHNOLOGY';
+  if (n.includes('mechatronics')) return 'MECHATRONICS ENGINEERING';
+  if (n.includes('civil')) return 'CIVIL ENGINEERING';
+  return (deptName || '').toUpperCase().trim();
+}
+
 export function getDegreeTitle(deptName: string): string {
+  const fullName = getFullDepartmentName(deptName);
   const n = (deptName || '').toUpperCase().trim();
+  // If already prefixed with B.TECH / B TECH / B.E, return as-is
   if (n.startsWith('B TECH') || n.startsWith('B.TECH') || n.startsWith('B E') || n.startsWith('B.E')) {
     return n;
   }
-  if (n.includes('ARTIFICIAL INTELLIGENCE')) {
+  // Use full expanded name
+  if (fullName.includes('ARTIFICIAL INTELLIGENCE')) {
     return 'B TECH ARTIFICIAL INTELLIGENCE AND DATA SCIENCE';
   }
-  if (n.includes('INFORMATION')) {
+  if (fullName.includes('INFORMATION')) {
     return 'B TECH INFORMATION TECHNOLOGY';
   }
-  return `B TECH ${n}`;
+  return `B TECH ${fullName}`;
 }
 
 export function resolveSubjectAbbreviation(
@@ -166,8 +196,8 @@ export function resolveSubjectAbbreviation(
     'object oriented programming in c++': 'C++',
     'programming in c++ laboratory': 'C++ LAB',
     'communication skills laboratory': 'CS LAB',
-    'applied probability and statistics': 'AP&S I',
-    'applied probability and statistics -i': 'AP&S I',
+    'applied probability and statistics': 'APAS I',
+    'applied probability and statistics -i': 'APAS I',
     'data structures': 'DS',
     'data structures laboratory': 'DS LAB',
     'soft skills and aptitude - i': 'SSA I(AP)',
@@ -212,36 +242,212 @@ export function resolveSubjectAbbreviation(
   return cleaned.substring(0, 6).toUpperCase();
 }
 
+let activeVfs: Record<string, string> = {};
+let activeFonts: any = {
+  Roboto: {
+    normal: 'Roboto-Regular.ttf',
+    bold: 'Roboto-Medium.ttf',
+    italics: 'Roboto-Italic.ttf',
+    bolditalics: 'Roboto-MediumItalic.ttf'
+  }
+};
+let timesFontsLoaded = false;
+let timesFontsLoadingPromise: Promise<boolean> | null = null;
+
+function extractRawVfs(vfsFontsModule: any): Record<string, string> {
+  if (vfsFontsModule?.pdfMake?.vfs) return vfsFontsModule.pdfMake.vfs;
+  if (vfsFontsModule?.default?.pdfMake?.vfs) return vfsFontsModule.default.pdfMake.vfs;
+  if (vfsFontsModule?.default && typeof vfsFontsModule.default === 'object' && !Array.isArray(vfsFontsModule.default)) {
+    return vfsFontsModule.default;
+  }
+  if (typeof vfsFontsModule === 'object' && vfsFontsModule !== null) {
+    return vfsFontsModule;
+  }
+  return {};
+}
+
+async function fetchFontWithFallback(fileName: string): Promise<string> {
+  const baseUrl = (typeof window !== 'undefined' && (window as any).__BASE_PATH__)
+    || (import.meta as any).env?.BASE_URL
+    || '/';
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+
+  const urlsToTry = [
+    `${cleanBase}fonts/${fileName}`,
+    `/fonts/${fileName}`,
+    `./fonts/${fileName}`
+  ];
+
+  let lastError: any = null;
+  for (const url of urlsToTry) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const buffer = await res.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const len = bytes.byteLength;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+          binary += String.fromCharCode.apply(null, chunk as any);
+        }
+        return btoa(binary);
+      }
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  throw lastError || new Error(`Could not fetch font ${fileName}`);
+}
+
+async function loadTimesFonts(pdfMake: any): Promise<boolean> {
+  if (timesFontsLoaded) return true;
+  if (timesFontsLoadingPromise) return timesFontsLoadingPromise;
+
+  timesFontsLoadingPromise = (async () => {
+    try {
+      if (typeof window === 'undefined' || typeof fetch === 'undefined') {
+        return false;
+      }
+
+      const [timesNormalB64, timesBoldB64] = await Promise.all([
+        fetchFontWithFallback('times.ttf'),
+        fetchFontWithFallback('timesbd.ttf')
+      ]);
+
+      activeVfs['times.ttf'] = timesNormalB64;
+      activeVfs['timesbd.ttf'] = timesBoldB64;
+
+      activeFonts.Times = {
+        normal: 'times.ttf',
+        bold: 'timesbd.ttf',
+        italics: 'times.ttf',
+        bolditalics: 'timesbd.ttf'
+      };
+
+      pdfMake.vfs = activeVfs;
+      if (typeof pdfMake.addVirtualFileSystem === 'function') {
+        pdfMake.addVirtualFileSystem(activeVfs);
+      }
+
+      pdfMake.fonts = activeFonts;
+      if (typeof pdfMake.setFonts === 'function') {
+        pdfMake.setFonts(activeFonts);
+      }
+      if (typeof pdfMake.addFonts === 'function') {
+        pdfMake.addFonts({ Times: activeFonts.Times });
+      }
+
+      if (typeof window !== 'undefined') {
+        (window as any).pdfMake = (window as any).pdfMake || pdfMake;
+        (window as any).pdfMake.vfs = activeVfs;
+        (window as any).pdfMake.fonts = activeFonts;
+      }
+
+      timesFontsLoaded = true;
+      return true;
+    } catch (err) {
+      console.warn('Could not load custom Times New Roman fonts, falling back to default Roboto:', err);
+      timesFontsLoaded = false;
+      return false;
+    }
+  })();
+
+  return timesFontsLoadingPromise;
+}
+
 async function loadPdfMake() {
   const pdfMakeModule = await import('pdfmake/build/pdfmake');
   const pdfMake: any = pdfMakeModule.default || pdfMakeModule;
-  const vfsFonts: any = await import('pdfmake/build/vfs_fonts');
+  const vfsFontsModule: any = await import('pdfmake/build/vfs_fonts');
 
+  const baseVfs = extractRawVfs(vfsFontsModule);
+  activeVfs = { ...baseVfs, ...activeVfs };
+
+  pdfMake.vfs = activeVfs;
   if (typeof pdfMake.addVirtualFileSystem === 'function') {
-    pdfMake.addVirtualFileSystem(vfsFonts);
-  } else if (vfsFonts?.pdfMake?.vfs) {
-    pdfMake.vfs = vfsFonts.pdfMake.vfs;
-  } else if ((vfsFonts as any).default?.pdfMake?.vfs) {
-    pdfMake.vfs = (vfsFonts as any).default.pdfMake.vfs;
-  } else {
-    pdfMake.vfs = vfsFonts.default || vfsFonts;
+    pdfMake.addVirtualFileSystem(activeVfs);
   }
 
-  return { pdfMake, pdfMakeModule };
+  pdfMake.fonts = activeFonts;
+  if (typeof pdfMake.setFonts === 'function') {
+    pdfMake.setFonts(activeFonts);
+  }
+
+  if (typeof window !== 'undefined') {
+    (window as any).pdfMake = pdfMake;
+    (window as any).pdfMake.vfs = activeVfs;
+    (window as any).pdfMake.fonts = activeFonts;
+  }
+
+  await loadTimesFonts(pdfMake);
+
+  return { pdfMake, pdfMakeModule, fonts: activeFonts, vfs: activeVfs };
 }
 
-function triggerDownload(pdfMake: any, pdfMakeModule: any, docDefinition: any, fileName: string) {
-  if (typeof pdfMake.createPdf === 'function') {
-    pdfMake.createPdf(docDefinition).download(fileName);
-  } else {
-    const createPdfFn = (pdfMakeModule as any).createPdf || (pdfMakeModule as any).default?.createPdf;
-    if (createPdfFn) {
-      createPdfFn(docDefinition).download(fileName);
-    } else {
-      throw new Error('pdfMake.createPdf is not available');
+async function triggerDownload(
+  pdfDoc: any,
+  fileName: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      if (typeof window === 'undefined') {
+        resolve();
+        return;
+      }
+      let completed = false;
+      const done = () => {
+        if (!completed) {
+          completed = true;
+          resolve();
+        }
+      };
+
+      // 1. Try standard getBlob + anchor download
+      pdfDoc.getBlob((blob: Blob) => {
+        try {
+          if (!blob) {
+            throw new Error('Failed to generate PDF blob');
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            try {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            } catch (e) {}
+            done();
+          }, 800);
+        } catch (downloadErr) {
+          console.warn('Anchor download failed, using pdfDoc.download fallback:', downloadErr);
+          try {
+            pdfDoc.download(fileName, done);
+          } catch (e) {
+            reject(downloadErr || e);
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('pdfDoc.getBlob failed, attempting pdfDoc.download:', err);
+      try {
+        pdfDoc.download(fileName, () => resolve());
+      } catch (e) {
+        reject(err);
+      }
     }
-  }
+  });
 }
+
 
 /**
  * Builds the formal college timetable PDF content matching the Sona College official template
@@ -251,55 +457,59 @@ function buildCollegeClassPdfContent(
   options?: TimetablePdfOptions
 ): any[] {
   const subjects = item.subjects || [];
-  const counselorName = options?.counselorName || item.counselorName || 'Class Counselor';
+  const counselorName = (item.counselorName !== undefined && item.counselorName !== null)
+    ? item.counselorName
+    : (options?.counselorName || '');
   const timetableIncharge = options?.timetableIncharge || item.timetableIncharge || 'Mr. P.Dineshkumar';
   const hodName = options?.hodName || item.hodName || 'Dr.J.Akilandeswari';
   const principalName = options?.principalName || item.principalName || 'Dr.S.R.R.Senthil Kumar';
-  const wefDate = options?.wefDate || item.wefDate || '29.06.2026';
+  const wefDate = options?.wefDate || item.wefDate || 'DD.MM.YYYY';
   const revision = options?.revision || item.revision || '00';
   const semesterType = options?.semesterType || item.semesterType || 'odd';
   const academicYear = options?.academicYear || item.academicYear || '2026 - 2027';
 
   const deptShort = getDeptShortName(item.departmentName);
+  const fullDeptName = getFullDepartmentName(item.departmentName);
   const romanSem = getSemesterRoman(item.year, semesterType);
   const degreeTitle = getDegreeTitle(item.departmentName);
 
-  // ── 1. Document Header Block ──────────────────────────────────────────
+  // ── 1. Document Header Block (Matching Template Hierarchy) ───────────
   const headerBlock: any[] = [
     {
       text: 'SONA COLLEGE OF TECHNOLOGY (Autonomous), SALEM-5',
       bold: true,
-      fontSize: 11,
+      fontSize: 12,
       alignment: 'center',
-      margin: [0, 0, 0, 1.5]
+      margin: [0, 0, 0, 1]
     },
     {
-      text: `DEPARTMENT OF ${(item.departmentName || 'INFORMATION TECHNOLOGY').toUpperCase()}`,
+      text: `DEPARTMENT OF ${fullDeptName}`,
       bold: true,
       fontSize: 10.5,
       alignment: 'center',
-      margin: [0, 0, 0, 1.5]
+      margin: [0, 0, 0, 0]
     },
     {
       text: degreeTitle,
       bold: true,
       fontSize: 10,
       alignment: 'center',
-      margin: [0, 0, 0, 1.5]
+      margin: [0, 0, 0, 0]
     },
     {
       text: `TIME TABLE FOR ${semesterType.toUpperCase()} SEM (${academicYear})`,
       bold: true,
       fontSize: 10,
       alignment: 'center',
-      margin: [0, 0, 0, 1.5]
+      margin: [0, 0, 0, 0]
     },
     {
       text: `${romanSem} SEM - ${(item.section || 'A').toUpperCase()} SEC`,
       bold: true,
       fontSize: 10,
+      decoration: 'underline',
       alignment: 'center',
-      margin: [0, 0, 0, 5]
+      margin: [0, 0, 0, 2]
     },
   ];
 
@@ -309,40 +519,40 @@ function buildCollegeClassPdfContent(
       widths: ['*', '*'],
       body: [
         [
-          { text: `Revision: ${revision}`, bold: true, fontSize: 9, alignment: 'left' },
-          { text: `W.e.f.: ${wefDate}`, bold: true, fontSize: 9, alignment: 'right' }
+          { text: `Revision: ${revision}`, bold: true, fontSize: 9.5, alignment: 'left' },
+          { text: `W.e.f.:${wefDate}`, bold: true, fontSize: 9.5, alignment: 'right' }
         ]
       ]
     },
     layout: 'noBorders',
-    margin: [0, 0, 0, 4]
+    margin: [0, 0, 0, 2]
   };
 
   // ── 3. Timetable Grid Table (9 Columns: Day, P1-P4, LUNCH, P5-P7) ───────
   const gridRows: any[] = [
-    // Header Row 1
+    // Header Row 1: Time, 1..4, Lunch (top: 12.55), 5..7
     [
-      { text: 'Time', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '1', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '2', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '3', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '4', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '12.55 to\n1.55', bold: true, alignment: 'center', fontSize: 7.5, rowSpan: 2 },
-      { text: '5', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '6', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '7', bold: true, alignment: 'center', fontSize: 8.5 }
+      { text: 'Time', bold: true, alignment: 'center', fontSize: 9 },
+      { text: '1', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '2', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '3', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '4', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '12.55', bold: true, alignment: 'center', fontSize: 8.5, border: [true, true, true, false] },
+      { text: '5', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '6', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] },
+      { text: '7', bold: true, alignment: 'center', fontSize: 9, border: [true, true, true, false] }
     ],
-    // Header Row 2
+    // Header Row 2: Day, time ranges, Lunch (bottom: to 1.55)
     [
-      { text: 'Day', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: '9:00 to 9:55', fontSize: 7.5, alignment: 'center' },
-      { text: '9.55 to 10:50', fontSize: 7.5, alignment: 'center' },
-      { text: '11:05 to 12:00', fontSize: 7.5, alignment: 'center' },
-      { text: '12:00 to 12.55', fontSize: 7.5, alignment: 'center' },
-      {}, // empty for rowSpan
-      { text: '1.55 to 2:50', fontSize: 7.5, alignment: 'center' },
-      { text: '2.50 to 03:45', fontSize: 7.5, alignment: 'center' },
-      { text: '3.55 to 4:50', fontSize: 7.5, alignment: 'center' }
+      { text: 'Day', bold: true, alignment: 'center', fontSize: 9 },
+      { text: '9:00 to 9:55', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '9.55 to 10:50', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '11:05 to 12:00', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '12:00 to 12.55', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: 'to 1.55', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '1.55 to 2:50', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '2.50 to 03:45', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] },
+      { text: '3.55 to 4:50', bold: true, fontSize: 8, alignment: 'center', border: [true, false, true, true] }
     ]
   ];
 
@@ -376,8 +586,8 @@ function buildCollegeClassPdfContent(
           cells.push({
             text: current,
             colSpan: span,
-            bold: true,
-            fontSize: 8.5,
+            bold: false,
+            fontSize: 9,
             alignment: 'center'
           });
           for (let s = 1; s < span; s++) {
@@ -387,8 +597,8 @@ function buildCollegeClassPdfContent(
         } else {
           cells.push({
             text: current || '',
-            bold: true,
-            fontSize: 8.5,
+            bold: false,
+            fontSize: 9,
             alignment: 'center'
           });
           i++;
@@ -401,10 +611,12 @@ function buildCollegeClassPdfContent(
     const afternoonCells = buildMergedCells(4, 6); // periods 4..6 (P5..P7)
 
     const rowCells: any[] = [
-      { text: dayLabel, bold: true, fontSize: 8.5, alignment: 'center' },
+      { text: dayLabel, bold: true, fontSize: 9.5, alignment: 'center' },
       ...morningCells,
       dayIdx === 0
-        ? { text: 'L\n\nU\n\nN\n\nC\n\nH', rowSpan: 6, bold: true, alignment: 'center', fontSize: 8, margin: [0, 4, 0, 0] }
+        ? {}
+        : dayIdx === 1
+        ? { text: 'L\n\nU\n\nN\n\nC\n\nH', rowSpan: 5, bold: true, alignment: 'center', fontSize: 8.5 }
         : {},
       ...afternoonCells
     ];
@@ -415,7 +627,7 @@ function buildCollegeClassPdfContent(
   const timetableGridTable = {
     table: {
       headerRows: 2,
-      widths: [44, '*', '*', '*', '*', 22, '*', '*', '*'],
+      widths: [48, '*', '*', '*', '*', 50, '*', '*', '*'],
       body: gridRows
     },
     layout: {
@@ -428,18 +640,20 @@ function buildCollegeClassPdfContent(
       paddingTop: () => 3,
       paddingBottom: () => 3
     },
-    margin: [0, 0, 0, 8]
+    margin: [0, 0, 0, 4]
   };
 
   // ── 4. Subjects & Faculty Legend Table ─────────────────────────────────
+  const LG = 8.5; // Legend font size matching official template
+  
   const legendRows: any[] = [
-    // Header Row
+    // Header Row: Abbreviation column width 72 ensures single-line text without wrapping
     [
-      { text: 'SUB. CODE', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: 'Abbreviation', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: 'COURSE TITLE', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: 'NO. OF HRS', bold: true, alignment: 'center', fontSize: 8.5 },
-      { text: 'STAFF INCHARGE', bold: true, alignment: 'center', fontSize: 8.5 }
+      { text: 'SUB. CODE', bold: true, alignment: 'center', fontSize: LG },
+      { text: 'Abbreviation', bold: true, alignment: 'center', fontSize: LG },
+      { text: 'COURSE TITLE', bold: true, alignment: 'center', fontSize: LG },
+      { text: 'NO. OF HRS', bold: true, alignment: 'center', fontSize: LG },
+      { text: 'STAFF INCHARGE', bold: true, alignment: 'center', fontSize: LG }
     ]
   ];
 
@@ -464,7 +678,6 @@ function buildCollegeClassPdfContent(
 
   subjects.forEach(s => {
     if (isSpecialSubject(s)) {
-      // Exclude from theory and practical; will be rendered deduplicated under special hours
       return;
     }
     const t = (s.type || '').toLowerCase();
@@ -492,39 +705,27 @@ function buildCollegeClassPdfContent(
     return (a.name || '').localeCompare(b.name || '');
   });
 
-  // Build deduplicated Special Hours map (SC, SEM, LIB)
-  const specialMap: Record<string, { abbr: string; title: string; hours: string; staff: string }> = {
-    SC: { abbr: 'SC', title: 'Student Counseling', hours: '2', staff: counselorName },
-    SEM: { abbr: 'SEM', title: 'Seminar', hours: '2', staff: counselorName },
-    LIB: { abbr: 'LIB', title: 'Library', hours: '4', staff: counselorName }
+  // Build Special Hours data (SC, SEM, LIB) for combined row
+  const specialHoursData: Record<string, { hours: number; staff: string }> = {
+    SC: { hours: 2, staff: counselorName || '-' },
+    SEM: { hours: 2, staff: counselorName || '-' },
+    LIB: { hours: 4, staff: counselorName || '-' }
   };
 
   // Merge special hours from subjects if present
   subjects.forEach(s => {
     if (isSpecialSubject(s)) {
       const abbr = (s.abbreviation || resolveSubjectAbbreviation(s.name, subjects)).toUpperCase();
-      const staffVal = s.staff && s.staff !== '-' && s.staff !== '—' ? s.staff : counselorName;
+      const staffVal = s.staff && s.staff !== '-' && s.staff !== '—' ? s.staff : (counselorName || '-');
       if (abbr.includes('LIB') || s.name.toLowerCase().includes('library')) {
-        specialMap.LIB = {
-          abbr: 'LIB',
-          title: 'Library',
-          hours: s.hoursPerWeek ? String(s.hoursPerWeek) : (specialMap.LIB.hours || '4'),
-          staff: staffVal
-        };
+        specialHoursData.LIB.staff = staffVal;
+        if (s.hoursPerWeek) specialHoursData.LIB.hours = s.hoursPerWeek;
       } else if (abbr.includes('SEM') || s.name.toLowerCase().includes('seminar')) {
-        specialMap.SEM = {
-          abbr: 'SEM',
-          title: 'Seminar',
-          hours: s.hoursPerWeek ? String(s.hoursPerWeek) : (specialMap.SEM.hours || '2'),
-          staff: staffVal
-        };
+        specialHoursData.SEM.staff = staffVal;
+        if (s.hoursPerWeek) specialHoursData.SEM.hours = s.hoursPerWeek;
       } else if (abbr.includes('SC') || s.name.toLowerCase().includes('counsel')) {
-        specialMap.SC = {
-          abbr: 'SC',
-          title: 'Student Counseling',
-          hours: s.hoursPerWeek ? String(s.hoursPerWeek) : (specialMap.SC.hours || '2'),
-          staff: staffVal
-        };
+        specialHoursData.SC.staff = staffVal;
+        if (s.hoursPerWeek) specialHoursData.SC.hours = s.hoursPerWeek;
       }
     }
   });
@@ -533,43 +734,36 @@ function buildCollegeClassPdfContent(
   (item.specialHours || []).forEach(sp => {
     const rawTitle = sp.title || sp.name || '';
     const nameLower = rawTitle.toLowerCase();
-    const staffVal = sp.staff && sp.staff !== '-' && sp.staff !== '—' ? sp.staff : counselorName;
-    const hoursVal = sp.hours ? String(sp.hours) : undefined;
+    const staffVal = sp.staff && sp.staff !== '-' && sp.staff !== '—' ? sp.staff : (counselorName || '-');
 
     if (nameLower.includes('library') || rawTitle.toUpperCase().includes('LIB')) {
-      specialMap.LIB.staff = staffVal || specialMap.LIB.staff;
-      if (hoursVal) specialMap.LIB.hours = hoursVal;
+      specialHoursData.LIB.staff = staffVal || specialHoursData.LIB.staff;
+      if (sp.hours) specialHoursData.LIB.hours = sp.hours;
     } else if (nameLower.includes('seminar') || rawTitle.toUpperCase().includes('SEM')) {
-      specialMap.SEM.staff = staffVal || specialMap.SEM.staff;
-      if (hoursVal) specialMap.SEM.hours = hoursVal;
+      specialHoursData.SEM.staff = staffVal || specialHoursData.SEM.staff;
+      if (sp.hours) specialHoursData.SEM.hours = sp.hours;
     } else if (nameLower.includes('counsel') || rawTitle.toUpperCase().includes('SC')) {
-      specialMap.SC.staff = staffVal || specialMap.SC.staff;
-      if (hoursVal) specialMap.SC.hours = hoursVal;
+      specialHoursData.SC.staff = staffVal || specialHoursData.SC.staff;
+      if (sp.hours) specialHoursData.SC.hours = sp.hours;
     }
   });
 
-  const specialRowsToRender = [
-    specialMap.SC,
-    specialMap.SEM,
-    specialMap.LIB
-  ];
+  // Combined total hours for SC/SEM/LIB
+  const combinedSpecialHours = specialHoursData.SC.hours + specialHoursData.SEM.hours + specialHoursData.LIB.hours;
+  // Use the counselor name as staff for the combined row
+  const combinedSpecialStaff = counselorName || specialHoursData.SC.staff || '-';
 
   // ── Two-page balance calculation ───────────────────────────────────────
-  // Total subject rows without section headers
-  const totalSubjectRows = theorySubjects.length + openElectiveSubjects.length + specialRowsToRender.length + practicalSubjects.length;
-  const needsTwoPages = totalSubjectRows > 12;
+  const totalSubjectRows = theorySubjects.length + openElectiveSubjects.length + 1 + practicalSubjects.length;
+  const needsTwoPages = totalSubjectRows > 14;
 
-  // If two pages, determine where to split:
-  // We want Page 1 to have ~12-14 rows total (including THEORY header).
-  // E.g. 1 (THEORY) + theorySubjects (e.g. 5) + first 7 open electives = 13 rows on Page 1.
-  // Page 2 gets remaining 5 open electives + 3 special + 1 (PRACTICAL) + 3 labs = 12 rows!
   const splitOeIndex = openElectiveSubjects.length > 0
-    ? Math.min(openElectiveSubjects.length - 2, Math.max(4, 12 - theorySubjects.length))
+    ? Math.min(openElectiveSubjects.length - 2, Math.max(4, 14 - theorySubjects.length))
     : -1;
 
   // ── THEORY SECTION HEADER ──
   legendRows.push([
-    { text: 'THEORY', colSpan: 5, bold: true, alignment: 'center', fontSize: 8.5 },
+    { text: 'THEORY', colSpan: 5, bold: true, alignment: 'center', fontSize: LG },
     {}, {}, {}, {}
   ]);
 
@@ -577,11 +771,11 @@ function buildCollegeClassPdfContent(
   theorySubjects.forEach(s => {
     const abbr = s.abbreviation || resolveSubjectAbbreviation(s.name, subjects);
     legendRows.push([
-      { text: s.code || '-', bold: true, fontSize: 8, alignment: 'center' },
-      { text: abbr, bold: true, fontSize: 8, alignment: 'center' },
-      { text: s.name, fontSize: 8, alignment: 'left' },
-      { text: s.hoursPerWeek ? String(s.hoursPerWeek) : '-', bold: true, fontSize: 8, alignment: 'center' },
-      { text: s.staff || '-', fontSize: 8, alignment: 'left' }
+      { text: s.code || '-', bold: false, fontSize: LG, alignment: 'center' },
+      { text: abbr, bold: false, fontSize: LG, alignment: 'center' },
+      { text: s.name, bold: false, fontSize: LG, alignment: 'left' },
+      { text: s.hoursPerWeek ? String(s.hoursPerWeek) : '-', bold: false, fontSize: LG, alignment: 'center' },
+      { text: s.staff || '-', bold: false, fontSize: LG, alignment: 'left' }
     ]);
   });
 
@@ -589,20 +783,26 @@ function buildCollegeClassPdfContent(
   if (openElectiveSubjects.length > 0) {
     openElectiveSubjects.forEach((s, idx) => {
       const isSplitPoint = needsTwoPages && idx === splitOeIndex;
-      // On Page 1 first OE row shows 'OE' & '5'. On Page 2 first OE row also shows 'OE' & '5' for clarity.
       const isFirstOnPage = idx === 0 || isSplitPoint;
       legendRows.push([
         {
           text: s.code || '-',
-          bold: true,
-          fontSize: 8,
+          bold: false,
+          fontSize: LG,
           alignment: 'center',
           ...(isSplitPoint ? { pageBreak: 'before' } : {})
         },
-        { text: isFirstOnPage ? 'OE' : '', bold: true, fontSize: 8, alignment: 'center' },
-        { text: s.name, fontSize: 8, alignment: 'left' },
-        { text: isFirstOnPage ? String(s.hoursPerWeek || 5) : '', bold: true, fontSize: 8, alignment: 'center' },
-        { text: s.staff || '', fontSize: 8, alignment: 'left' }
+        { text: isFirstOnPage ? 'OE' : '', bold: false, fontSize: LG, alignment: 'center' },
+        {
+          text: isFirstOnPage
+            ? { text: [{ text: 'Open Elective: ', bold: false }, s.name] }
+            : s.name,
+          bold: false,
+          fontSize: LG,
+          alignment: 'left'
+        },
+        { text: isFirstOnPage ? String(s.hoursPerWeek || 5) : '', bold: false, fontSize: LG, alignment: 'center' },
+        { text: s.staff || '', bold: false, fontSize: LG, alignment: 'left' }
       ]);
     });
   }
@@ -610,27 +810,24 @@ function buildCollegeClassPdfContent(
   // If needsTwoPages but NO open electives exist, split right before Special Hours
   const breakBeforeSpecial = needsTwoPages && openElectiveSubjects.length === 0;
 
-  // Append Special Hours (SC, SEM, LIB)
-  specialRowsToRender.forEach((sp, idx) => {
-    const isSplit = breakBeforeSpecial && idx === 0;
-    legendRows.push([
-      {
-        text: '',
-        bold: true,
-        fontSize: 8,
-        alignment: 'center',
-        ...(isSplit ? { pageBreak: 'before' } : {})
-      },
-      { text: sp.abbr, bold: true, fontSize: 8, alignment: 'center' },
-      { text: sp.title, fontSize: 8, alignment: 'left' },
-      { text: sp.hours, bold: true, fontSize: 8, alignment: 'center' },
-      { text: sp.staff || counselorName || '-', fontSize: 8, alignment: 'left' }
-    ]);
-  });
+  // ── Combined SC/SEM/LIB Row (single row, matching official template) ──
+  legendRows.push([
+    {
+      text: '',
+      bold: false,
+      fontSize: LG,
+      alignment: 'center',
+      ...(breakBeforeSpecial ? { pageBreak: 'before' } : {})
+    },
+    { text: 'SC/SEM/LIB', bold: false, fontSize: LG, alignment: 'center' },
+    { text: 'Student Counseling/ Seminar/ Library', bold: false, fontSize: LG, alignment: 'left' },
+    { text: String(combinedSpecialHours), bold: false, fontSize: LG, alignment: 'center' },
+    { text: combinedSpecialStaff, bold: false, fontSize: LG, alignment: 'left' }
+  ]);
 
   // ── PRACTICAL SECTION HEADER ──
   legendRows.push([
-    { text: 'PRACTICAL', colSpan: 5, bold: true, alignment: 'center', fontSize: 8.5 },
+    { text: 'PRACTICAL', colSpan: 5, bold: true, alignment: 'center', fontSize: LG },
     {}, {}, {}, {}
   ]);
 
@@ -638,18 +835,18 @@ function buildCollegeClassPdfContent(
   practicalSubjects.forEach(s => {
     const abbr = s.abbreviation || resolveSubjectAbbreviation(s.name, subjects);
     legendRows.push([
-      { text: s.code || '-', bold: true, fontSize: 8, alignment: 'center' },
-      { text: abbr, bold: true, fontSize: 8, alignment: 'center' },
-      { text: s.name, fontSize: 8, alignment: 'left' },
-      { text: s.hoursPerWeek ? String(s.hoursPerWeek) : '-', bold: true, fontSize: 8, alignment: 'center' },
-      { text: s.staff || '-', fontSize: 8, alignment: 'left' }
+      { text: s.code || '-', bold: false, fontSize: LG, alignment: 'center' },
+      { text: abbr, bold: false, fontSize: LG, alignment: 'center' },
+      { text: s.name, bold: false, fontSize: LG, alignment: 'left' },
+      { text: s.hoursPerWeek ? String(s.hoursPerWeek) : '-', bold: false, fontSize: LG, alignment: 'center' },
+      { text: s.staff || '-', bold: false, fontSize: LG, alignment: 'left' }
     ]);
   });
 
   const legendTable = {
     table: {
       headerRows: 1,
-      widths: [75, 65, '*', 45, 185],
+      widths: [68, 72, '*', 45, 175],
       body: legendRows
     },
     layout: {
@@ -659,42 +856,47 @@ function buildCollegeClassPdfContent(
       vLineColor: () => '#000000',
       paddingLeft: () => 4,
       paddingRight: () => 4,
-      paddingTop: () => 3.2,
-      paddingBottom: () => 3.2
+      paddingTop: () => 2,
+      paddingBottom: () => 2
     },
-    margin: [0, 0, 0, 6]
+    margin: [0, 0, 0, 3]
   };
 
-  // ── 5. Signatures Block with Blank Physical Signing Area ─────────────
+  // ── 5. Signatures Block with Physical Signing Area ───────────────────
   const signaturesBlock = {
-    margin: [0, 45, 0, 0], // Leaves 45pt vertical space for staff ink signature!
+    unbreakable: true,
+    margin: [0, 26, 0, 0],
     table: {
       widths: ['*', '*', '*', '*'],
       body: [
         [
           {
-            stack: [
-              { text: 'TIMETABLE INCHARGE', bold: true, fontSize: 8.5, alignment: 'center' },
-              { text: timetableIncharge, bold: true, fontSize: 8, alignment: 'center', margin: [0, 2, 0, 0] }
-            ]
+            text: [
+              { text: 'TIMETABLE INCHARGE\n', bold: true, fontSize: 9 },
+              { text: timetableIncharge, bold: true, fontSize: 8.5 }
+            ],
+            alignment: 'center'
           },
           {
-            stack: [
-              { text: 'CLASS COUNSELOR', bold: true, fontSize: 8.5, alignment: 'center' },
-              { text: counselorName, bold: true, fontSize: 8, alignment: 'center', margin: [0, 2, 0, 0] }
-            ]
+            text: [
+              { text: 'CLASS COUNSELOR\n', bold: true, fontSize: 9 },
+              { text: counselorName || '', bold: true, fontSize: 8.5 }
+            ],
+            alignment: 'center'
           },
           {
-            stack: [
-              { text: `HOD/${deptShort}`, bold: true, fontSize: 8.5, alignment: 'center' },
-              { text: hodName, bold: true, fontSize: 8, alignment: 'center', margin: [0, 2, 0, 0] }
-            ]
+            text: [
+              { text: `HOD/${deptShort}\n`, bold: true, fontSize: 9 },
+              { text: hodName, bold: true, fontSize: 8.5 }
+            ],
+            alignment: 'center'
           },
           {
-            stack: [
-              { text: 'PRINCIPAL', bold: true, fontSize: 8.5, alignment: 'center' },
-              { text: principalName, bold: true, fontSize: 8, alignment: 'center', margin: [0, 2, 0, 0] }
-            ]
+            text: [
+              { text: 'PRINCIPAL\n', bold: true, fontSize: 9 },
+              { text: principalName, bold: true, fontSize: 8.5 }
+            ],
+            alignment: 'center'
           }
         ]
       ]
@@ -724,20 +926,22 @@ export async function exportTimetablesToPdf(
     throw new Error('No timetables available to export.');
   }
 
-  const { pdfMake, pdfMakeModule } = await loadPdfMake();
+  const { pdfMake, pdfMakeModule, fonts, vfs } = await loadPdfMake();
 
   // Pre-load counselors for items that do not have counselorName
   await Promise.all(
     items.map(async (item) => {
-      if (!item.counselorName && item.departmentId) {
+      if (item.counselorName === undefined && item.departmentId) {
         try {
           const counselor = await getClassCounselor(item.departmentId, item.year, item.section);
           if (counselor?.faculty_id) {
             const fac = await getFacultyById(counselor.faculty_id);
-            item.counselorName = fac?.name || null;
+            item.counselorName = fac?.name || '';
+          } else {
+            item.counselorName = '';
           }
         } catch (e) {
-          // Gracefully continue
+          item.counselorName = '';
         }
       }
     })
@@ -761,13 +965,23 @@ export async function exportTimetablesToPdf(
   const docDefinition: any = {
     pageSize: 'A4',
     pageOrientation: 'landscape',
-    pageMargins: [26, 18, 26, 18],
+    pageMargins: [26, 12, 26, 12],
     content,
     defaultStyle: {
       color: '#000000',
-      font: 'Roboto'
+      font: timesFontsLoaded ? 'Times' : 'Roboto'
     }
   };
 
-  triggerDownload(pdfMake, pdfMakeModule, docDefinition, finalFileName);
+  const createPdfFn = typeof pdfMake.createPdf === 'function'
+    ? pdfMake.createPdf.bind(pdfMake)
+    : (pdfMakeModule as any).createPdf || (pdfMakeModule as any).default?.createPdf;
+
+  if (!createPdfFn) {
+    throw new Error('pdfMake.createPdf is not available');
+  }
+
+  const pdfDoc = createPdfFn(docDefinition, undefined, fonts, vfs);
+  await triggerDownload(pdfDoc, finalFileName);
 }
+

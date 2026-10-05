@@ -33,19 +33,19 @@ import { useDarkMode } from "@/context/DarkModeContext";
 import { getDeptShortName } from "@/lib/timetablePdfExport";
 
 const timetableColumns = [
-  { key: 'p1', label: 'I', time: '08:45 - 09:35', type: 'period' },
-  { key: 'p2', label: 'II', time: '09:35 - 10:25', type: 'period' },
-  { key: 'b1', label: 'TEA BREAK', time: '10:25 - 10:45', type: 'break' },
-  { key: 'p3', label: 'III', time: '10:45 - 11:35', type: 'period' },
-  { key: 'p4', label: 'IV', time: '11:35 - 12:25', type: 'period' },
-  { key: 'lunch', label: 'LUNCH', time: '12:25 - 01:15', type: 'lunch' },
-  { key: 'p5', label: 'V', time: '01:15 - 02:05', type: 'period' },
-  { key: 'p6', label: 'VI', time: '02:05 - 02:55', type: 'period' },
-  { key: 'b2', label: 'TEA BREAK', time: '02:55 - 03:15', type: 'break' },
-  { key: 'p7', label: 'VII', time: '03:15 - 04:05', type: 'period' },
+  { key: 'p1', label: 'P1', time: '9:00-9:55', type: 'period' },
+  { key: 'p2', label: 'P2', time: '9:55-10:50', type: 'period' },
+  { key: 'b1', label: 'BREAK', time: '10:50-11:05', type: 'break' },
+  { key: 'p3', label: 'P3', time: '11:05-12:00', type: 'period' },
+  { key: 'p4', label: 'P4', time: '12:00-12:55', type: 'period' },
+  { key: 'lunch', label: 'LUNCH', time: '12:55-1:55', type: 'lunch' },
+  { key: 'p5', label: 'P5', time: '1:55-2:50', type: 'period' },
+  { key: 'p6', label: 'P6', time: '2:50-3:45', type: 'period' },
+  { key: 'b2', label: 'BREAK', time: '3:45-3:55', type: 'break' },
+  { key: 'p7', label: 'P7', time: '3:55-4:50', type: 'period' },
 ];
 
-const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 const parseGrid = (grid: any): any[][] => {
   if (Array.isArray(grid)) return grid;
@@ -96,7 +96,7 @@ const getCellDisplay = (cell: any): { title: string; subtitle?: string; isBreak?
     const s = cell.trim();
     if (!s || s === '-') return { title: '-' };
     if (s.toUpperCase() === 'BREAK' || s.toUpperCase() === 'TEA BREAK') {
-      return { title: 'TEA BREAK', isBreak: true };
+      return { title: 'BREAK', isBreak: true };
     }
     if (s.toUpperCase() === 'LUNCH' || s.toUpperCase() === 'LUNCH BREAK') {
       return { title: 'LUNCH', isLunch: true };
@@ -104,6 +104,10 @@ const getCellDisplay = (cell: any): { title: string; subtitle?: string; isBreak?
     if (s.includes('\n')) {
       const parts = s.split('\n').map((p) => p.trim()).filter(Boolean);
       return { title: parts[0] || '', subtitle: parts.slice(1).join(' / ') };
+    }
+    const match = s.match(/^(.*?)\s*\((.*?)\)$/);
+    if (match) {
+      return { title: match[1].trim(), subtitle: match[2].trim() };
     }
     return { title: s };
   }
@@ -347,10 +351,10 @@ const CurrentTimetables = () => {
 
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
 
-      <main className={`${isLoggedIn ? "md:pl-72" : ""} pt-16 md:pt-16 transition-all duration-300 relative z-10`}>
-        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-6">
+      <main className={`md:pl-72 pt-16 ${isLoggedIn ? "md:pt-16" : "md:pt-0"} transition-all duration-300 relative z-10 min-h-screen`}>
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-6">
           {/* Page Header */}
-          <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+          <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5 p-5 sm:p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
             isDark
               ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
               : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
@@ -380,7 +384,7 @@ const CurrentTimetables = () => {
           </div>
 
           {/* Controls: Search, Filters & Sorting Toolbar */}
-          <div className={`p-4 sm:p-5 rounded-2xl backdrop-blur-2xl border transition-all duration-300 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 ${
+          <div className={`p-4 sm:p-5 rounded-2xl backdrop-blur-2xl border transition-all duration-300 flex flex-col xl:flex-row xl:items-center justify-between gap-3.5 ${
             isDark
               ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
               : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
@@ -513,20 +517,20 @@ const CurrentTimetables = () => {
           </div>
 
           {/* Stats Cards Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-            <div className={`relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 lg:gap-5">
+            <div className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
               isDark
                 ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)]"
                 : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)]"
             }`}>
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                   Total Timetables
                 </span>
                 <Clock className={`h-4 w-4 ${isDark ? "text-cyan-400" : "text-cyan-600"}`} />
               </div>
-              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-cyan-300" : "text-cyan-600"}`}>
+              <div className={`text-2xl sm:text-3xl lg:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-cyan-300" : "text-cyan-600"}`}>
                 {summaryStats.totalTimetables}
               </div>
               <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-cyan-400/70" : "text-cyan-700/80"}`}>
@@ -534,19 +538,19 @@ const CurrentTimetables = () => {
               </p>
             </div>
 
-            <div className={`relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
+            <div className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
               isDark
                 ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)]"
                 : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)]"
             }`}>
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                   Departments
                 </span>
                 <Building2 className={`h-4 w-4 ${isDark ? "text-indigo-400" : "text-indigo-600"}`} />
               </div>
-              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
+              <div className={`text-2xl sm:text-3xl lg:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
                 {summaryStats.departmentCount}
               </div>
               <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-indigo-300/70" : "text-indigo-600/80"}`}>
@@ -554,19 +558,19 @@ const CurrentTimetables = () => {
               </p>
             </div>
 
-            <div className={`relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
+            <div className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
               isDark
                 ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)]"
                 : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)]"
             }`}>
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                   Years Active
                 </span>
                 <Calendar className={`h-4 w-4 ${isDark ? "text-purple-400" : "text-purple-600"}`} />
               </div>
-              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-purple-300" : "text-purple-600"}`}>
+              <div className={`text-2xl sm:text-3xl lg:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-purple-300" : "text-purple-600"}`}>
                 {summaryStats.yearCount}
               </div>
               <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-purple-300/70" : "text-purple-700/80"}`}>
@@ -574,19 +578,19 @@ const CurrentTimetables = () => {
               </p>
             </div>
 
-            <div className={`relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
+            <div className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 overflow-hidden ${
               isDark
                 ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)]"
                 : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)]"
             }`}>
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400/30 to-transparent" />
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                   Sections
                 </span>
                 <Layers className={`h-4 w-4 ${isDark ? "text-amber-400" : "text-amber-600"}`} />
               </div>
-              <div className={`text-3xl sm:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-amber-300" : "text-amber-600"}`}>
+              <div className={`text-2xl sm:text-3xl lg:text-4xl font-black mt-2 tracking-tight ${isDark ? "text-amber-300" : "text-amber-600"}`}>
                 {summaryStats.sectionCount}
               </div>
               <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-amber-300/70" : "text-amber-700/80"}`}>
@@ -640,7 +644,7 @@ const CurrentTimetables = () => {
               {filteredRows.map((r, idx) => (
                 <div
                   key={`${r.department_id}-${r.year}-${r.section}-${idx}`}
-                  className={`relative rounded-2xl p-6 backdrop-blur-2xl border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-5 overflow-hidden ${
+                  className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-5 overflow-hidden ${
                     isDark
                       ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] hover:border-indigo-400/40"
                       : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06),0_0_10px_-2px_rgba(99,102,241,0.05)] hover:border-indigo-300"
@@ -785,15 +789,15 @@ const CurrentTimetables = () => {
           {/* Full Timetable Master Preview Dialog */}
           <Dialog open={fullPreviewOpen} onOpenChange={setFullPreviewOpen}>
             <DialogContent className={`max-w-[97vw] xl:max-w-[1440px] w-full max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-2xl border backdrop-blur-2xl shadow-2xl ${
-              isDark ? "bg-[#090d1c]/98 border-indigo-500/25 text-white" : "bg-white/98 border-indigo-200/90 text-slate-900"
+              isDark ? "bg-[#090d1c]/98 border-blue-500/25 text-white" : "bg-[#f8faff]/98 border-blue-200/90 text-slate-900"
             }`}>
               <div className={`p-4 sm:p-5 pb-3 border-b flex flex-col gap-3 shrink-0 ${
-                isDark ? "border-indigo-500/20 bg-slate-900/60" : "border-indigo-100 bg-slate-50/80"
+                isDark ? "border-blue-500/20 bg-slate-900/60" : "border-blue-100 bg-white/90"
               }`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-8">
                   <div className="flex items-center gap-3">
                     <div className={`h-10 w-10 rounded-xl flex items-center justify-center border shadow-sm ${
-                      isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
+                      isDark ? "bg-blue-500/15 border-blue-500/30 text-blue-400" : "bg-blue-600 border-blue-600 text-white shadow-blue-500/20"
                     }`}>
                       <LayoutGrid className="h-5 w-5" />
                     </div>
@@ -811,7 +815,7 @@ const CurrentTimetables = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => window.print()}
-                      className="h-8 px-3 rounded-xl text-xs font-semibold gap-1.5"
+                      className="h-8 px-3 rounded-xl text-xs font-semibold gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
                     >
                       <Printer className="h-3.5 w-3.5" />
                       <span>Print</span>
@@ -836,10 +840,10 @@ const CurrentTimetables = () => {
                               const el = document.getElementById(cardId);
                               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                            className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
                               isDark
-                                ? "bg-white/5 hover:bg-indigo-600/30 text-slate-300 border-white/10 hover:border-indigo-400/40"
-                                : "bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 border-slate-200 hover:border-indigo-300 shadow-sm"
+                                ? "bg-white/5 hover:bg-blue-600/30 text-slate-300 border-white/10 hover:border-blue-400/40"
+                                : "bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border-blue-200 hover:border-blue-300 shadow-xs"
                             }`}
                           >
                             Yr {r.year} - Sec {r.section} ({deptNames[r.department_id] ? getDeptShortName(deptNames[r.department_id]) : r.department_id})
@@ -863,33 +867,31 @@ const CurrentTimetables = () => {
                     <div
                       key={cardId}
                       id={cardId}
-                      className={`rounded-2xl border p-5 backdrop-blur-xl shadow-md transition-all ${
+                      className={`rounded-2xl border p-5 backdrop-blur-xl transition-all ${
                         isDark
-                          ? "bg-[#0c1228]/80 border-indigo-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
-                          : "bg-white border-slate-200/90 shadow-slate-200/60"
+                          ? "bg-[#0c1228]/80 border-blue-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+                          : "bg-white border-blue-100 shadow-md shadow-blue-500/5"
                       }`}
                     >
                       {/* Class header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-100/60 dark:border-indigo-500/20 mb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-100 dark:border-blue-500/20 mb-3">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={`h-5 min-w-[20px] px-1.5 rounded-md text-[10px] font-black flex items-center justify-center border ${
-                              isDark ? "bg-white/5 border-white/10 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-600"
+                              isDark ? "bg-white/5 border-white/10 text-slate-400" : "bg-blue-50 border-blue-200 text-blue-700 font-bold"
                             }`}>
                               #{idx + 1}
                             </span>
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                              isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" : "bg-indigo-50 text-indigo-700 border-indigo-200"
-                            }`}>
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white shadow-xs">
                               {deptNames[r.department_id] || r.department_id}
                             </span>
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
+                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-blue-50 text-blue-800 border-blue-200"
                             }`}>
                               Year {r.year}
                             </span>
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
+                              isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-blue-50 text-blue-800 border-blue-200"
                             }`}>
                               Section {r.section}
                             </span>
@@ -913,39 +915,41 @@ const CurrentTimetables = () => {
                               }
                             });
                           }}
-                          className="h-8 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+                          className="h-8 px-3.5 rounded-xl font-bold text-xs bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1.5 self-start sm:self-auto shrink-0 transition-all hover:scale-[1.02] active:scale-[0.98]"
                         >
                           <Maximize2 className="h-3.5 w-3.5" />
                           <span>Edit in Full Screen</span>
                         </Button>
                       </div>
 
-                      {/* Timetable Table */}
-                      <div className="overflow-x-auto rounded-xl border border-indigo-100/70 dark:border-indigo-500/20 shadow-inner">
+                      {/* Timetable Table in Blue Theme */}
+                      <div className="overflow-x-auto rounded-2xl border border-blue-200/90 dark:border-blue-500/30 shadow-xs">
                         <table className="w-full text-xs border-collapse">
                           <thead>
-                            <tr className={isDark ? "bg-[#0b1022] text-white" : "bg-slate-100 text-slate-900"}>
-                              <th className={`p-2.5 text-left font-black border-b border-r border-indigo-100/60 dark:border-indigo-500/20 w-28 ${
-                                isDark ? "text-white" : "text-slate-800"
-                              }`}>
-                                Day / Period
+                            <tr className={isDark ? "bg-[#131d38] text-white border-b border-blue-500/25" : "bg-blue-600 text-white border-b border-blue-500/40"}>
+                              <th className="p-2.5 text-center font-extrabold border-r border-blue-500/30 dark:border-blue-500/20 w-20 sm:w-24 uppercase tracking-wider text-xs sm:text-[13px] text-white">
+                                DAY
                               </th>
                               {timetableColumns.map((col, cIdx) => (
                                 <th
                                   key={cIdx}
-                                  className={`p-2 text-center font-black border-b border-r border-indigo-100/60 dark:border-indigo-500/20 ${
+                                  className={`p-1.5 sm:p-2 text-center font-extrabold border-r border-blue-500/30 dark:border-blue-500/20 last:border-r-0 ${
                                     col.type === 'break' || col.type === 'lunch'
-                                      ? isDark ? "bg-amber-950/40 text-amber-300 font-black" : "bg-amber-100/80 text-amber-900 font-black"
-                                      : isDark ? "text-white" : "text-slate-900"
+                                      ? isDark ? "bg-[#0e162b]/90 text-blue-200" : "bg-blue-700/50 text-blue-100"
+                                      : "text-white"
                                   }`}
                                 >
-                                  <div className="font-black text-[13px]">{col.label}</div>
-                                  <div className={`text-[10px] font-bold opacity-90 whitespace-nowrap ${isDark ? "text-sky-300" : "text-indigo-700"}`}>{col.time}</div>
+                                  <div className="font-extrabold text-xs sm:text-[13px] uppercase tracking-wide">{col.label}</div>
+                                  {col.time && (
+                                    <div className="text-[9px] sm:text-[10px] font-mono mt-0.5 whitespace-nowrap text-blue-100/90 font-medium">
+                                      ({col.time})
+                                    </div>
+                                  )}
                                 </th>
                               ))}
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className={`divide-y ${isDark ? "divide-slate-800/80" : "divide-blue-100/70"}`}>
                             {displayDays.map((day, dIdx) => {
                               const rawDayRow = grid[dIdx];
                               const displayRow = getDisplayRow(rawDayRow);
@@ -953,15 +957,17 @@ const CurrentTimetables = () => {
                               return (
                                 <tr 
                                   key={dIdx} 
-                                  className={`border-b border-indigo-100/40 dark:border-indigo-500/10 ${
-                                    isDark ? "hover:bg-white/[0.04]" : "hover:bg-indigo-50/40"
+                                  className={`transition-colors ${
+                                    isDark ? "hover:bg-slate-800/30" : "hover:bg-blue-50/25"
                                   }`}
                                 >
-                                  <td className={`p-2.5 font-black border-r border-indigo-100/60 dark:border-indigo-500/20 ${
-                                    isDark ? "bg-[#0e1529] text-white" : "bg-slate-50 text-slate-900"
-                                  }`}>
+                                  {/* Day Column */}
+                                  <td className={`p-2.5 text-center font-extrabold border-r ${
+                                    isDark ? "bg-slate-900/80 border-blue-900/50 text-slate-100" : "bg-blue-50/60 border-blue-100/90 text-slate-800"
+                                  } uppercase tracking-wider text-xs sm:text-sm`}>
                                     {day}
                                   </td>
+
                                   {displayRow.map((cellRaw, pIdx) => {
                                     const cellInfo = getCellDisplay(cellRaw);
                                     const isBreak = cellInfo.isBreak;
@@ -971,10 +977,10 @@ const CurrentTimetables = () => {
                                       return (
                                         <td 
                                           key={pIdx} 
-                                          className={`p-1.5 text-center font-black text-[11px] tracking-wider border-r border-indigo-100/60 dark:border-indigo-500/20 select-none ${
-                                            isLunch 
-                                              ? isDark ? "bg-amber-500/20 text-amber-300 font-black shadow-inner" : "bg-amber-100 text-amber-900 font-black"
-                                              : isDark ? "bg-amber-500/10 text-amber-300 font-black" : "bg-amber-50 text-amber-800 font-bold"
+                                          className={`p-1.5 text-center font-extrabold text-[11px] sm:text-xs lg:text-[12.5px] tracking-widest uppercase border-r last:border-r-0 select-none ${
+                                            isDark 
+                                              ? "border-slate-800/80 bg-slate-900/50 text-blue-400" 
+                                              : "border-blue-100/80 bg-blue-50/35 text-blue-600"
                                           }`}
                                         >
                                           {isLunch ? "LUNCH" : "BREAK"}
@@ -987,30 +993,32 @@ const CurrentTimetables = () => {
                                     return (
                                       <td 
                                         key={pIdx} 
-                                        className="p-1.5 border-r border-indigo-100/60 dark:border-indigo-500/20 text-center align-middle"
+                                        className={`p-1 sm:p-1.5 border-r last:border-r-0 text-center align-middle ${
+                                          isDark ? "border-slate-800/80" : "border-blue-100/70"
+                                        }`}
                                       >
                                         {hasContent ? (
-                                          <div className={`p-1.5 rounded-lg border flex flex-col items-center justify-center min-h-[48px] ${
+                                          <div className={`p-2 rounded-xl border flex flex-col items-center justify-center min-h-[56px] transition-all ${
                                             isDark
-                                              ? "bg-[#141e3d] border-blue-400/40 text-white shadow-md shadow-black/30"
-                                              : "bg-indigo-50/90 border-indigo-200 text-indigo-950 shadow-xs"
+                                              ? "bg-[#131b31]/90 border-blue-500/30 text-slate-100 shadow-[0_2px_12px_rgba(0,0,0,0.4)] hover:border-blue-400 hover:bg-[#182342]"
+                                              : "bg-white border-blue-200/90 text-slate-900 shadow-[0_2px_8px_rgba(37,99,235,0.06)] hover:border-blue-400 hover:shadow-md"
                                           }`}>
-                                            <span className={`font-black text-[12px] leading-tight line-clamp-2 ${
-                                              isDark ? "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" : "text-slate-900"
+                                            <span className={`font-bold text-xs sm:text-[12.5px] lg:text-[13px] leading-snug line-clamp-2 w-full text-center ${
+                                              isDark ? "text-slate-100" : "text-slate-900"
                                             }`}>
                                               {cellInfo.title}
                                             </span>
                                             {cellInfo.subtitle && (
-                                              <span className={`text-[10px] mt-0.5 line-clamp-1 font-bold ${
-                                                isDark ? "text-sky-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]" : "text-indigo-700"
+                                              <span className={`text-[9.5px] sm:text-[10.5px] mt-0.5 line-clamp-1 font-semibold truncate w-full text-center ${
+                                                isDark ? "text-blue-300" : "text-blue-600"
                                               }`}>
                                                 {cellInfo.subtitle}
                                               </span>
                                             )}
                                           </div>
                                         ) : (
-                                          <div className={`h-11 rounded-lg border border-dashed flex items-center justify-center text-xs font-semibold ${
-                                            isDark ? "border-slate-800 text-slate-500 bg-slate-950/20" : "border-slate-200 text-slate-400"
+                                          <div className={`h-11 rounded-xl border border-dashed flex items-center justify-center text-xs font-semibold ${
+                                            isDark ? "border-blue-900/60 text-blue-400/50 bg-slate-800/40" : "border-blue-200/70 text-blue-300 bg-white/40"
                                           }`}>
                                             -
                                           </div>

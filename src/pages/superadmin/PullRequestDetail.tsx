@@ -229,8 +229,8 @@ const PullRequestDetail = () => {
 
       {isLoggedIn ? <Navbar /> : <AdminNavbar />}
 
-      <main className={`${isLoggedIn ? "md:pl-72" : ""} pt-16 md:pt-16 transition-all duration-300 relative z-10`}>
-        <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
+      <main className={`md:pl-72 pt-16 ${isLoggedIn ? "md:pt-16" : "md:pt-0"} transition-all duration-300 relative z-10 min-h-screen`}>
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 space-y-8">
           {/* Header */}
           <div className={`flex flex-col md:flex-row md:items-center md:justify-between gap-5 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
             isDark
