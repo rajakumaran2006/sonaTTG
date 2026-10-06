@@ -399,310 +399,47 @@ function Timetable() {
   }, [selection.department, selection.year, selection.section]);
 
   const exportPDF = async () => {
-    const pdfMakeModule = await import('pdfmake/build/pdfmake');
-    const pdfMake = pdfMakeModule.default || pdfMakeModule;
-    const vfsFonts = await import('pdfmake/build/vfs_fonts');
-    // pdfmake 0.2.x: use addVirtualFileSystem or fallback to .vfs assignment
-    if (typeof pdfMake.addVirtualFileSystem === 'function') {
-      pdfMake.addVirtualFileSystem(vfsFonts);
-    } else if ((vfsFonts as any).pdfMake?.vfs) {
-      (pdfMake as any).vfs = (vfsFonts as any).pdfMake.vfs;
-    } else {
-      (pdfMake as any).vfs = vfsFonts;
+    if (!selection.department || !selection.year || !selection.section) {
+      toast({ title: 'Please select department, year, and section first', variant: 'destructive' });
+      return;
     }
-
-    // Fetch subject -> faculty mapping and counselor details for current selection
-    let subjectToFaculty: Record<string, string> = {};
-    let pdfClassCounselorName: string | null = null;
-
     try {
-      if (selection.department && selection.year && selection.section) {
-        subjectToFaculty = await getSubjectFacultyMapByDeptName(selection.department, selection.year, selection.section);
+      const dept = await getDepartmentByName(selection.department);
+      let subjectToFacultyMap: Record<string, string> = {};
+      let pdfClassCounselorName: string | null = null;
 
-        const department = await getDepartmentByName(selection.department);
-        if (department) {
-          const counselor = await getClassCounselor(department.id, selection.year, selection.section);
-          if (counselor) {
-            const facultyDetails = await getFacultyById(counselor.faculty_id);
-            pdfClassCounselorName = facultyDetails?.name || null;
-          }
+      if (dept) {
+        subjectToFacultyMap = await getSubjectFacultyMapByDeptName(selection.department, selection.year, selection.section).catch(() => ({}));
+        const counselor = await getClassCounselor(dept.id, selection.year, selection.section).catch(() => null);
+        if (counselor?.faculty_id) {
+          const facultyDetails = await getFacultyById(counselor.faculty_id);
+          pdfClassCounselorName = facultyDetails?.name || null;
         }
       }
-    } catch (e) {
-      console.warn('Failed to load data for PDF export:', e);
-    }
 
-    // Build the grid body
-    const body = [
-      // Table Header Row
-      [
-        { text: 'Day', style: 'tableHeader', alignment: 'center', bold: true },
-        ...DISPLAY_COLUMNS.map(col => {
-          const time = PERIOD_TIME_LABELS[col];
-          return {
-            text: time ? `${col}\n(${time})` : col,
-            style: 'tableHeader',
-            alignment: 'center',
-            bold: true
-          };
-        })
-      ],
-      // Table Data Rows
-      ...timetable.map((row, i) => {
-        const displayRow = [row[0], row[1], 'BREAK', row[2], row[3], 'LUNCH', row[4], row[5], 'BREAK', row[6]];
-        
-        return [
-          { text: DAYS[i], style: 'dayHeader', alignment: 'center', bold: true },
-          ...displayRow.map((cell) => {
-            if (!cell || !cell.trim()) {
-              return { text: '', style: 'timetableCell' };
-            }
-            if (cell === 'BREAK' || cell === 'LUNCH') {
-              return { 
-                text: cell, 
-                style: 'breakCell', 
-                alignment: 'center', 
-                bold: true,
-                fillColor: '#F3F4F6',
-                color: '#6B7280'
-              };
-            }
-            
-            // Format cell content (handle open electives, etc.)
-            const formattedContent = formatCellContent(cell);
-            
-            // Find staff assigned to this slot
-            let staff = '';
-            const cellParts = cell.includes(' / ') ? cell.split(' / ').map(p => p.trim()) : [cell];
-            if (cellParts && cellParts.length > 0) {
-              const staffList = cellParts.map(part => {
-                const subj = selected.find((s) => s.name === part);
-                if (subj) {
-                  return subjectToFaculty[subj.id] || subj.staff || '';
-                }
-                return '';
-              }).filter(Boolean);
-              staff = staffList.join(' / ');
-            }
-            if (isSpecialHoursCell(cell)) {
-              staff = pdfClassCounselorName || staff;
-            }
+      const exportSubjects = selected.map((s) => ({
+        id: s.id,
+        code: s.code || '',
+        name: s.name,
+        type: s.type,
+        hoursPerWeek: s.hoursPerWeek,
+        staff: subjectToFacultyMap[s.id] || s.staff || '',
+        abbreviation: s.abbreviation || '',
+      }));
 
-            // Determine background color based on subject type
-            const type = subjectTypeByName(cell);
-            let cellBg = '#FFFFFF';
-            
-            const isOpenElective = cellParts.some(part => {
-              const subj = selected.find((s) => s.name === part);
-              return subj?.type === 'open elective';
-            });
+      const item: TimetableExportClassItem = {
+        departmentName: selection.department,
+        year: selection.year,
+        section: selection.section,
+        grid: timetable,
+        departmentId: dept?.id,
+        subjects: exportSubjects,
+        counselorName: pdfClassCounselorName,
+        semesterType: useTimetableStore.getState().semesterType,
+      };
 
-            if (isOpenElective) {
-              cellBg = '#F3E8FF'; // purple-100
-            } else {
-              switch (type) {
-                case 'lab':
-                  cellBg = '#E0F2FE'; // sky-100
-                  break;
-                case 'special':
-                  cellBg = '#FEF3C7'; // amber-100
-                  break;
-                case 'extra-class':
-                  cellBg = '#FCE7F3'; // pink-100
-                  break;
-                default:
-                  cellBg = '#F9FAFB'; // gray-50
-                  break;
-              }
-            }
-
-            return {
-              stack: [
-                { text: formattedContent, bold: true, fontSize: 8, color: '#1F2937' },
-                staff ? { text: staff.toUpperCase(), fontSize: 6, color: '#4B5563', bold: true, margin: [0, 2, 0, 0] } : null
-              ].filter(Boolean),
-              style: 'timetableCell',
-              alignment: 'center',
-              fillColor: cellBg
-            };
-          })
-        ];
-      })
-    ];
-
-    // Build the legend body
-    const legendBody = [
-      [
-        { text: 'Course Title', style: 'legendTableHeader', alignment: 'left' },
-        { text: 'Staff Incharge', style: 'legendTableHeader', alignment: 'left' }
-      ],
-      ...selected.map((s) => [
-        { text: s.name, style: 'legendCell' },
-        { text: subjectToFaculty[s.id] || s.staff || '-', style: 'legendCell' }
-      ])
-    ];
-
-    // Add special subjects to legend if they are enabled
-    const specialSubjects = [];
-    if (special.seminar) {
-      specialSubjects.push([
-        { text: 'Seminar', style: 'legendCell' },
-        { text: pdfClassCounselorName || '-', style: 'legendCell' }
-      ]);
-    }
-    if (special.library) {
-      specialSubjects.push([
-        { text: 'Library', style: 'legendCell' },
-        { text: pdfClassCounselorName || '-', style: 'legendCell' }
-      ]);
-    }
-    if (special.counselling) {
-      specialSubjects.push([
-        { text: 'Student Counselling', style: 'legendCell' },
-        { text: pdfClassCounselorName || '-', style: 'legendCell' }
-      ]);
-    }
-    legendBody.push(...specialSubjects);
-
-    const doc: any = {
-      pageSize: 'A4',
-      pageOrientation: 'landscape',
-      pageMargins: [30, 30, 30, 30],
-      content: [
-        {
-          text: 'CLASS TIMETABLE',
-          style: 'mainHeader',
-          alignment: 'center'
-        },
-        {
-          style: 'metaTable',
-          table: {
-            widths: ['*', '*', '*', '*'],
-            body: [
-              [
-                { text: [{ text: 'Department: ', bold: true }, selection.department || '-'], style: 'metaText' },
-                { text: [{ text: 'Year: ', bold: true }, selection.year || '-'], style: 'metaText' },
-                { text: [{ text: 'Section: ', bold: true }, selection.section || '-'], style: 'metaText' },
-                { text: [{ text: 'Class Counselor: ', bold: true }, pdfClassCounselorName || '-'], style: 'metaText' }
-              ]
-            ]
-          },
-          layout: 'noBorders',
-          margin: [0, 0, 0, 15]
-        },
-        {
-          table: {
-            headerRows: 1,
-            widths: [35, '*', '*', 25, '*', '*', 35, '*', '*', 25, '*'],
-            body: body
-          },
-          layout: {
-            hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length) ? 1.5 : 0.5,
-            vLineWidth: (i: number, node: any) => (i === 0 || i === node.table.widths.length) ? 1.5 : 0.5,
-            hLineColor: () => '#D1D5DB',
-            vLineColor: () => '#D1D5DB',
-            paddingLeft: () => 4,
-            paddingRight: () => 4,
-            paddingTop: () => 6,
-            paddingBottom: () => 6
-          }
-        },
-        { 
-          text: 'Subjects & Faculty', 
-          style: 'legendHeader', 
-          margin: [0, 20, 0, 8] 
-        },
-        {
-          table: {
-            headerRows: 1,
-            widths: ['*', '*'],
-            body: legendBody
-          },
-          layout: {
-            hLineWidth: (i: number, node: any) => (i === 0 || i === node.table.body.length) ? 1.5 : 0.5,
-            vLineWidth: (i: number, node: any) => 0.5,
-            hLineColor: () => '#E5E7EB',
-            vLineColor: () => '#E5E7EB',
-            paddingLeft: () => 6,
-            paddingRight: () => 6,
-            paddingTop: () => 4,
-            paddingBottom: () => 4
-          }
-        }
-      ],
-      styles: {
-        mainHeader: {
-          fontSize: 18,
-          bold: true,
-          color: '#111827',
-          margin: [0, 0, 0, 5]
-        },
-        metaText: {
-          fontSize: 9,
-          color: '#374151'
-        },
-        tableHeader: {
-          fontSize: 8,
-          bold: true,
-          color: '#FFFFFF',
-          fillColor: '#2E3A23',
-          margin: [0, 2, 0, 2]
-        },
-        dayHeader: {
-          fontSize: 9,
-          bold: true,
-          color: '#374151',
-          fillColor: '#F3F4F6',
-          margin: [0, 6, 0, 6]
-        },
-        timetableCell: {
-          margin: [0, 2, 0, 2]
-        },
-        breakCell: {
-          fontSize: 8,
-          bold: true,
-          margin: [0, 6, 0, 6]
-        },
-        legendHeader: {
-          fontSize: 12,
-          bold: true,
-          color: '#111827'
-        },
-        legendTableHeader: {
-          fontSize: 9,
-          bold: true,
-          color: '#FFFFFF',
-          fillColor: '#4B5563',
-          margin: [0, 2, 0, 2]
-        },
-        legendCell: {
-          fontSize: 8,
-          color: '#374151',
-          margin: [0, 2, 0, 2]
-        }
-      }
-    };
-
-    // Generate filename with department/year/section info
-    const pdfFileName = [
-      'timetable',
-      selection.department?.replace(/\s+/g, '_'),
-      selection.year ? `Year${selection.year}` : null,
-      selection.section ? `Sec${selection.section}` : null
-    ].filter(Boolean).join('_') + '.pdf';
-
-    try {
-      if (typeof pdfMake.createPdf === 'function') {
-        pdfMake.createPdf(doc).download(pdfFileName);
-      } else {
-        // Fallback for different module export patterns
-        const createPdfFn = (pdfMakeModule as any).createPdf || (pdfMakeModule as any).default?.createPdf;
-        if (createPdfFn) {
-          createPdfFn(doc).download(pdfFileName);
-        } else {
-          throw new Error('pdfMake.createPdf is not available');
-        }
-      }
+      const pdfFileName = `Timetable_${selection.department.replace(/\s+/g, '_')}_Year${selection.year}_Sec${selection.section}.pdf`;
+      await exportTimetablesToPdf([item], pdfFileName);
       toast({ title: 'PDF exported', description: `Timetable exported as ${pdfFileName}` });
     } catch (err: any) {
       console.error('PDF export error:', err);
@@ -758,7 +495,8 @@ function Timetable() {
             name: s.name,
             type: s.type,
             hoursPerWeek: s.hoursPerWeek,
-            staff: facultyMap[s.id] || s.staff || ''
+            staff: facultyMap[s.id] || s.staff || '',
+            abbreviation: s.abbreviation || '',
           }));
 
           return {

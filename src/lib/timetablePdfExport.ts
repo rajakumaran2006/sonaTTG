@@ -1,4 +1,5 @@
-import { getClassCounselor, getFacultyById } from "./supabaseService";
+import { getClassCounselor, getFacultyById, getDepartmentByName } from "./supabaseService";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface TimetableExportSubject {
   id?: string;
@@ -19,6 +20,7 @@ export interface TimetableExportClassItem {
   counselorName?: string | null;
   departmentId?: string;
   subjects?: TimetableExportSubject[];
+  allDbSubjects?: TimetableExportSubject[];
   specialHours?: Array<{
     name?: string;
     title?: string;
@@ -425,7 +427,7 @@ async function triggerDownload(
             try {
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
-            } catch (e) {}
+            } catch (e) { }
             done();
           }, 800);
         } catch (downloadErr) {
@@ -457,6 +459,11 @@ function buildCollegeClassPdfContent(
   options?: TimetablePdfOptions
 ): any[] {
   const subjects = item.subjects || [];
+  const lookupPool: TimetableExportSubject[] = [
+    ...subjects,
+    ...(item.allDbSubjects || [])
+  ];
+
   const counselorName = (item.counselorName !== undefined && item.counselorName !== null)
     ? item.counselorName
     : (options?.counselorName || '');
@@ -483,7 +490,7 @@ function buildCollegeClassPdfContent(
       margin: [0, 0, 0, 1]
     },
     {
-      text: `DEPARTMENT OF ${fullDeptName}`,
+      text: `DEPARTMENT OF INFORMATION TECHNOLOGY`,
       bold: true,
       fontSize: 10.5,
       alignment: 'center',
@@ -497,7 +504,7 @@ function buildCollegeClassPdfContent(
       margin: [0, 0, 0, 0]
     },
     {
-      text: `TIME TABLE FOR ${semesterType.toUpperCase()} SEM (${academicYear})`,
+      text: `TIMETABLE FOR ${semesterType.toUpperCase()} SEM (${academicYear})`,
       bold: true,
       fontSize: 10,
       alignment: 'center',
@@ -566,7 +573,7 @@ function buildCollegeClassPdfContent(
     const abbreviations: string[] = [];
     for (let p = 0; p < 7; p++) {
       const cellVal = rawRow[p] || '';
-      abbreviations.push(resolveSubjectAbbreviation(cellVal, subjects));
+      abbreviations.push(resolveSubjectAbbreviation(cellVal, lookupPool));
     }
 
     // Helper to merge consecutive identical slots within a range [start..end]
@@ -616,8 +623,8 @@ function buildCollegeClassPdfContent(
       dayIdx === 0
         ? {}
         : dayIdx === 1
-        ? { text: 'L\n\nU\n\nN\n\nC\n\nH', rowSpan: 5, bold: true, alignment: 'center', fontSize: 8.5 }
-        : {},
+          ? { text: 'L\n\nU\n\nN\n\nC\n\nH', rowSpan: 5, bold: true, alignment: 'center', fontSize: 8.5 }
+          : {},
       ...afternoonCells
     ];
 
@@ -645,7 +652,7 @@ function buildCollegeClassPdfContent(
 
   // ── 4. Subjects & Faculty Legend Table ─────────────────────────────────
   const LG = 8.5; // Legend font size matching official template
-  
+
   const legendRows: any[] = [
     // Header Row: Abbreviation column width 72 ensures single-line text without wrapping
     [
@@ -715,7 +722,7 @@ function buildCollegeClassPdfContent(
   // Merge special hours from subjects if present
   subjects.forEach(s => {
     if (isSpecialSubject(s)) {
-      const abbr = (s.abbreviation || resolveSubjectAbbreviation(s.name, subjects)).toUpperCase();
+      const abbr = (s.abbreviation || resolveSubjectAbbreviation(s.name, lookupPool)).toUpperCase();
       const staffVal = s.staff && s.staff !== '-' && s.staff !== '—' ? s.staff : (counselorName || '-');
       if (abbr.includes('LIB') || s.name.toLowerCase().includes('library')) {
         specialHoursData.LIB.staff = staffVal;
@@ -769,7 +776,9 @@ function buildCollegeClassPdfContent(
 
   // Append Theory Subjects
   theorySubjects.forEach(s => {
-    const abbr = s.abbreviation || resolveSubjectAbbreviation(s.name, subjects);
+    const abbr = (s.abbreviation && s.abbreviation.trim())
+      ? s.abbreviation.trim().toUpperCase()
+      : resolveSubjectAbbreviation(s.name, lookupPool);
     legendRows.push([
       { text: s.code || '-', bold: false, fontSize: LG, alignment: 'center' },
       { text: abbr, bold: false, fontSize: LG, alignment: 'center' },
@@ -784,6 +793,9 @@ function buildCollegeClassPdfContent(
     openElectiveSubjects.forEach((s, idx) => {
       const isSplitPoint = needsTwoPages && idx === splitOeIndex;
       const isFirstOnPage = idx === 0 || isSplitPoint;
+      const oeAbbr = (s.abbreviation && s.abbreviation.trim())
+        ? s.abbreviation.trim().toUpperCase()
+        : 'OE';
       legendRows.push([
         {
           text: s.code || '-',
@@ -792,7 +804,7 @@ function buildCollegeClassPdfContent(
           alignment: 'center',
           ...(isSplitPoint ? { pageBreak: 'before' } : {})
         },
-        { text: isFirstOnPage ? 'OE' : '', bold: false, fontSize: LG, alignment: 'center' },
+        { text: isFirstOnPage ? oeAbbr : '', bold: false, fontSize: LG, alignment: 'center' },
         {
           text: isFirstOnPage
             ? { text: [{ text: 'Open Elective: ', bold: false }, s.name] }
@@ -833,7 +845,9 @@ function buildCollegeClassPdfContent(
 
   // Append Practical Subjects
   practicalSubjects.forEach(s => {
-    const abbr = s.abbreviation || resolveSubjectAbbreviation(s.name, subjects);
+    const abbr = (s.abbreviation && s.abbreviation.trim())
+      ? s.abbreviation.trim().toUpperCase()
+      : resolveSubjectAbbreviation(s.name, lookupPool);
     legendRows.push([
       { text: s.code || '-', bold: false, fontSize: LG, alignment: 'center' },
       { text: abbr, bold: false, fontSize: LG, alignment: 'center' },
@@ -915,6 +929,140 @@ function buildCollegeClassPdfContent(
 }
 
 /**
+ * Enriches export items by fetching real imported subjects and abbreviations from Supabase
+ */
+export async function enrichItemsWithDatabaseSubjects(
+  items: TimetableExportClassItem[]
+): Promise<void> {
+  const dbSubjectsCache = new Map<string, any[]>();
+
+  for (const item of items) {
+    let deptId = item.departmentId;
+    if (!deptId && item.departmentName) {
+      try {
+        const dept = await getDepartmentByName(item.departmentName);
+        if (dept) {
+          deptId = dept.id;
+          item.departmentId = dept.id;
+        }
+      } catch (e) {
+        console.warn('Could not resolve department by name:', item.departmentName, e);
+      }
+    }
+
+    const cacheKey = `${deptId || item.departmentName}_${item.year}`;
+    let dbSubjects = dbSubjectsCache.get(cacheKey);
+
+    if (!dbSubjects && deptId) {
+      try {
+        let query = (supabase as any)
+          .from('subjects')
+          .select('id, name, code, abbreviation, type, hours_per_week, staff, year');
+
+        query = query.eq('department_id', deptId);
+        if (item.year) {
+          query = query.eq('year', item.year);
+        }
+
+        const { data, error } = await query;
+        if (!error && data && Array.isArray(data)) {
+          dbSubjects = data;
+          dbSubjectsCache.set(cacheKey, dbSubjects);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch subjects from database for timetable export:', e);
+      }
+    }
+
+    // Fallback: fetch department-wide subjects if year query returned empty
+    if ((!dbSubjects || dbSubjects.length === 0) && deptId) {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('subjects')
+          .select('id, name, code, abbreviation, type, hours_per_week, staff, year')
+          .eq('department_id', deptId);
+        if (!error && data && Array.isArray(data)) {
+          dbSubjects = data;
+          dbSubjectsCache.set(cacheKey, dbSubjects);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch department subjects fallback:', e);
+      }
+    }
+
+    const availableDbSubjects = dbSubjects || [];
+
+    const findMatchingDbSubject = (target: { id?: string; code?: string; name: string }) => {
+      if (!availableDbSubjects.length) return null;
+      if (target.id) {
+        const byId = availableDbSubjects.find(s => s.id === target.id);
+        if (byId) return byId;
+      }
+      if (target.code) {
+        const c = target.code.trim().toUpperCase();
+        const byCode = availableDbSubjects.find(s => (s.code || '').trim().toUpperCase() === c);
+        if (byCode) return byCode;
+      }
+      const rawName = (target.name || '').trim().toLowerCase();
+      const cleaned = rawName.replace(/\s*[\(\[][^()\[\]]*[\)\]]\s*$/, '').trim();
+      const byName = availableDbSubjects.find(s => {
+        const dbName = (s.name || '').trim().toLowerCase();
+        const dbCleaned = dbName.replace(/\s*[\(\[][^()\[\]]*[\)\]]\s*$/, '').trim();
+        return dbName === rawName || dbCleaned === cleaned || dbName === cleaned || dbCleaned === rawName;
+      });
+      if (byName) return byName;
+
+      const normRaw = cleaned.replace(/\blaboratory\b/gi, 'lab');
+      const byLab = availableDbSubjects.find(s => {
+        const normDb = (s.name || '').trim().toLowerCase().replace(/\blaboratory\b/gi, 'lab');
+        return normDb === normRaw;
+      });
+      if (byLab) return byLab;
+
+      return null;
+    };
+
+    if (item.subjects && item.subjects.length > 0) {
+      item.subjects.forEach(s => {
+        const dbMatch = findMatchingDbSubject(s);
+        if (dbMatch) {
+          if ((!s.abbreviation || !s.abbreviation.trim()) && dbMatch.abbreviation) {
+            s.abbreviation = dbMatch.abbreviation;
+          }
+          if ((!s.code || !s.code.trim()) && dbMatch.code) {
+            s.code = dbMatch.code;
+          }
+          if (!s.id && dbMatch.id) {
+            s.id = dbMatch.id;
+          }
+        }
+      });
+    } else if (availableDbSubjects.length > 0) {
+      item.subjects = availableDbSubjects.map(s => ({
+        id: s.id,
+        code: s.code || '',
+        name: s.name,
+        abbreviation: s.abbreviation || '',
+        type: s.type,
+        hoursPerWeek: s.hours_per_week,
+        staff: s.staff || ''
+      }));
+    }
+
+    // Attach all db subjects for slot lookup pool without polluting section legend
+    item.allDbSubjects = availableDbSubjects.map(s => ({
+      id: s.id,
+      code: s.code || '',
+      name: s.name,
+      abbreviation: s.abbreviation || '',
+      type: s.type,
+      hoursPerWeek: s.hours_per_week,
+      staff: s.staff || ''
+    }));
+  }
+}
+
+/**
  * Main export function for generating and downloading formal college timetables as PDF
  */
 export async function exportTimetablesToPdf(
@@ -925,6 +1073,9 @@ export async function exportTimetablesToPdf(
   if (!items || items.length === 0) {
     throw new Error('No timetables available to export.');
   }
+
+  // 1. Fetch from database: Enrich items with imported subjects & abbreviations
+  await enrichItemsWithDatabaseSubjects(items);
 
   const { pdfMake, pdfMakeModule, fonts, vfs } = await loadPdfMake();
 

@@ -847,6 +847,7 @@ export interface AllocationRow {
   category: string;
   hours: number;
   faculty: string;
+  abbreviation?: string;
 }
 
 export function getCategoryRank(cat: string): number {
@@ -1691,6 +1692,7 @@ interface SubjectRowWithFaculty {
   type: string;
   hoursPerWeek: number;
   facultyBySection: Record<string, string>; // section -> facultyName
+  abbreviation?: string;
 }
 
 interface GeneratedTimetableResult extends YearSectionResult {
@@ -2050,6 +2052,7 @@ export default function GenerateReviewPage() {
         category: cat,
         hours: sub.hoursPerWeek,
         faculty: fac,
+        abbreviation: sub.abbreviation,
       });
     });
 
@@ -2554,6 +2557,7 @@ export default function GenerateReviewPage() {
                 type: sub.type,
                 hoursPerWeek: sub.hoursPerWeek,
                 facultyBySection,
+                abbreviation: sub.abbreviation,
               };
             });
 
@@ -2968,18 +2972,26 @@ export default function GenerateReviewPage() {
 
         let exportSubjects: TimetableExportSubject[] = [];
         let exportSpecialHours: any[] = [];
+        const allYearSubjects = subjectsData[key] || [];
 
         // Apply updated Subject & Faculty Allocations from the table
         if (secAllocRows && secAllocRows.length > 0) {
           exportSubjects = secAllocRows
             .filter(row => !['special', 'seminar', 'library', 'counsel', 'counselling'].some(k => row.category.toLowerCase().includes(k) || row.title.toLowerCase().includes(k)) && !['SC', 'SEM', 'LIB'].includes((row.code || '').trim().toUpperCase()))
-            .map(row => ({
-              code: row.code && row.code !== '—' ? row.code : '',
-              name: row.title,
-              type: row.category.toLowerCase().includes('lab') ? 'lab' : (row.category.toLowerCase().includes('open') ? 'open elective' : (row.category.toLowerCase().includes('elective') ? 'elective' : 'theory')),
-              hoursPerWeek: row.hours,
-              staff: row.faculty && row.faculty !== '—' ? row.faculty : ''
-            }));
+            .map(row => {
+              const matchedSub = allYearSubjects.find(s =>
+                (row.code && s.code && s.code.trim().toUpperCase() === row.code.trim().toUpperCase()) ||
+                (s.name && s.name.toLowerCase().trim() === row.title.toLowerCase().trim())
+              );
+              return {
+                code: row.code && row.code !== '—' ? row.code : (matchedSub?.code || ''),
+                name: row.title,
+                type: row.category.toLowerCase().includes('lab') ? 'lab' : (row.category.toLowerCase().includes('open') ? 'open elective' : (row.category.toLowerCase().includes('elective') ? 'elective' : 'theory')),
+                hoursPerWeek: row.hours,
+                staff: row.faculty && row.faculty !== '—' ? row.faculty : '',
+                abbreviation: row.abbreviation || matchedSub?.abbreviation || '',
+              };
+            });
 
           exportSpecialHours = secAllocRows
             .filter(row => ['special', 'seminar', 'library', 'counsel', 'counselling'].some(k => row.category.toLowerCase().includes(k) || row.title.toLowerCase().includes(k)) || ['SC', 'SEM', 'LIB'].includes((row.code || '').trim().toUpperCase()))
@@ -2995,7 +3007,6 @@ export default function GenerateReviewPage() {
               };
             });
         } else {
-          const allYearSubjects = subjectsData[key] || [];
           const sectionSpecificIds = sectionSubjectsData[key]?.[r.section];
 
           const filteredSubjects = (sectionSpecificIds && sectionSpecificIds.size > 0)
@@ -3017,7 +3028,8 @@ export default function GenerateReviewPage() {
               name: s.name,
               type: s.type,
               hoursPerWeek: s.hoursPerWeek,
-              staff: s.facultyBySection[r.section] || ''
+              staff: s.facultyBySection[r.section] || '',
+              abbreviation: s.abbreviation || '',
             }));
 
           const specialFromSubjects = filteredSubjects

@@ -182,6 +182,16 @@ export async function deleteEvenSemesterSubjects(departmentId: string, year?: st
     .filter((s: any) => (!year || s.year === year) && (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t)))
     .map((s: any) => s.id);
   if (idsToDelete.length > 0) {
+    try {
+      await (supabase as any).from('faculty_subject_assignments').delete().in('subject_id', idsToDelete);
+    } catch (e) {
+      console.warn('Error clearing faculty_subject_assignments for even semester:', e);
+    }
+    try {
+      await (supabase as any).from('section_subjects').delete().in('subject_id', idsToDelete);
+    } catch (e) {
+      console.warn('Error clearing section_subjects for even semester:', e);
+    }
     await (supabase as any).from('subjects').delete().in('id', idsToDelete);
   }
 }
