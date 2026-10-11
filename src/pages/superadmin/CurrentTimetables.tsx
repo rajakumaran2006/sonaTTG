@@ -179,7 +179,7 @@ const CurrentTimetables = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    document.title = "Current Timetables - Sona TTG";
+    document.title = "Current Timetables - SonaTTG";
     const meta = document.querySelector('meta[name="description"]');
     if (meta) meta.setAttribute("content", "Browse live timetables by department, year, semester, and section.");
     const link: HTMLLinkElement = document.querySelector('link[rel="canonical"]') || document.createElement('link');

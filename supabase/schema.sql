@@ -1,5 +1,5 @@
 -- ==============================================================================
--- SONA TTG (OptiTime) — COMPLETE SUPABASE DATABASE SCHEMA
+-- SONA TTG (SonaTTG) — COMPLETE SUPABASE DATABASE SCHEMA
 -- ==============================================================================
 -- INSTRUCTIONS:
 -- 1. Create a new Supabase Project under your target organization.

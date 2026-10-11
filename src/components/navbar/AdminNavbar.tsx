@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload, Menu, ChevronRight, Moon, Sun, FileSpreadsheet, Building2, ChevronDown, ChevronUp, FlaskConical } from "lucide-react";
+import { Settings, User, LogOut, Home, BookOpen, Calendar, UserCheck, Upload, Menu, ChevronRight, FileSpreadsheet, Building2, ChevronDown, ChevronUp, FlaskConical } from "lucide-react";
 import { useTimetableStore } from "@/store/timetableStore";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useDarkMode } from "@/context/DarkModeContext";
@@ -42,7 +42,7 @@ const AdminNavbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const selection = useTimetableStore((s) => s.selection);
-  const { isDark, toggleDark } = useDarkMode();
+  const { isDark } = useDarkMode();
 
   const navItems: AdminNavItem[] = [
     { label: "Home", href: "/admin", icon: <Home className="h-[18px] w-[18px]" /> },
@@ -185,38 +185,18 @@ const AdminNavbar = () => {
         isDark ? 'border-indigo-500/15' : 'border-indigo-100/70'
       }`}>
         {/* Geometric logo mark with subtle neon rim */}
-        <div className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-md shrink-0 overflow-hidden border ${
-          isDark
-            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 border-indigo-400/30 shadow-[0_0_12px_-2px_rgba(99,102,241,0.3)]'
-            : 'bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600 border-indigo-300/40 shadow-[0_0_12px_-2px_rgba(99,102,241,0.2)] ring-1 ring-indigo-400/20'
-        }`}>
-          <svg viewBox="0 0 40 40" fill="none" className="h-6 w-6">
-            <circle cx="20" cy="20" r="18" fill="transparent" stroke="white" strokeWidth="2.5" />
-            <path d="M20 9 L20 31" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-            <path d="M9 20 L31 20" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-            <circle cx="20" cy="20" r="4.5" fill="white" />
-          </svg>
+        <div className="h-9 w-9 rounded-full flex items-center justify-center shadow-md shrink-0 overflow-hidden border p-0.5 transition-transform hover:scale-105 bg-white border-indigo-200/80 dark:border-white/20 shadow-[0_0_12px_-2px_rgba(99,102,241,0.2)] ring-1 ring-indigo-400/20">
+          <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
         </div>
         <div className="flex-1 min-w-0 flex flex-col justify-center">
           <span className={`text-base font-extrabold tracking-tight leading-tight block ${
             isDark ? 'text-white' : 'bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent'
-          }`}>OptiTime</span>
+          }`}>SonaTTG</span>
           <span className={`text-[10px] font-bold leading-none block tracking-wide ${
             isDark ? 'text-indigo-400' : 'text-indigo-600'
           }`}>Admin Console</span>
         </div>
-        {/* Dark mode toggle */}
-        <button
-          onClick={toggleDark}
-          className={`p-2 rounded-xl transition-all shrink-0 ${
-            isDark
-              ? 'text-white/50 hover:text-white hover:bg-white/10 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]'
-              : 'text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50/80 border border-indigo-100/70 shadow-xs'
-          }`}
-          title={isDark ? 'Light mode' : 'Dark mode'}
-        >
-          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
+
       </div>
 
       {/* Navigation */}
@@ -354,22 +334,13 @@ const AdminNavbar = () => {
           </Sheet>
 
           <Link to="/admin" className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-sm shadow-indigo-500/25">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <path d="M12 2v20" />
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
+            <div className="h-8 w-8 rounded-full bg-white border border-indigo-200 dark:border-white/20 flex items-center justify-center shadow-sm shadow-indigo-500/25 overflow-hidden p-0.5">
+                <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
             </div>
-            <span className={`font-bold text-lg tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>OptiTime</span>
+            <span className={`font-bold text-lg tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>SonaTTG</span>
           </Link>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleDark}
-              className={`p-2 rounded-xl transition-all duration-300 ${isDark ? 'bg-gray-800 text-yellow-400' : 'bg-slate-100 text-slate-500'}`}
-            >
-              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 p-0 border border-slate-200 dark:border-white/10">

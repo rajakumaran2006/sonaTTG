@@ -7,19 +7,19 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/navbar/Navbar";
-import { LogIn, ShieldCheck, Building2, School, Eye, EyeOff, Sun, Moon } from "lucide-react";
+import { LogIn, ShieldCheck, Building2, School, Eye, EyeOff } from "lucide-react";
 import { useDarkMode } from "@/context/DarkModeContext";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { isDark, toggleDarkMode } = useDarkMode();
+  const { isDark } = useDarkMode();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    document.title = "Login | SONA TTG";
+    document.title = "Login | SonaTTG";
     
     // Check if user is already logged in
     const adminUser = localStorage.getItem("adminUser");
@@ -152,29 +152,20 @@ const Login = () => {
 
       <Navbar />
 
-      {/* Top Bar with Brand & Theme Toggle */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-3">
-        <button
-          onClick={toggleDarkMode}
-          className="p-2.5 rounded-full border border-indigo-500/20 bg-white/70 dark:bg-[#0c1020]/80 backdrop-blur-xl text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-500/40 shadow-sm transition-all"
-          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-        >
-          {isDark ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
-        </button>
-      </div>
+
 
       <section className="relative z-10 flex flex-col items-center justify-center min-h-screen px-4 pt-16 pb-10">
         <div className="w-full max-w-md animate-scale-up duration-500">
           <div className="rounded-[2.5rem] border border-slate-200/80 dark:border-indigo-500/20 bg-white/80 dark:bg-[#0f1527]/90 backdrop-blur-xl shadow-[0_20px_50px_rgba(15,23,42,0.06)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 hover:border-slate-300/50 dark:hover:border-indigo-500/35">
             <CardHeader className="text-center pt-10 pb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl shadow-lg shadow-indigo-500/25 flex items-center justify-center mx-auto mb-6 transform hover:rotate-6 transition-transform cursor-pointer">
-                <LogIn className="w-8 h-8 text-white font-bold" />
+              <div className="w-20 h-20 rounded-full bg-white border border-indigo-100 dark:border-white/20 shadow-xl shadow-indigo-500/10 flex items-center justify-center mx-auto mb-6 p-1 transform hover:scale-105 transition-all duration-300 cursor-pointer">
+                <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain filter drop-shadow-sm" />
               </div>
               <CardTitle className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300">
                 Welcome Back
               </CardTitle>
               <CardDescription className="text-slate-500 dark:text-slate-400 mt-2">
-                Access your OptiTime dashboard securely
+                Access your SonaTTG dashboard securely
               </CardDescription>
             </CardHeader>
             <CardContent className="px-8 pb-12">

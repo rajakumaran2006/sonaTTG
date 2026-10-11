@@ -17,8 +17,6 @@ import {
   User, 
   UserCheck, 
   Menu, 
-  Sun, 
-  Moon, 
   LogOut, 
   ChevronRight 
 } from "lucide-react";
@@ -37,7 +35,7 @@ const Navbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
-  const { isDark, toggleDark } = useDarkMode();
+  const { isDark } = useDarkMode();
   const { pathname } = useLocation();
   const [deptName, setDeptName] = useState("");
 
@@ -150,37 +148,19 @@ const Navbar = () => {
         isDark ? 'border-indigo-500/15' : 'border-indigo-100/70'
       }`}>
         <Link to="/super-admin" className="flex items-center gap-2.5">
-          <div className={`h-9 w-9 rounded-xl flex items-center justify-center shadow-md shrink-0 overflow-hidden border ${
-            isDark
-              ? 'bg-gradient-to-br from-indigo-500 to-purple-600 border-indigo-400/30 shadow-[0_0_12px_-2px_rgba(99,102,241,0.3)]'
-              : 'bg-gradient-to-br from-indigo-600 via-indigo-500 to-purple-600 border-indigo-300/40 shadow-[0_0_12px_-2px_rgba(99,102,241,0.2)] ring-1 ring-indigo-400/20'
-          }`}>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-white">
-              <path d="M12 2v20" />
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
+          <div className="h-9 w-9 rounded-full flex items-center justify-center shadow-md shrink-0 overflow-hidden border p-0.5 transition-transform hover:scale-105 bg-white border-indigo-200/80 dark:border-white/20 shadow-[0_0_12px_-2px_rgba(99,102,241,0.2)] ring-1 ring-indigo-400/20">
+            <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
           </div>
           <div>
             <span className={`text-base font-extrabold tracking-tight leading-tight block ${
               isDark ? 'text-white' : 'bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 bg-clip-text text-transparent'
-            }`}>OptiTime</span>
+            }`}>SonaTTG</span>
             <span className={`text-[10px] font-bold leading-none block tracking-wide ${
               isDark ? 'text-indigo-400' : 'text-indigo-600'
             }`}>Super Admin</span>
           </div>
         </Link>
-        {/* Dark Mode Toggle */}
-        <button
-          onClick={toggleDark}
-          className={`ml-auto p-2 rounded-xl transition-all duration-300 ${
-            isDark
-              ? 'text-white/60 hover:text-white hover:bg-white/10 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]'
-              : 'text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50/80 border border-indigo-100/70 shadow-xs'
-          }`}
-          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-        >
-          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
+
       </div>
 
       {/* Navigation */}
@@ -311,24 +291,14 @@ const Navbar = () => {
           </Sheet>
 
           <Link to="/super-admin" className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white font-bold shadow-sm shadow-indigo-500/25">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                <path d="M12 2v20" />
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-              </svg>
+            <div className="h-8 w-8 rounded-full bg-white border border-indigo-200 dark:border-white/20 flex items-center justify-center shadow-sm shadow-indigo-500/25 overflow-hidden p-0.5">
+              <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
             </div>
-            <span className={`font-bold text-base tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>OptiTime</span>
+            <span className={`font-bold text-base tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>SonaTTG</span>
           </Link>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={toggleDark}
-              className={`p-2 rounded-xl transition-all duration-300 ${
-                isDark ? 'text-white/60 hover:text-white hover:bg-white/10' : 'text-indigo-600 hover:bg-indigo-50'
-              }`}
-            >
-              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 p-0 ring-2 ring-indigo-500/20">

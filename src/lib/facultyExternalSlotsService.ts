@@ -18,7 +18,8 @@ export interface ExternalFacultySlot {
   updated_at?: string;
 }
 
-const STORAGE_KEY = 'optitime_external_faculty_slots';
+const STORAGE_KEY = 'sonattg_external_faculty_slots';
+const LEGACY_STORAGE_KEY = 'optitime_external_faculty_slots';
 
 /**
  * Loads all cached external faculty slots from localStorage.
@@ -26,7 +27,7 @@ const STORAGE_KEY = 'optitime_external_faculty_slots';
 function getLocalExternalSlots(): ExternalFacultySlot[] {
   if (typeof window === 'undefined' || !window.localStorage) return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

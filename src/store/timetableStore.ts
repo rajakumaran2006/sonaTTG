@@ -75,7 +75,7 @@ const PERIODS = 7;
 export const useTimetableStore = create<TimetableState>((set, get) => ({
   selection: (() => {
     try {
-      const stored = localStorage.getItem("optitime_selection");
+      const stored = localStorage.getItem("sonattg_selection") || localStorage.getItem("optitime_selection");
       return stored ? JSON.parse(stored) : {};
     } catch {
       return {};
@@ -90,7 +90,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   labPreferences: {},
   semesterType: (() => {
     try {
-      const stored = localStorage.getItem("optitime_semester_type");
+      const stored = localStorage.getItem("sonattg_semester_type") || localStorage.getItem("optitime_semester_type");
       return (stored === "even" || stored === "odd") ? stored : "odd";
     } catch {
       return "odd";
@@ -98,7 +98,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   })(),
   setSemesterType: (sem) => {
     try {
-      localStorage.setItem("optitime_semester_type", sem);
+      localStorage.setItem("sonattg_semester_type", sem);
     } catch (e) {
       console.warn("Failed to save semesterType to localStorage:", e);
     }
@@ -127,7 +127,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
 
     // Save selection to localStorage
     try {
-      localStorage.setItem("optitime_selection", JSON.stringify(nextSelection));
+      localStorage.setItem("sonattg_selection", JSON.stringify(nextSelection));
     } catch (e) {
       console.warn("Failed to save selection to localStorage:", e);
     }

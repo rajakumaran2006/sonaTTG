@@ -1,36 +1,32 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, ReactNode } from "react";
 
 interface DarkModeContextType {
   isDark: boolean;
   toggleDark: () => void;
+  toggleDarkMode?: () => void;
 }
 
 const DarkModeContext = createContext<DarkModeContextType>({
   isDark: false,
   toggleDark: () => {},
+  toggleDarkMode: () => {},
 });
 
 export const useDarkMode = () => useContext(DarkModeContext);
 
 export const DarkModeProvider = ({ children }: { children: ReactNode }) => {
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    return localStorage.getItem("darkMode") === "true";
-  });
-
   useEffect(() => {
     const root = document.documentElement;
-    if (isDark) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
+    root.classList.remove("dark");
+    try {
+      localStorage.removeItem("darkMode");
+    } catch {
+      // ignore
     }
-    localStorage.setItem("darkMode", String(isDark));
-  }, [isDark]);
-
-  const toggleDark = () => setIsDark((prev) => !prev);
+  }, []);
 
   return (
-    <DarkModeContext.Provider value={{ isDark, toggleDark }}>
+    <DarkModeContext.Provider value={{ isDark: false, toggleDark: () => {}, toggleDarkMode: () => {} }}>
       {children}
     </DarkModeContext.Provider>
   );

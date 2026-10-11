@@ -1,4 +1,4 @@
-# SONA TTG (OptiTime) — Next-Gen UI/UX Design Specification & Stitch Blueprint
+# SonaTTG — Next-Gen UI/UX Design Specification & Stitch Blueprint
 
 > **Platform:** Academic Timetable Generation & Resource Management Engine  
 > **Target Audience:** College Super Admins, Department HODs & Timetable Coordinators, Faculty Members  
@@ -134,7 +134,7 @@
 ### 2.1 Pinned Left Navigation Rail (Desktop)
 * **Width:** 260px (collapsible to 72px icon-rail).
 * **Brand Header:**
-  * College Monogram + OptiTime logo badge with gradient icon.
+  * College Monogram + SonaTTG logo badge with gradient icon.
   * Active Department Selector dropdown (for multi-department admins).
 * **Navigation Links Grouped by Function:**
   * **Core Operations:**
@@ -166,7 +166,7 @@
 
 ### Screen 1: Unified Auth & Fast Role Switcher (`/`)
 * **Layout:** Centered floating container on ambient floating mesh background with subtle glow orbs.
-* **Header:** Modern college branding, title "Sign in to OptiTime", subtitle "Autonomous Academic Timetable System".
+* **Header:** Modern college branding, title "Sign in to SonaTTG", subtitle "Autonomous Academic Timetable System".
 * **Login Form:**
   * Single input for Email / Staff ID with automatic role detection.
   * Password field with eye reveal icon (optional for faculty passwordless flow).
@@ -329,7 +329,7 @@
 ## 5. Master Prompt for Stitch / AI UI Generation
 
 ```markdown
-Design a next-generation, high-density academic operations and automated timetable generator web platform called "OptiTime (SONA TTG)".
+Design a next-generation, high-density academic operations and automated timetable generator web platform called "SonaTTG".
 
 ### 1. Aesthetic & Design System:
 - Style: Premium modern SaaS inspired by Linear, Apple macOS Pro, and Vercel. 

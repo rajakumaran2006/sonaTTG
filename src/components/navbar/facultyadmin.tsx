@@ -6,7 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { getPendingPRCount } from "@/lib/supabaseService";
-import { Settings, User, UserCheck, LogOut, Menu, Sun, Moon, Home, BookOpen, Upload, Calendar } from "lucide-react";
+import { Settings, User, UserCheck, LogOut, Menu, Home, BookOpen, Upload, Calendar } from "lucide-react";
 import { useDarkMode } from "@/context/DarkModeContext";
 
 export interface NavItem {
@@ -20,7 +20,7 @@ const Navbar = () => {
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
-  const { isDark, toggleDark } = useDarkMode();
+  const { isDark } = useDarkMode();
 
   const userSession = useMemo(() => {
     try {
@@ -48,8 +48,7 @@ const Navbar = () => {
 
     if (userSession.role === "Faculty") {
       return [
-        { label: "Dashboard", href: "/faculty", icon: <Home className="h-4 w-4" /> },
-        { label: "Subjects", href: "/faculty/subjects", icon: <BookOpen className="h-4 w-4" /> }
+        { label: "Dashboard", href: "/faculty", icon: <Home className="h-4 w-4" /> }
       ];
     }
 
@@ -127,8 +126,11 @@ const Navbar = () => {
   const SidebarContent = () => (
     <div className="flex h-full flex-col p-4 bg-background">
       <div className="flex h-12 items-center border-b pb-4 mb-4">
-        <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
-          OptiTime
+        <Link to={getLogoLink()} className="flex items-center gap-2.5 font-bold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
+          <div className="h-8 w-8 rounded-full bg-white border border-indigo-200 dark:border-white/20 flex items-center justify-center shadow-xs overflow-hidden p-0.5 shrink-0">
+            <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
+          </div>
+          <span>SonaTTG</span>
         </Link>
       </div>
       <nav className="flex-1 space-y-1.5">
@@ -175,8 +177,11 @@ const Navbar = () => {
         
         {/* Left Side: Brand Logo and Desktop Nav */}
         <div className="flex items-center gap-6">
-          <Link to={getLogoLink()} className="font-bold text-lg tracking-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
-            OptiTime
+          <Link to={getLogoLink()} className="flex items-center gap-2.5 font-bold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600">
+            <div className="h-8 w-8 rounded-full bg-white border border-indigo-200 dark:border-white/20 flex items-center justify-center shadow-xs overflow-hidden p-0.5 shrink-0">
+              <img src="/logo-icon.png" alt="SonaTTG" className="w-full h-full object-contain" />
+            </div>
+            <span>SonaTTG</span>
           </Link>
           
           <div className="hidden md:flex items-center gap-1.5">
@@ -209,14 +214,7 @@ const Navbar = () => {
             {userSession.role}
           </Badge>
           
-          {/* Dark Mode Switcher */}
-          <button
-            onClick={toggleDark}
-            className="p-2 rounded-xl transition-all duration-300 hover:bg-muted text-muted-foreground hover:text-foreground"
-            title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
+
 
           {/* Mobile Hamburger Drawer */}
           <div className="md:hidden">
