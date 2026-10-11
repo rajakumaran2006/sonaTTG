@@ -89,16 +89,25 @@ export function getSemesterRoman(year: string, semesterType: 'odd' | 'even' = 'o
 
 export function getDeptShortName(deptName: string): string {
   const n = (deptName || '').toLowerCase().trim();
-  if (n.includes('information tech') || n === 'it') return 'IT';
-  if (n.includes('artificial intelligence') || n.includes('ai&ds') || n.includes('aids') || n.includes('ad')) return 'AI&DS';
-  if (n.includes('computer science') || n === 'cse') return 'CSE';
-  if (n.includes('mechanical') || n === 'mech') return 'MECH';
-  if (n.includes('civil')) return 'CIVIL';
-  if (n.includes('electrical') || n === 'eee') return 'EEE';
-  if (n.includes('electronics') || n === 'ece') return 'ECE';
-  if (n.includes('fashion') || n === 'ft') return 'FT';
-  if (n.includes('mechatronics') || n === 'mct') return 'MCT';
-  return deptName.split(' ').map(w => w[0]).join('').toUpperCase() || 'DEPT';
+  if (n.includes('information tech') || n === 'it' || /\bit\b/i.test(n)) return 'IT';
+  if (
+    n.includes('artificial intelligence') ||
+    n.includes('ai&ds') ||
+    n.includes('aids') ||
+    n.includes('ai & ds') ||
+    n.includes('ai and ds') ||
+    n === 'ad' ||
+    /\bads\b/i.test(n) ||
+    /\baids\b/i.test(n)
+  ) return 'AI&DS';
+  if (n.includes('computer science') || n === 'cse' || /\bcse\b/i.test(n)) return 'CSE';
+  if (n.includes('mechanical') || n === 'mech' || /\bmech\b/i.test(n)) return 'MECH';
+  if (n.includes('civil') || /\bcivil\b/i.test(n)) return 'CIVIL';
+  if (n.includes('electrical') || n === 'eee' || /\beee\b/i.test(n)) return 'EEE';
+  if (n.includes('electronics') || n === 'ece' || /\bece\b/i.test(n)) return 'ECE';
+  if (n.includes('fashion') || n === 'ft' || /\bft\b/i.test(n)) return 'FT';
+  if (n.includes('mechatronics') || n === 'mct' || /\bmct\b/i.test(n)) return 'MCT';
+  return (deptName || '').split(' ').map(w => w[0]).join('').toUpperCase() || 'DEPT';
 }
 
 /** Expands short/abbreviated department names to full official names */
@@ -363,7 +372,7 @@ async function loadTimesFonts(pdfMake: any): Promise<boolean> {
   return timesFontsLoadingPromise;
 }
 
-async function loadPdfMake() {
+export async function loadPdfMake() {
   const pdfMakeModule = await import('pdfmake/build/pdfmake');
   const pdfMake: any = pdfMakeModule.default || pdfMakeModule;
   const vfsFontsModule: any = await import('pdfmake/build/vfs_fonts');
@@ -392,7 +401,7 @@ async function loadPdfMake() {
   return { pdfMake, pdfMakeModule, fonts: activeFonts, vfs: activeVfs };
 }
 
-async function triggerDownload(
+export async function triggerDownload(
   pdfDoc: any,
   fileName: string
 ): Promise<void> {

@@ -2,6 +2,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Subject } from "@/store/timetableStore";
 import type { Grid } from "./timetable";
 
+import { getExternalFacultySlots } from "./facultyExternalSlotsService";
+
 export interface FacultyAssignmentRecord {
   subjectId: string;
   year?: string | null;
@@ -11,8 +13,10 @@ export interface FacultyAssignmentRecord {
 export interface FacultyAllocation {
   facultyId: string;
   facultyName: string;
+  designation?: string;
   assignedSlots: Set<string>; // e.g., "mon-p1", "tue-p3"
   availableSlots: Set<string>;
+  dailyHours: number[]; // teaching hours per day [Mon, Tue, Wed, Thu, Fri, Sat] (indices 0..5)
   labPreference: boolean;
   subjectIds: Set<string>; // subjects this faculty teaches
   assignments?: FacultyAssignmentRecord[]; // detailed assignments with year/section
@@ -155,6 +159,20 @@ export async function fetchFacultyExistingAllocations(
       });
     });
 
+    // Also include cross-department external slots so global faculty availability is fully conflict-aware
+    try {
+      const extSlots = await getExternalFacultySlots();
+      extSlots.forEach(ext => {
+        if (ext.day >= 0 && ext.day < 6 && ext.period >= 0 && ext.period < PERIODS) {
+          const slotId = createSlotId(ext.day, ext.period);
+          if (!facultyAllocations.has(ext.faculty_id)) {
+            facultyAllocations.set(ext.faculty_id, new Set());
+          }
+          facultyAllocations.get(ext.faculty_id)!.add(slotId);
+        }
+      });
+    } catch (_) {}
+
   } catch (error) {
     console.error('Error fetching faculty allocations:', error);
   }
@@ -183,7 +201,7 @@ export async function buildFacultyAllocationMap(
     // Get faculty members
     let facultyQuery = supabase
       .from('faculty_members')
-      .select('id, name, takes_electives, department_id');
+      .select('id, name, takes_electives, department_id, designation');
     if (departmentId && !options?.allClasses) {
       facultyQuery = facultyQuery.eq('department_id', departmentId);
     }
@@ -265,11 +283,22 @@ export async function buildFacultyAllocationMap(
         }
       }
       
+      const dailyHours = [0, 0, 0, 0, 0, 0];
+      assignedSlots.forEach(slotId => {
+        const prefix = slotId.split('-')[0].toLowerCase();
+        const d = DAYS.indexOf(prefix as any);
+        if (d >= 0 && d < 6) {
+          dailyHours[d]++;
+        }
+      });
+
       facultyMap.set(f.id, {
         facultyId: f.id,
         facultyName: f.name,
+        designation: f.designation || undefined,
         assignedSlots,
         availableSlots,
+        dailyHours,
         // takes_electives is only for open electives; do not disable lab if null or true
         labPreference: f.takes_electives !== false,
         subjectIds: facultySubjects.get(f.id) || new Set(),
@@ -283,6 +312,36 @@ export async function buildFacultyAllocationMap(
   }
 
   return facultyMap;
+}
+
+/**
+ * Checks if a subject is taught by a Professor or Associate Professor
+ */
+export function isSubjectTaughtByProfessor(
+  subjectId: string,
+  facultyMap: Map<string, FacultyAllocation>,
+  year?: string,
+  section?: string
+): boolean {
+  if (!facultyMap || facultyMap.size === 0) return false;
+  const subjectIds = subjectId.includes('_') ? subjectId.split('_') : [subjectId];
+  for (const subId of subjectIds) {
+    for (const faculty of facultyMap.values()) {
+      const teachesSubject = faculty.assignments?.some(a =>
+        a.subjectId === subId &&
+        (!a.year || !year || a.year.toUpperCase() === year.toUpperCase()) &&
+        (!a.section || !section || a.section.toUpperCase() === section.toUpperCase())
+      ) || faculty.subjectIds.has(subId);
+
+      if (teachesSubject) {
+        const desig = (faculty.designation || '').toLowerCase();
+        if (desig.includes('professor')) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -366,8 +425,13 @@ export function findAvailableFacultyForSlot(
       };
     }
     
-    // Prioritize faculty with fewer current assignments (workload balancing)
+    // Prioritize faculty with fewer assignments on this day, then fewer total assignments
     const selectedFaculty = availableFaculty.reduce((best, current) => {
+      const bestDay = best.dailyHours?.[day] || 0;
+      const currentDay = current.dailyHours?.[day] || 0;
+      if (currentDay !== bestDay) {
+        return currentDay < bestDay ? current : best;
+      }
       const bestAssigned = best.assignedSlots.size;
       const currentAssigned = current.assignedSlots.size;
       return currentAssigned < bestAssigned ? current : best;
@@ -387,7 +451,7 @@ export function findAvailableFacultyForSlot(
 }
 
 /**
- * Allocates a faculty to a time slot and updates their availability.
+ * Allocates a faculty to a time slot and updates their availability and daily load.
  * Supports combined faculty IDs (separated by '_') for parallel electives.
  */
 export function allocateFacultyToSlot(
@@ -415,9 +479,127 @@ export function allocateFacultyToSlot(
     // Allocate the slot
     faculty.assignedSlots.add(slotId);
     faculty.availableSlots.delete(slotId);
+    if (!faculty.dailyHours) {
+      faculty.dailyHours = [0, 0, 0, 0, 0, 0];
+    }
+    if (day >= 0 && day < 6) {
+      faculty.dailyHours[day] = (faculty.dailyHours[day] || 0) + 1;
+    }
   }
   
   return allSuccess;
+}
+
+/**
+ * Releases a faculty from a time slot and updates their daily load.
+ */
+export function releaseFacultySlot(
+  facultyId: string,
+  day: number,
+  period: number,
+  facultyMap: Map<string, FacultyAllocation>
+): void {
+  const facultyIds = facultyId.includes('_') ? facultyId.split('_') : [facultyId];
+  const slotId = createSlotId(day, period);
+  for (const facId of facultyIds) {
+    const faculty = facultyMap.get(facId);
+    if (!faculty) continue;
+    faculty.assignedSlots.delete(slotId);
+    faculty.availableSlots.add(slotId);
+    if (faculty.dailyHours && day >= 0 && day < 6) {
+      faculty.dailyHours[day] = Math.max(0, (faculty.dailyHours[day] || 0) - 1);
+    }
+  }
+}
+
+/**
+ * Returns the assigned faculty's current teaching load for a given day (0..5: Mon..Sat).
+ * If multiple faculty teach the subject (e.g. elective or team-teaching), returns the maximum daily load among them.
+ */
+export function getFacultyDayLoad(
+  subjectId: string,
+  day: number,
+  facultyMap?: Map<string, FacultyAllocation>,
+  year?: string,
+  section?: string
+): number {
+  if (!facultyMap || facultyMap.size === 0) return 0;
+  const subIds = subjectId.includes('_') ? subjectId.split('_') : [subjectId];
+  let maxLoad = 0;
+  let found = false;
+
+  for (const subId of subIds) {
+    for (const faculty of facultyMap.values()) {
+      let teaches = false;
+      if (faculty.assignments && faculty.assignments.length > 0) {
+        teaches = faculty.assignments.some(a =>
+          a.subjectId === subId &&
+          (!a.year || !year || a.year.toUpperCase() === year.toUpperCase()) &&
+          (!a.section || !section || a.section.toUpperCase() === section.toUpperCase())
+        );
+      }
+      if (!teaches && faculty.subjectIds.has(subId)) {
+        teaches = true;
+      }
+
+      if (teaches) {
+        found = true;
+        const load = faculty.dailyHours?.[day] ?? 0;
+        if (load > maxLoad) {
+          maxLoad = load;
+        }
+      }
+    }
+  }
+
+  return found ? maxLoad : 0;
+}
+
+/**
+ * Sorts candidate days (e.g. [0, 1, 2, 3, 4] for Mon-Fri or [0..5] for Mon-Sat)
+ * to balance faculty teaching workload evenly across the entire week:
+ * 1. Days where the faculty currently has 0 hours (e.g. Monday!) receive highest priority.
+ * 2. Days with lower hours come before days with higher hours.
+ * 3. Days where faculty already has >= 5 hours are strongly deprioritized to avoid overloading.
+ * 4. Ties between days with equal load are randomized to ensure natural, realistic distribution.
+ */
+export function sortDaysByFacultyLoad(
+  days: number[],
+  subjectId: string,
+  facultyMap?: Map<string, FacultyAllocation>,
+  year?: string,
+  section?: string
+): number[] {
+  if (!facultyMap || facultyMap.size === 0) {
+    const a = [...days];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  const dayLoads = new Map<number, number>();
+  for (const d of days) {
+    dayLoads.set(d, getFacultyDayLoad(subjectId, d, facultyMap, year, section));
+  }
+
+  const copy = [...days];
+  return copy.sort((a, b) => {
+    const loadA = dayLoads.get(a) || 0;
+    const loadB = dayLoads.get(b) || 0;
+
+    // Days with 5 or more hours are strictly deprioritized
+    const penaltyA = loadA >= 5 ? 100 : 0;
+    const penaltyB = loadB >= 5 ? 100 : 0;
+    if (penaltyA !== penaltyB) return penaltyA - penaltyB;
+
+    // Lower hours come first (0 hours like Monday gets highest priority!)
+    if (loadA !== loadB) return loadA - loadB;
+
+    // Random tie-break for days with identical load
+    return Math.random() - 0.5;
+  });
 }
 
 /**

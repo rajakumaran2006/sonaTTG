@@ -11,6 +11,7 @@ import Navbar from "@/components/navbar/Navbar";
 import { Calendar, GitPullRequest, Users, BarChart3, Plus, Settings, Upload } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 
 type Department = { id: string; name: string };
 
@@ -51,6 +52,7 @@ const SuperAdminDashboard = () => {
   const [recent, setRecent] = useState<Activity[]>([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [newDeptName, setNewDeptName] = useState("");
+  const [facultyModalOpen, setFacultyModalOpen] = useState(false);
   const isLoggedIn = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
   useEffect(() => {
     document.title = "Super Admin - Dashboard";
@@ -252,6 +254,18 @@ const SuperAdminDashboard = () => {
                 >
                   <Settings className="h-3.5 w-3.5 text-indigo-400" />
                   <span>Settings</span>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setFacultyModalOpen(true)} 
+                  className={`rounded-xl border transition-all flex items-center gap-2 h-9 font-semibold px-3.5 text-xs ${
+                    isDark 
+                      ? "bg-white/5 border-indigo-500/20 text-indigo-300 hover:bg-white/10 hover:border-indigo-400/40" 
+                      : "bg-white border-indigo-200/80 text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300"
+                  }`}
+                >
+                  <Calendar className="h-3.5 w-3.5 text-indigo-400" />
+                  <span>Faculty Timetables</span>
                 </Button>
               </div>
             </div>
@@ -516,6 +530,13 @@ const SuperAdminDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Faculty Timetable Modal for inspection & PDF downloads */}
+      <FacultyTimetableModal
+        open={facultyModalOpen}
+        onClose={() => setFacultyModalOpen(false)}
+        defaultDepartmentId={deptId || departments[0]?.id}
+      />
     </div>
   );
 };

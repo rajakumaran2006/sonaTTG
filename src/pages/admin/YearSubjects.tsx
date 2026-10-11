@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { getSubjectsForYear, getOpenElectiveHours, getOpenElectiveConfig, setOpenElectiveConfig, hasEvenSemesterSubjects } from "@/lib/supabaseService";
 import { useTimetableStore } from "@/store/timetableStore";
@@ -18,14 +18,14 @@ import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock, Sparkles } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock, Sparkles, BookMarked } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useDarkMode } from "@/context/DarkModeContext";
 
 interface SubjectRow {
   id: string;
   name: string;
-  type: 'theory' | 'lab' | 'elective' | 'open elective' | 'special';
+  type: 'theory' | 'lab' | 'elective' | 'open elective' | 'special' | 'project';
   hours_per_week: number;
   year: string;
   code: string | null;
@@ -45,6 +45,9 @@ const YearSubjects = () => {
   const { isDark } = useDarkMode();
   const { id, year } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const semesterType = useTimetableStore((s) => s.semesterType);
+  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
   const superAdmin = localStorage.getItem("superAdmin") === "true";
   const adminUser = localStorage.getItem("adminUser");
   const facultyUser = localStorage.getItem("facultyUser");
@@ -57,6 +60,8 @@ const YearSubjects = () => {
     return null;
   }, [adminUser, facultyUser]);
 
+  const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+  const [activeDeptId, setActiveDeptId] = useState<string>(() => id || searchParams.get('deptId') || "");
   const [deptName, setDeptName] = useState<string>("");
   const [subjects, setSubjects] = useState<SubjectRow[]>([]);
   const [sections, setSections] = useState<string[]>([]);
@@ -70,7 +75,7 @@ const YearSubjects = () => {
 
   // form state for add/edit
   const [name, setName] = useState("");
-  const [type, setType] = useState<'theory' | 'lab' | 'elective' | 'open elective' | 'special'>("theory");
+  const [type, setType] = useState<'theory' | 'lab' | 'elective' | 'open elective' | 'special' | 'project'>("theory");
   const [hours, setHours] = useState<number>(1);
   const [code, setCode] = useState("");
   const [maxFacultyCount, setMaxFacultyCount] = useState<number>(1);
@@ -111,6 +116,7 @@ const YearSubjects = () => {
   const [groupName, setGroupName] = useState('');
   const [groupHoursInput, setGroupHoursInput] = useState<number>(3);
   const [groupingSaving, setGroupingSaving] = useState(false);
+  const [addingLib, setAddingLib] = useState(false);
 
   const filteredSubjects = useMemo(() => {
     return subjects.filter((s) => {
@@ -148,7 +154,9 @@ const YearSubjects = () => {
   }, [subjects, openElectiveTotalHours]);
 
   const theoryHours = useMemo(() => {
-    const traditionalTheory = subjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hours_per_week || 0), 0);
+    const traditionalTheory = subjects
+      .filter(s => s.type === 'theory' || s.type === 'project')
+      .reduce((a, b) => a + (b.hours_per_week || 0), 0);
     return traditionalTheory + electiveHours + openElectiveHours;
   }, [subjects, electiveHours, openElectiveHours]);
 
@@ -159,10 +167,15 @@ const YearSubjects = () => {
   }, [theoryHours, labHours]);
 
   const totalSpecialHours = useMemo(() => {
-    const configHours = specialHours.reduce((acc, curr) => acc + (curr.total_hours || 0), 0);
-    const subjectHours = subjects.filter(s => s.type === 'special').reduce((a, b) => a + (b.hours_per_week || 0), 0);
+    const satHours = specialHours.reduce((acc, curr) => acc + (curr.saturday_hours || 0), 0);
+    const defaultSat = year === 'II' ? 3 : (year === 'III' || year === 'IV' ? 5 : 0);
+    const configHours = satHours > 0 ? satHours : defaultSat;
+
+    const subjectHours = subjects
+      .filter(s => s.type === 'special')
+      .reduce((a, b) => a + (b.hours_per_week || 0), 0);
     return configHours + subjectHours;
-  }, [specialHours, subjects]);
+  }, [specialHours, subjects, year]);
 
   const grandTotalHours = useMemo(() => {
     return totalHours + totalSpecialHours;
@@ -171,7 +184,7 @@ const YearSubjects = () => {
   const specialHoursBreakdown = useMemo(() => {
     const breakdown = specialHours.map(sh => ({
       name: sh.special_type,
-      hours: sh.total_hours || 0
+      hours: sh.saturday_hours || (sh.special_type.toLowerCase().includes('library') ? 1 : 2)
     })).filter(item => item.hours > 0);
 
     subjects.filter(s => s.type === 'special').forEach(s => {
@@ -182,7 +195,7 @@ const YearSubjects = () => {
     });
 
     return breakdown;
-  }, [specialHours, subjects]);
+  }, [specialHours, subjects, year]);
 
 
 
@@ -192,69 +205,191 @@ const YearSubjects = () => {
     if (meta) meta.setAttribute("content", "Add, update, and delete subjects for the selected department year.");
   }, [year]);
 
-  const semesterType = useTimetableStore((s) => s.semesterType);
-  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
+  useEffect(() => {
+    (async () => {
+      if (superAdmin) {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .order('name');
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          const qDept = searchParams.get('deptId') || id;
+          const matched = data.find((d: any) => d.id === qDept);
+          const chosen = matched?.id || data[0].id;
+          setActiveDeptId(chosen);
+        }
+        return;
+      }
+
+      if (!sessionUser) return;
+
+      let deptIds: string[] = [];
+      if (sessionUser.id) {
+        const { data: adminDepts } = await (supabase as any)
+          .from('admin_departments')
+          .select('department_id')
+          .eq('admin_id', sessionUser.id);
+        if (adminDepts && adminDepts.length > 0) {
+          deptIds = adminDepts.map((d: any) => d.department_id);
+        }
+      }
+
+      if (deptIds.length === 0) {
+        if (sessionUser.department_ids && sessionUser.department_ids.length > 0) {
+          deptIds = sessionUser.department_ids;
+        } else if (sessionUser.department_id) {
+          deptIds = [sessionUser.department_id];
+        }
+      }
+
+      if (deptIds.length > 0) {
+        const { data } = await (supabase as any)
+          .from('departments')
+          .select('id, name')
+          .in('id', deptIds)
+          .order('name');
+
+        if (data && data.length > 0) {
+          setAllocatedDepts(data);
+          const qDept = searchParams.get('deptId') || id;
+          const matchedQ = data.find((d: any) => d.id === qDept);
+          const matchedStored = adminUser ? (() => {
+            try {
+              const p = JSON.parse(adminUser);
+              return data.find((d: any) => d.id === p.department_id);
+            } catch { return undefined; }
+          })() : undefined;
+          const matchedSession = data.find((d: any) => d.id === sessionUser.department_id);
+          const chosen = matchedQ?.id || matchedStored?.id || matchedSession?.id || data[0].id;
+          setActiveDeptId(chosen);
+        }
+      }
+    })();
+  }, [id, superAdmin, sessionUser, adminUser]);
+
+  const handleSwitchDepartment = (dept: { id: string; name: string }) => {
+    setActiveDeptId(dept.id);
+    setDeptName(dept.name);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('deptId', dept.id);
+      return next;
+    }, { replace: true });
+    if (adminUser) {
+      try {
+        const parsed = JSON.parse(adminUser);
+        parsed.department_id = dept.id;
+        localStorage.setItem("adminUser", JSON.stringify(parsed));
+      } catch {}
+    }
+    useTimetableStore.setState(state => ({
+      ...state,
+      selection: { ...state.selection, department: dept.name, year }
+    }));
+  };
 
   useEffect(() => {
     if (!isLoggedIn) { navigate('/', { replace: true }); return; }
+    if (!activeDeptId || !year) return;
+
+    let isMounted = true;
     (async () => {
-      let targetDeptId = id || sessionUser?.department_id;
-      if (!targetDeptId && superAdmin) {
-        const { data: firstDept } = await (supabase as any).from('departments').select('id, name').order('name').limit(1).maybeSingle();
-        targetDeptId = firstDept?.id;
-      }
-      if (!targetDeptId || !year) return;
-      const { data: d } = await (supabase as any).from('departments').select('*').eq('id', targetDeptId).maybeSingle();
-      if (d?.name) setDeptName(d.name);
-      const list = await (async () => {
-        try {
-          let arr = await getSubjectsForYear(targetDeptId, year, semesterType);
-          if (arr.length === 0 && semesterType === 'even') {
-            const hasEven = await hasEvenSemesterSubjects(targetDeptId, year);
-            if (!hasEven) {
-              arr = await getSubjectsForYear(targetDeptId, year, 'odd');
-              setSemesterType('odd');
-            }
-          }
-          return (arr || []).map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            type: s.type,
-            hours_per_week: s.hoursPerWeek,
-            year: year,
-            code: s.code || null,
-            max_faculty_count: s.maxFacultyCount || 1,
-            tags: s.tags || [],
-            abbreviation: s.abbreviation || null,
-            credits: s.credits || 3,
-            elective_group_name: s.elective_group_name || null,
+      setLoading(true);
+      try {
+        const { data: d } = await (supabase as any)
+          .from('departments')
+          .select('*')
+          .eq('id', activeDeptId)
+          .maybeSingle();
+
+        if (!isMounted) return;
+
+        if (d?.name) {
+          setDeptName(d.name);
+          useTimetableStore.setState(state => ({
+            ...state,
+            selection: { ...state.selection, department: d.name, year }
           }));
-        } catch {
-          return [] as SubjectRow[];
         }
-      })();
-      // Sort subjects alphabetically by name
-      const sortedList = (list || []).sort((a, b) => a.name.localeCompare(b.name));
-      setSubjects(sortedList);
-      const [ttRes, fsaRes, shRes, oeConfig] = await Promise.all([
-        (supabase as any).from('timetables').select('section').eq('department_id', targetDeptId).eq('year', year),
-        (supabase as any).from('faculty_subject_assignments').select('*', { count: 'exact', head: true }).eq('department_id', targetDeptId).eq('year', year),
-        (supabase as any).from('special_hours_config').select('*').eq('department_id', targetDeptId).eq('year', year).eq('is_active', true).order('special_type'),
-        getOpenElectiveConfig(targetDeptId, year).catch(() => ({ hours: 5, group_name: "Open elective", is_shared_slot: true }))
-      ]);
-      const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section)))).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-      setSections(secs);
-      setFacultyInYear(fsaRes?.count || 0);
-      setSpecialHours(shRes.data || []);
-      if (oeConfig) {
-        setOpenElectiveTotalHours(oeConfig.hours);
-        setOeConfigHoursInput(oeConfig.hours);
-        setOeGroupName(oeConfig.group_name || "Open elective");
-        setOeIsSharedSlot(oeConfig.is_shared_slot ?? true);
+
+        // Keep localStorage and URL query in sync with activeDeptId
+        if (adminUser) {
+          try {
+            const parsed = JSON.parse(adminUser);
+            if (parsed.department_id !== activeDeptId) {
+              parsed.department_id = activeDeptId;
+              localStorage.setItem("adminUser", JSON.stringify(parsed));
+            }
+          } catch {}
+        }
+        if (searchParams.get('deptId') !== activeDeptId && !id) {
+          setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.set('deptId', activeDeptId);
+            return next;
+          }, { replace: true });
+        }
+
+        const list = await (async () => {
+          try {
+            let arr = await getSubjectsForYear(activeDeptId, year, semesterType);
+            if (arr.length === 0 && semesterType === 'even') {
+              const hasEven = await hasEvenSemesterSubjects(activeDeptId, year);
+              if (!hasEven) {
+                arr = await getSubjectsForYear(activeDeptId, year, 'odd');
+                setSemesterType('odd');
+              }
+            }
+            return (arr || []).map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              type: s.type,
+              hours_per_week: s.hoursPerWeek,
+              year: year,
+              code: s.code || null,
+              max_faculty_count: s.maxFacultyCount || 1,
+              tags: s.tags || [],
+              abbreviation: s.abbreviation || null,
+              credits: s.credits || 3,
+              elective_group_name: s.elective_group_name || null,
+            }));
+          } catch {
+            return [] as SubjectRow[];
+          }
+        })();
+
+        if (!isMounted) return;
+
+        const sortedList = (list || []).sort((a, b) => a.name.localeCompare(b.name));
+        setSubjects(sortedList);
+
+        const [ttRes, fsaRes, shRes, oeConfig] = await Promise.all([
+          (supabase as any).from('timetables').select('section').eq('department_id', activeDeptId).eq('year', year),
+          (supabase as any).from('faculty_subject_assignments').select('*', { count: 'exact', head: true }).eq('department_id', activeDeptId).eq('year', year),
+          (supabase as any).from('special_hours_config').select('*').eq('department_id', activeDeptId).eq('year', year).eq('is_active', true).order('special_type'),
+          getOpenElectiveConfig(activeDeptId, year).catch(() => ({ hours: 5, group_name: "Open elective", is_shared_slot: true }))
+        ]);
+
+        if (!isMounted) return;
+
+        const secs: string[] = Array.from(new Set<string>((ttRes.data || []).map((t: any) => String(t.section)))).filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        setSections(secs);
+        setFacultyInYear(fsaRes?.count || 0);
+        setSpecialHours(shRes.data || []);
+        if (oeConfig) {
+          setOpenElectiveTotalHours(oeConfig.hours);
+          setOeConfigHoursInput(oeConfig.hours);
+          setOeGroupName(oeConfig.group_name || "Open elective");
+          setOeIsSharedSlot(oeConfig.is_shared_slot ?? true);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     })();
-  }, [isLoggedIn, id, year, semesterType]);
+
+    return () => { isMounted = false; };
+  }, [isLoggedIn, activeDeptId, year, semesterType]);
 
   const resetForm = () => {
     setName("");
@@ -274,7 +409,7 @@ const YearSubjects = () => {
   };
 
   const loadSpecialHours = async () => {
-    const targetDeptId = id || sessionUser?.department_id;
+    const targetDeptId = activeDeptId;
     if (!targetDeptId || !year) return;
     const { data: shData } = await (supabase as any)
       .from('special_hours_config')
@@ -286,13 +421,104 @@ const YearSubjects = () => {
     setSpecialHours(shData || []);
   };
 
+  const handleAddLib = async () => {
+    if (!activeDeptId || !year || grandTotalHours >= 42 || grandTotalHours <= 0) return;
+    const deficit = Math.max(0, 42 - grandTotalHours);
+    setAddingLib(true);
+
+    try {
+      // 1. Search for existing Library subject for this department, year, and active semester
+      const { data: existingLibSubs } = await (supabase as any)
+        .from('subjects')
+        .select('*')
+        .eq('department_id', activeDeptId)
+        .eq('year', year)
+        .ilike('name', '%library%');
+
+      const semLib = (existingLibSubs || []).find((s: any) => {
+        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+        return semesterType === 'even' ? isEven : !isEven;
+      });
+
+      if (semLib) {
+        const newHpw = (semLib.hours_per_week || 0) + deficit;
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .update({
+            type: 'theory',
+            hours_per_week: newHpw,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', semLib.id);
+
+        if (error) throw error;
+
+        setSubjects((prev) =>
+          prev.map((s) => (s.id === semLib.id ? { ...s, type: 'theory', hours_per_week: newHpw } : s))
+        );
+      } else {
+        const tagList = semesterType === 'even' ? ['even_sem'] : ['odd_sem'];
+        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
+
+        let targetName = semesterType === 'even' ? 'Library (Even)' : 'Library';
+        if (existingNames.has(targetName.toLowerCase())) {
+          targetName = semesterType === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
+        }
+
+        const { data: newSub, error } = await (supabase as any)
+          .from('subjects')
+          .insert({
+            department_id: activeDeptId,
+            year: year,
+            name: targetName,
+            code: 'LIB',
+            abbreviation: 'LIB',
+            type: 'theory',
+            hours_per_week: deficit,
+            credits: 1,
+            tags: tagList,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        setSubjects((prev) => {
+          const newList: SubjectRow[] = [...prev, {
+            id: newSub.id,
+            name: newSub.name,
+            type: 'theory' as const,
+            hours_per_week: deficit,
+            year: year,
+            code: newSub.code || null,
+            max_faculty_count: 1,
+            tags: newSub.tags || [],
+            abbreviation: newSub.abbreviation || null,
+            credits: 1,
+            elective_group_name: null,
+          }];
+          return newList.sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+
+      toast.success(`Added ${deficit}h Library for ${semesterType === 'even' ? 'Even' : 'Odd'} Semester. Weekly load is now exactly 42h!`);
+    } catch (err: any) {
+      console.error("Failed to add library hours:", err);
+      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
+    } finally {
+      setAddingLib(false);
+    }
+  };
+
   const handleAddSpecialHourSlot = async (overrideName?: string) => {
     const finalName = (overrideName || specialTypeName).trim();
     if (!finalName || !specialDay || !specialPeriod) {
       toast.error("Special hour name, day, and period are required");
       return;
     }
-    const targetDeptId = id || sessionUser?.department_id;
+    const targetDeptId = activeDeptId;
     if (!targetDeptId || !year) return;
 
     const dayIdx = parseInt(specialDay, 10);
@@ -300,9 +526,21 @@ const YearSubjects = () => {
     const slotCode = dayIdx * 10 + prIdx;
 
     try {
-      const existing = specialHours.find(
+      let existing = specialHours.find(
         (sh) => sh.special_type.toLowerCase() === finalName.toLowerCase()
       );
+
+      if (!existing) {
+        const { data: dbExisting } = await (supabase as any)
+          .from('special_hours_config')
+          .select('*')
+          .eq('department_id', targetDeptId)
+          .eq('year', year);
+        const match = (dbExisting || []).find(
+          (sh: any) => sh.special_type.toLowerCase() === finalName.toLowerCase()
+        );
+        if (match) existing = match;
+      }
 
       if (existing) {
         const satPeriods = existing.saturday_periods || [];
@@ -314,10 +552,10 @@ const YearSubjects = () => {
 
         const isSat = dayIdx === 5;
         const newSatPeriods = isSat ? [...satPeriods, slotCode] : satPeriods;
-        const newSatHours = isSat ? existing.saturday_hours + 1 : existing.saturday_hours;
+        const newSatHours = isSat ? (existing.saturday_hours || 0) + 1 : (existing.saturday_hours || 0);
         
         const newWkPeriods = !isSat ? [...wkPeriods, slotCode] : wkPeriods;
-        const newWkHours = !isSat ? existing.weekdays_hours + 1 : existing.weekdays_hours;
+        const newWkHours = !isSat ? (existing.weekdays_hours || 0) + 1 : (existing.weekdays_hours || 0);
 
         const newTotal = newSatHours + newWkHours;
 
@@ -329,6 +567,7 @@ const YearSubjects = () => {
             weekdays_periods: newWkPeriods,
             weekdays_hours: newWkHours,
             total_hours: newTotal,
+            is_active: true,
           })
           .eq('id', existing.id);
 
@@ -518,25 +757,40 @@ const YearSubjects = () => {
   const handleAdd = async () => {
     if (!name.trim()) { toast.error("Subject name is required"); return; }
     
-    const targetDeptId = id || sessionUser?.department_id;
+    const targetDeptId = activeDeptId;
     try {
       const baseTags = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
       const finalTags = await resolveParallelTags(type, baseTags, schedulingMode === 'same' ? parallelSubjectId : '');
+
+      let effectiveTags = [...finalTags];
+      effectiveTags = effectiveTags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
+      if (hours > 10) {
+        effectiveTags.push(`hpw:${hours}`);
+      }
+      effectiveTags = effectiveTags.filter(t => !/^credits:\d+$/i.test(t));
+      if (credits > 6) {
+        effectiveTags.push(`credits:${credits}`);
+      }
+
+      const safeHours = Math.max(1, Math.min(Number(hours) || 1, 10));
+      const safeCredits = Math.max(1, Math.min(Number(credits) || 1, 6));
+      const allowedTypes = ['theory', 'lab', 'elective', 'open elective', 'special', 'project'];
+      const safeType = allowedTypes.includes(type) ? type : 'special';
 
       const subjectData: any = {
         department_id: targetDeptId,
         year,
         name: name.trim(),
-        type,
-        hours_per_week: hours,
+        type: safeType,
+        hours_per_week: safeHours,
         code: code.trim() || null,
-        credits: credits,
-        tags: finalTags,
+        credits: safeCredits,
+        tags: effectiveTags,
         abbreviation: abbreviation.trim() || null,
       };
       
       // Add max_faculty_count for lab subjects
-      if (type === 'lab') {
+      if (safeType === 'lab') {
         subjectData.max_faculty_count = maxFacultyCount;
       }
       
@@ -547,7 +801,7 @@ const YearSubjects = () => {
         return; 
       }
       setSubjects((s) => {
-        const newList = [...s, data as SubjectRow];
+        const newList = [...s, { ...(data as SubjectRow), hours_per_week: hours, credits: credits }];
         return newList.sort((a, b) => a.name.localeCompare(b.name));
       });
       toast.success("Subject added");
@@ -680,7 +934,7 @@ const YearSubjects = () => {
     setCode(s.code || "");
     setMaxFacultyCount(s.max_faculty_count || 1);
     setCredits(s.credits || 3);
-    setTags(s.tags ? s.tags.join(", ") : "");
+    setTags((s.tags || []).filter(t => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t)).join(", "));
     setAbbreviation(s.abbreviation || "");
 
     // Infer parallel mode and subject ID from tags
@@ -716,18 +970,33 @@ const YearSubjects = () => {
       const baseTags = tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
       const finalTags = await resolveParallelTags(type, baseTags, schedulingMode === 'same' ? parallelSubjectId : '');
 
+      let effectiveTags = [...finalTags];
+      effectiveTags = effectiveTags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
+      if (hours > 10) {
+        effectiveTags.push(`hpw:${hours}`);
+      }
+      effectiveTags = effectiveTags.filter(t => !/^credits:\d+$/i.test(t));
+      if (credits > 6) {
+        effectiveTags.push(`credits:${credits}`);
+      }
+
+      const safeHours = Math.max(1, Math.min(Number(hours) || 1, 10));
+      const safeCredits = Math.max(1, Math.min(Number(credits) || 1, 6));
+      const allowedTypes = ['theory', 'lab', 'elective', 'open elective', 'special', 'project'];
+      const safeType = allowedTypes.includes(type) ? type : 'special';
+
       const updateData: any = { 
         name, 
-        type, 
-        hours_per_week: hours, 
+        type: safeType, 
+        hours_per_week: safeHours, 
         code: code || null,
-        credits: credits,
-        tags: finalTags,
+        credits: safeCredits,
+        tags: effectiveTags,
         abbreviation: abbreviation.trim() || null,
       };
       
       // Update max_faculty_count for lab subjects
-      if (type === 'lab') {
+      if (safeType === 'lab') {
         updateData.max_faculty_count = maxFacultyCount;
       }
 
@@ -749,7 +1018,7 @@ const YearSubjects = () => {
                 code: code || null,
                 credits: credits,
                 max_faculty_count: type === 'lab' ? maxFacultyCount : x.max_faculty_count,
-                tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+                tags: effectiveTags,
                 abbreviation: abbreviation.trim() || null,
               }
             : x
@@ -1019,7 +1288,7 @@ const YearSubjects = () => {
         header: "Tags",
         render: (s: SubjectRow) => {
           if (s.groupedSubjects) return <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>;
-          const otherTags = (s.tags || []).filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t));
+          const otherTags = (s.tags || []).filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t) && !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t));
           return (
             <div className="flex flex-wrap gap-1">
               {otherTags.map(t => (
@@ -1064,6 +1333,7 @@ const YearSubjects = () => {
   }, [activeTab, userType, subjects, handleClearGroup, startEdit]);
 
   const handleBulkDeleteData = async (ids: string[]) => {
+    if (!ids || ids.length === 0) return;
     if (activeTab === 'special') {
       try {
         for (const idStr of ids) {
@@ -1079,13 +1349,21 @@ const YearSubjects = () => {
       }
     } else {
       try {
+        // Clean up references in associated tables to prevent FK constraint failures
+        await Promise.allSettled([
+          (supabase as any).from('faculty_subject_assignments').delete().in('subject_id', ids),
+          (supabase as any).from('faculty_elective_assignments').delete().in('subject_id', ids),
+          (supabase as any).from('section_subjects').delete().in('subject_id', ids),
+          (supabase as any).from('lab_preferences').delete().in('subject_id', ids),
+          (supabase as any).from('subject_type_subjects').delete().in('subject_id', ids),
+        ]);
         const { error } = await (supabase as any)
           .from('subjects')
           .delete()
           .in('id', ids);
         if (error) throw error;
         setSubjects(prev => prev.filter(s => !ids.includes(s.id)));
-        toast.success("Subjects deleted successfully");
+        toast.success(`${ids.length} subject(s) deleted successfully`);
       } catch (e: any) {
         console.error(e);
         toast.error(e?.message || "Failed to delete subjects");
@@ -1124,64 +1402,89 @@ const YearSubjects = () => {
       }`}>
         <SelectionHeader />
         <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
-        <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
-          isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
-        }`}>
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 text-xs font-bold border border-indigo-500/20 mb-2">
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Curriculum &amp; Subject Allocation</span>
-            </div>
-            <h1 className="text-3xl font-extrabold tracking-tight">{deptName || 'Department'} — Year {year}</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage subject catalog, syllabus credit hours, electives, and lab allocations
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
-            <div className={`flex items-center gap-1 p-1 rounded-xl border ${
-              isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/70 border-indigo-100"
+          {allocatedDepts.length > 1 && (
+            <div className={`flex p-1.5 rounded-2xl border backdrop-blur-xl gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shadow-sm ${
+              isDark ? "bg-[#090d1c]/80 border-indigo-500/20" : "bg-white/80 border-indigo-200/60"
             }`}>
-              <button
-                type="button"
-                onClick={() => setSemesterType("odd")}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  semesterType === "odd"
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/30 border border-indigo-400/40"
-                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Odd Sem
-              </button>
-              <button
-                type="button"
-                onClick={() => setSemesterType("even")}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  semesterType === "even"
-                    ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/30 border border-amber-400/40"
-                    : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Even Sem
-              </button>
+              {allocatedDepts.map((dept) => {
+                const isActive = dept.id === activeDeptId;
+                return (
+                  <button
+                    key={dept.id}
+                    onClick={() => handleSwitchDepartment(dept)}
+                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                      isActive
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25 border border-indigo-400/40"
+                        : isDark
+                          ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                          : "text-slate-600 hover:text-indigo-900 hover:bg-indigo-50/60"
+                    }`}
+                  >
+                    {dept.name}
+                  </button>
+                );
+              })}
             </div>
-            <Button 
-              variant="outline" 
-              className={`rounded-xl border font-semibold ${
-                isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
-              }`}
-              onClick={() => {
-                if (userType === 'super') {
-                  if (id) navigate(`/super-admin/departments/${id}`);
-                  else navigate('/super-admin/departments');
-                } else {
-                  navigate(userType === 'admin' ? '/admin/subjects' : '/faculty/subjects');
-                }
-              }}
-            >
-              Back
-            </Button>
-          </div>
-        </header>
+          )}
+
+          <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
+            isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
+          }`}>
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 text-xs font-bold border border-indigo-500/20 mb-2">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Curriculum &amp; Subject Allocation</span>
+              </div>
+              <h1 className="text-3xl font-extrabold tracking-tight">{deptName || 'Department'} — Year {year}</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Manage subject catalog, syllabus credit hours, electives, and lab allocations
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
+              <div className={`flex items-center gap-1 p-1 rounded-xl border ${
+                isDark ? "bg-[#0e1326] border-indigo-500/20" : "bg-indigo-50/70 border-indigo-100"
+              }`}>
+                <button
+                  type="button"
+                  onClick={() => setSemesterType("odd")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    semesterType === "odd"
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/30 border border-indigo-400/40"
+                      : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Odd Sem
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSemesterType("even")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    semesterType === "even"
+                      ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/30 border border-amber-400/40"
+                      : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  Even Sem
+                </button>
+              </div>
+              <Button 
+                variant="outline" 
+                className={`rounded-xl border font-semibold ${
+                  isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
+                }`}
+                onClick={() => {
+                  if (userType === 'super') {
+                    if (id) navigate(`/super-admin/departments/${id}`);
+                    else navigate('/super-admin/departments');
+                  } else {
+                    navigate(userType === 'admin' ? (activeDeptId ? `/admin/subjects?deptId=${activeDeptId}` : '/admin/subjects') : (activeDeptId ? `/faculty/subjects?deptId=${activeDeptId}` : '/faculty/subjects'));
+                  }
+                }}
+              >
+                Back
+              </Button>
+            </div>
+          </header>
 
         {/* Quick hours summary pill bar */}
         <div className="p-4 rounded-3xl border border-border/60 bg-card/50 backdrop-blur-xl shadow-sm flex flex-wrap items-center justify-between gap-4">
@@ -1213,15 +1516,35 @@ const YearSubjects = () => {
               )}
             </div>
           </div>
-          {totalSpecialHours > 0 && (
-            <div className="px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs">
-              <span className="text-amber-600 dark:text-amber-400 font-medium">Special: </span>
-              <span className="font-bold text-amber-700 dark:text-amber-300">{totalSpecialHours}h</span>
-              <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 ml-1.5">
-                ({specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ')})
-              </span>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {grandTotalHours < 42 && grandTotalHours > 0 && subjects.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-3 py-1 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  Limited ({grandTotalHours}/42h)
+                </span>
+                {userType !== 'faculty' && (
+                  <Button
+                    size="sm"
+                    onClick={handleAddLib}
+                    disabled={addingLib}
+                    className="h-8 px-3 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                  >
+                    <BookMarked className="h-3.5 w-3.5" />
+                    <span>{addingLib ? "Adding..." : "Add Lib"}</span>
+                  </Button>
+                )}
+              </div>
+            )}
+            {totalSpecialHours > 0 && (
+              <div className="px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs">
+                <span className="text-amber-600 dark:text-amber-400 font-medium">Special: </span>
+                <span className="font-bold text-amber-700 dark:text-amber-300">{totalSpecialHours}h</span>
+                <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 ml-1.5">
+                  ({specialHoursBreakdown.map(sh => `${sh.name}: ${sh.hours}h`).join(', ')})
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {userType !== 'faculty' && (
@@ -1338,11 +1661,35 @@ const YearSubjects = () => {
                 <div className="text-2xl font-bold text-foreground mt-1">{facultyInYear}</div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">Total teaching faculty</div>
               </div>
-              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
-                <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Hours / Wk</div>
-                <div className="text-2xl font-bold text-foreground mt-1">{grandTotalHours}h</div>
+              <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm relative flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Hours / Wk</div>
+                  {grandTotalHours < 42 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                      Limited ({grandTotalHours}/42h)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline justify-between mt-1">
+                  <div className="text-2xl font-bold text-foreground">{grandTotalHours}h</div>
+                  {grandTotalHours < 42 && grandTotalHours > 0 && subjects.length > 0 && userType !== 'faculty' && (
+                    <Button
+                      size="sm"
+                      onClick={handleAddLib}
+                      disabled={addingLib}
+                      className="h-7 px-2.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                    >
+                      <BookMarked className="h-3.5 w-3.5" />
+                      <span>{addingLib ? "Adding..." : "Add Lib"}</span>
+                    </Button>
+                  )}
+                </div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
-                  {totalHours}h Subjects + {totalSpecialHours}h Special
+                  {subjects.length === 0
+                    ? "No active curriculum courses"
+                    : grandTotalHours < 42
+                      ? `${42 - grandTotalHours}h deficit below 42h required`
+                      : `${totalHours}h Subjects + ${totalSpecialHours}h Special`}
                 </div>
               </div>
               <div className="bg-background/50 p-4 rounded-2xl border border-border/40 backdrop-blur-md shadow-sm">
@@ -1608,7 +1955,7 @@ const YearSubjects = () => {
               <Button
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
                 onClick={async () => {
-                  const targetDeptId = id || sessionUser?.department_id;
+                  const targetDeptId = activeDeptId;
                   const finalGroupName = oeGroupName.trim() || "Open elective";
                   setOpenElectiveTotalHours(oeConfigHoursInput);
                   setOeGroupName(finalGroupName);
@@ -1818,7 +2165,7 @@ const YearSubjects = () => {
         />
 
         <div className="mt-6">
-          <Link className="text-sm underline text-muted-foreground hover:text-foreground" to={userType === 'super' ? "/super-admin/departments" : "/admin/subjects"}>Back to {userType === 'super' ? 'Departments' : 'Subjects'}</Link>
+          <Link className="text-sm underline text-muted-foreground hover:text-foreground" to={userType === 'super' ? "/super-admin/departments" : (activeDeptId ? `/admin/subjects?deptId=${activeDeptId}` : "/admin/subjects")}>Back to {userType === 'super' ? 'Departments' : 'Subjects'}</Link>
         </div>
       </section>
 

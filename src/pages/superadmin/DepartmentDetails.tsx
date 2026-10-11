@@ -75,15 +75,16 @@ const DepartmentDetails = () => {
       const yearsList = ['I', 'II', 'III', 'IV'];
       for (const yr of yearsList) {
         const yrSubs = subs.filter((s: any) => s.year === yr);
-        const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
-        const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
+        const satHours = yrSpecs.reduce((a: number, b: any) => a + (b.saturday_hours || 0), 0);
+        const defaultSat = yr === 'II' ? 3 : (yr === 'III' || yr === 'IV' ? 5 : 0);
+        const configSpecialHours = satHours > 0 ? satHours : defaultSat;
 
         let oeHoursSetting = 5;
         const foundOe = oeSettingsList.find((o: any) => o.year === yr);
         if (foundOe && typeof foundOe.hours === 'number') {
           oeHoursSetting = foundOe.hours;
         } else {
-          oeHoursSetting = await getOpenElectiveHours(id, yr).catch(() => 5);
+          oeHoursSetting = (await getOpenElectiveHours(id, yr).catch(() => 5)) || 5;
         }
 
         const calc = calculateYearGrandTotalHours({

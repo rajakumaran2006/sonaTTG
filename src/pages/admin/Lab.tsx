@@ -144,6 +144,8 @@ const Lab = () => {
   const { isDark } = useDarkMode();
   const selection = useTimetableStore((s) => s.selection);
   const setSelection = useTimetableStore((s) => s.setSelection);
+  const semesterType = useTimetableStore((s) => s.semesterType);
+  const setSemesterType = useTimetableStore((s) => s.setSemesterType);
 
   // ── Theme tokens ────────────────────────────────────────────────────────────
   const tblBg        = isDark ? "bg-slate-900"          : "bg-white/95 border border-indigo-100 shadow-[0_4px_24px_-4px_rgba(99,102,241,0.06)] rounded-2xl overflow-hidden";
@@ -508,11 +510,36 @@ const Lab = () => {
     loadAllLabSubjects();
   }, []);  // runs once on mount; loadLabs reads admin depts from localStorage
 
+  const isScheduleInCurrentSemester = (schedule: any, currentSemType: 'odd' | 'even') => {
+    const acad = (schedule.academic_year || '').toLowerCase();
+    const sem = (schedule.semester || '').toLowerCase();
+
+    // Explicit tag in academic_year or semester string
+    if (acad.includes('even') || sem.includes('[even]')) return currentSemType === 'even';
+    if (acad.includes('odd') || sem.includes('[odd]')) return currentSemType === 'odd';
+
+    // Match subject in itAdsLabs
+    const subjName = (schedule.semester || '').split('-').pop()?.trim().toLowerCase();
+    if (subjName) {
+      const matched = itAdsLabs.find((s: any) =>
+        s.name.toLowerCase().trim() === subjName ||
+        s.abbreviation?.toLowerCase().trim() === subjName
+      );
+      if (matched) {
+        const isEven = (matched.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+        return currentSemType === 'even' ? isEven : !isEven;
+      }
+    }
+    // Default to odd for legacy data
+    return currentSemType === 'odd';
+  };
+
   const getScheduleForPeriod = (dayOfWeek: number, slotNumber: number) => {
     return labSchedules.find(schedule =>
       schedule.lab_id === selectedLabForSchedule?.id &&
       schedule.day_of_week === dayOfWeek &&
-      schedule.slot_number === slotNumber
+      schedule.slot_number === slotNumber &&
+      isScheduleInCurrentSemester(schedule, semesterType)
     );
   };
 
@@ -630,6 +657,7 @@ const Lab = () => {
         if (parsedYear && parsedSection) {
           const classConflict = labSchedules.find(s => {
             if (s.day_of_week !== slot.day || s.slot_number !== currentSlotNum) return false;
+            if (!isScheduleInCurrentSemester(s, semesterType)) return false;
             const p = parseScheduleInfo(s.semester || '');
             const sYear = (p.year ? p.year.replace(/Year\s*/i, '') : (s.year || '')).trim();
             const sSection = (p.section ? p.section.replace(/Sec\s*/i, '') : (s.section || '')).trim().toUpperCase();
@@ -669,12 +697,14 @@ const Lab = () => {
             start_time: periodData.startTime,
             end_time: periodData.endTime,
             slot_number: currentSlotNum,
-            semester: allocationInfo || (selectedLabSubjectData
-              ? `Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
-              : newSession.semester),
+            semester: allocationInfo
+              ? `[${semesterType.toUpperCase()}] ${allocationInfo}`
+              : (selectedLabSubjectData
+                ? `[${semesterType.toUpperCase()}] Year ${selectedLabSubjectData.year}, ${selectedLabSubjectData.name}`
+                : `[${semesterType.toUpperCase()}] ${newSession.semester}`),
             year: parsedYear || null,
             section: parsedSection || null,
-            academic_year: newSession.academic_year,
+            academic_year: `${newSession.academic_year} (${semesterType.toUpperCase()})`,
             max_capacity: labs.find(l => l.id === slot.labId)?.capacity || newSession.max_capacity,
             is_available: newSession.is_available,
             created_at: new Date().toISOString(),
@@ -811,11 +841,14 @@ const Lab = () => {
 
   // Helper to count booked hours for a specific section of a subject in lab_schedules
   const getBookedHoursForSection = (subj: any, section: string): number => {
-    const targetSubjName = subj.name.toLowerCase().trim();
-    const targetDeptName = subj.departments?.name?.toLowerCase().trim() || '';
-    const targetYear = String(subj.year).trim().toLowerCase();
+    const targetSubjName = (subj?.name || '').toLowerCase().trim();
+    const targetYear = (subj?.year || '').trim().toLowerCase();
+    const targetDeptName = (subj?.departments?.name || '').toLowerCase().trim();
+    const isSubjectEven = (subj?.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+    const targetSemType = isSubjectEven ? 'even' : 'odd';
 
     return labSchedules.filter(s => {
+      if (!isScheduleInCurrentSemester(s, targetSemType)) return false;
       const parsed = parseScheduleInfo(s.semester || '');
       const sSubjName = (parsed.subject || parsed.raw || '').toLowerCase().trim();
 
@@ -908,8 +941,8 @@ const Lab = () => {
           start_time: slot.startTime,
           end_time: slot.endTime,
           slot_number: slot.slotNumber,
-          semester: extraClassForm.subject + (extraClassForm.notes ? ` - ${extraClassForm.notes}` : ""), // Use input as description
-          academic_year: newSession.academic_year,
+          semester: `[${semesterType.toUpperCase()}] ${extraClassForm.subject}${extraClassForm.notes ? ` - ${extraClassForm.notes}` : ''}`, // Use input as description
+          academic_year: `${newSession.academic_year} (${semesterType.toUpperCase()})`,
           max_capacity: selectedLabForSchedule.capacity,
           is_available: false, // Occupied
           created_at: new Date().toISOString(),
@@ -1000,13 +1033,14 @@ const Lab = () => {
     }).filter(Boolean)));
 
     const legendRows: any[] = [];
-    uniqueSubjectNames.forEach(subjName => {
-      const matched = itAdsLabs.find(s => s.name.toLowerCase().trim() === subjName.toLowerCase().trim() || s.abbreviation?.toLowerCase().trim() === subjName.toLowerCase().trim());
+    uniqueSubjectNames.forEach((subjName: any) => {
+      const sNameStr = String(subjName || '').toLowerCase().trim();
+      const matched = itAdsLabs.find(s => s.name?.toLowerCase().trim() === sNameStr || s.abbreviation?.toLowerCase().trim() === sNameStr);
       
       const countHrs = scheduledLabsForThisLab.filter(s => {
         const parsed = parseScheduleInfo(s.semester || '');
-        const name = parsed.subject || parsed.raw || '';
-        return name.toLowerCase().trim() === subjName.toLowerCase().trim();
+        const name = String(parsed.subject || parsed.raw || '').toLowerCase().trim();
+        return name === sNameStr;
       }).length;
 
       const staffIncharge = matched ? (matched.staff || '-') : '-';
@@ -1363,7 +1397,33 @@ const Lab = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+                    {/* SEMESTER TOGGLE (ODD / EVEN) */}
+                    <div className="flex items-center gap-1.5 p-1 rounded-xl border bg-muted/40 shadow-sm shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSemesterType("odd")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          semesterType === "odd"
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/30"
+                            : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Odd Sem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSemesterType("even")}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          semesterType === "even"
+                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/30"
+                            : isDark ? "text-slate-400 hover:text-white" : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Even Sem
+                      </button>
+                    </div>
+
                     {/* LAB DROPDOWN SELECTOR */}
                     <div className="flex items-center gap-2 flex-1 sm:flex-initial">
                       <Label className="text-xs font-bold shrink-0 hidden md:block text-muted-foreground">Select Lab:</Label>
@@ -1592,10 +1652,11 @@ const Lab = () => {
                                                     ? selectedLabForSchedule.departments
                                                     : (selectedLabForSchedule?.department_id ? [selectedLabForSchedule.department_id] : (allAdminDeptIds.length > 0 ? allAdminDeptIds : []));
 
-                                                  // Filter subjects so it ONLY shows subjects for the allocated department(s) of this lab
+                                                  // Filter subjects so it ONLY shows subjects for the allocated department(s) and selected semester type
                                                   const displaySubjects = itAdsLabs.filter(subj => {
-                                                    if (labDeptIds.length === 0) return true;
-                                                    return labDeptIds.includes(subj.department_id);
+                                                    if (labDeptIds.length > 0 && !labDeptIds.includes(subj.department_id)) return false;
+                                                    const isEven = (subj.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+                                                    return semesterType === 'even' ? isEven : !isEven;
                                                   });
 
                                                   if (displaySubjects.length === 0) {
@@ -1812,9 +1873,14 @@ const Lab = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="custom" className="font-semibold text-indigo-600 dark:text-indigo-400">Custom Entry (Type Below)</SelectItem>
-                      {itAdsLabs.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.name} (Year {s.year})</SelectItem>
-                      ))}
+                      {itAdsLabs
+                        .filter((s) => {
+                          const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+                          return semesterType === 'even' ? isEven : !isEven;
+                        })
+                        .map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name} (Year {s.year})</SelectItem>
+                        ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -18,9 +18,10 @@ import { useTimetableStore } from "@/store/timetableStore";
 import { supabase } from "@/integrations/supabase/client";
 import { getDepartments, createFaculty, deleteFaculty, deleteFacultyBulk, getFacultyByDepartment, getFacultyDetails, saveFacultyElectiveInfo, updateFaculty, listFacultySubjectClass, deleteFacultySubjectClass, upsertFacultySubjectClassAll, upsertClassCounselor, deactivateClassCounselor } from "@/lib/supabaseService";
 import Papa from "papaparse";
-import { Upload, FileText, AlertTriangle, CheckCircle, X, LayoutGrid, List, Trash2, Sparkles } from "lucide-react";
+import { Upload, FileText, AlertTriangle, CheckCircle, X, LayoutGrid, List, Trash2, Sparkles, Calendar, Download } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useDarkMode } from "@/context/DarkModeContext";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 
 type Department = { id: string; name: string };
 type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
@@ -48,6 +49,8 @@ const FacultyPage = () => {
   const [adminDeptId, setAdminDeptId] = useState<string>("");
 
   const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
+  const [timetableModalOpen, setTimetableModalOpen] = useState<boolean>(false);
+  const [selectedFacultyForTimetable, setSelectedFacultyForTimetable] = useState<FacultyItem | null>(null);
 
   useEffect(() => {
     const adminData = localStorage.getItem("adminUser");
@@ -1050,6 +1053,19 @@ const FacultyPage = () => {
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
+                onClick={() => {
+                  setSelectedFacultyForTimetable(null);
+                  setTimetableModalOpen(true);
+                }}
+                className={`rounded-xl border font-semibold ${
+                  isDark ? "border-indigo-500/30 bg-[#0e1326] text-indigo-300 hover:bg-white/10" : "border-indigo-200 bg-white/80 text-indigo-700 hover:bg-indigo-50"
+                } flex items-center gap-2`}
+              >
+                <Calendar className="h-4 w-4" />
+                <span>Faculty Timetables</span>
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setUploadOpen(true)}
                 className={`rounded-xl border font-semibold ${
                   isDark ? "border-indigo-500/30 bg-[#0e1326] text-white hover:bg-white/10" : "border-indigo-200 bg-white/80 text-slate-800 hover:bg-indigo-50"
@@ -1124,6 +1140,19 @@ const FacultyPage = () => {
                       <Button
                         size="sm"
                         variant="outline"
+                        className="border-indigo-400/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 flex items-center gap-1 font-semibold"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFacultyForTimetable(row);
+                          setTimetableModalOpen(true);
+                        }}
+                      >
+                        <Calendar className="h-3.5 w-3.5" />
+                        Timetable
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={(e) => {
                           e.stopPropagation();
                           openEdit(row);
@@ -1169,6 +1198,16 @@ const FacultyPage = () => {
                       className="border-border bg-background data-[state=checked]:bg-indigo-600 data-[state=checked]:border-indigo-600"
                     />
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => {
+                          setSelectedFacultyForTimetable(row);
+                          setTimetableModalOpen(true);
+                        }}
+                        className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 border border-indigo-500/30 flex items-center gap-1"
+                      >
+                        <Calendar className="h-3 w-3" />
+                        Timetable
+                      </button>
                       <button
                         onClick={() => openEdit(row)}
                         className="h-7 px-2.5 rounded-lg text-[10px] font-medium transition-colors bg-secondary text-secondary-foreground hover:bg-secondary/80"
@@ -2286,6 +2325,17 @@ const FacultyPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Faculty Timetable Modal for inspection & PDF downloads */}
+      <FacultyTimetableModal
+        open={timetableModalOpen}
+        onClose={() => {
+          setTimetableModalOpen(false);
+          setSelectedFacultyForTimetable(null);
+        }}
+        defaultDepartmentId={selectedFacultyForTimetable?.departmentId || (deptFilterId !== 'ALL' ? deptFilterId : undefined)}
+        defaultFacultyId={selectedFacultyForTimetable?.id}
+      />
       </section>
       </main>
     </div>

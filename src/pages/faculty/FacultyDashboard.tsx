@@ -16,6 +16,11 @@ import {
   updateFacultyMember,
 } from "@/lib/supabaseService";
 import { 
+  getFacultyWeeklySchedule, 
+  FacultyWeeklyScheduleResult 
+} from "@/lib/facultyScheduleService";
+import { exportFacultyTimetablesToPdf } from "@/lib/facultyTimetablePdfExport";
+import { 
   Edit, 
   Calendar, 
   Clock, 
@@ -31,7 +36,11 @@ import {
   BarChart3, 
   Building2,
   Upload,
-  Sparkles
+  Sparkles,
+  Download,
+  FileDown,
+  Sun,
+  Moon
 } from "lucide-react";
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -76,6 +85,38 @@ const FacultyDashboard = () => {
   const [syncing, setSyncing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState({ name: "", email: "", designation: "" });
+  const [semesterType, setSemesterType] = useState<'odd' | 'even'>('odd');
+  const [fullSchedule, setFullSchedule] = useState<FacultyWeeklyScheduleResult | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const loadScheduleData = async (fac: FacultyMember, sem: 'odd' | 'even') => {
+    try {
+      const res = await getFacultyWeeklySchedule(fac.id, fac.name, sem, fac.department_id);
+      setFullSchedule(res);
+      setSchedule(res.slots.map(s => ({
+        subject: s.subject,
+        day: s.day,
+        period: s.period,
+        year: s.year,
+        section: s.cleanSection || s.section,
+        department_name: s.department_name,
+        is_special: s.is_special,
+        sections: s.sections,
+      })));
+      setSubjectAssignments(res.subjectsSummary.map(s => ({
+        subject: s.name,
+        schedule: s.classes.map(c => ({
+          day: '',
+          period: `${s.hoursCount} hrs`,
+          year: c,
+          section: '',
+          department_name: '',
+        }))
+      })));
+    } catch (e) {
+      console.error("Failed to load faculty schedule", e);
+    }
+  };
 
   useEffect(() => {
     document.title = "Faculty Dashboard";
@@ -91,297 +132,40 @@ const FacultyDashboard = () => {
           email: parsedFaculty.email || "",
           designation: parsedFaculty.designation || ""
         });
-        // Load their schedule with both name and ID for exact section-specific matching
-        extractFacultyScheduleFromTimetables(parsedFaculty.name, parsedFaculty.id)
-          .then(({ schedule: facultySchedule, assignments }) => {
-            setSchedule(facultySchedule);
-            setSubjectAssignments(assignments);
-          })
-          .catch((err) => {
-            console.error("Failed to load faculty schedule", err);
-          });
+        loadScheduleData(parsedFaculty, semesterType);
       } catch (e) {
         console.error("Failed to parse stored faculty user", e);
         localStorage.removeItem("facultyUser");
       }
     }
-  }, []);
+  }, [semesterType]);
 
-  // Helper to parse year representations into standard numbers
-  const parseYearNum = (y: any): number => {
-    if (y === null || y === undefined) return -1;
-    const s = String(y).trim().toUpperCase();
-    const map: Record<string, number> = {
-      '1': 1, 'I': 1, 'FIRST': 1, 'YEAR I': 1, 'YEAR 1': 1, 'YR 1': 1,
-      '2': 2, 'II': 2, 'SECOND': 2, 'YEAR II': 2, 'YEAR 2': 2, 'YR 2': 2,
-      '3': 3, 'III': 3, 'THIRD': 3, 'YEAR III': 3, 'YEAR 3': 3, 'YR 3': 3,
-      '4': 4, 'IV': 4, 'FOURTH': 4, 'YEAR IV': 4, 'YEAR 4': 4, 'YR 4': 4,
-      '5': 5, 'V': 5, '6': 6, 'VI': 6, '7': 7, 'VII': 7, '8': 8, 'VIII': 8,
+  // Real-time synchronization: automatically updates whenever admin/super admin publishes or alters timetables!
+  useEffect(() => {
+    if (!faculty) return;
+    const channel = supabase
+      .channel(`faculty-live-updates-${faculty.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'timetables' }, () => {
+        loadScheduleData(faculty, semesterType);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'faculty_subject_assignments' }, () => {
+        loadScheduleData(faculty, semesterType);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'class_counselors' }, () => {
+        loadScheduleData(faculty, semesterType);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-    if (map[s] !== undefined) return map[s];
-    const num = parseInt(s.replace(/\D/g, ''), 10);
-    return isNaN(num) ? -1 : num;
-  };
+  }, [faculty, semesterType]);
 
-  // Helper to normalize section names ('A', 'Section B', etc.)
-  const normalizeSec = (sec: any): string => {
-    if (!sec) return '';
-    return String(sec).trim().toUpperCase().replace(/^SEC(TION)?\s*/i, '');
-  };
 
-  // Algorithm to extract faculty schedule strictly from approved timetables matching their assigned section
-  const extractFacultyScheduleFromTimetables = async (facultyName: string, facultyId?: string) => {
-    try {
-      // 1. Resolve target faculty ID
-      let targetFacultyId = facultyId;
-      if (!targetFacultyId) {
-        const { data: fm } = await (supabase as any)
-          .from('faculty_members')
-          .select('id')
-          .eq('name', facultyName)
-          .maybeSingle();
-        targetFacultyId = fm?.id;
-      }
 
-      // 2. Fetch specific section assignments for this faculty from faculty_subject_assignments
-      let facultyAssignments: any[] = [];
-      if (targetFacultyId) {
-        const { data: fsaData } = await (supabase as any)
-          .from('faculty_subject_assignments')
-          .select(`
-            faculty_id,
-            department_id,
-            year,
-            section,
-            subjects!inner(id, name, abbreviation, code)
-          `)
-          .eq('faculty_id', targetFacultyId);
-        facultyAssignments = fsaData || [];
-      } else {
-        const { data: fsaData } = await (supabase as any)
-          .from('faculty_subject_assignments')
-          .select(`
-            faculty_id,
-            department_id,
-            year,
-            section,
-            faculty_members!inner(name),
-            subjects!inner(id, name, abbreviation, code)
-          `)
-          .eq('faculty_members.name', facultyName);
-        facultyAssignments = fsaData || [];
-      }
 
-      // 3. Fetch subjects where staff field is set to faculty
-      let staffSubjects: any[] = [];
-      try {
-        const { data: sData } = await (supabase as any)
-          .from('subjects')
-          .select('id, name, abbreviation, code, department_id, year, staff')
-          .or(`staff.eq.${facultyName}${targetFacultyId ? `,staff.eq.${targetFacultyId}` : ''}`);
-        staffSubjects = sData || [];
-      } catch (err) {
-        console.warn('Could not fetch staff subjects:', err);
-      }
 
-      // 4. Fetch class counselor assignments
-      let counselorData: any[] = [];
-      if (targetFacultyId) {
-        const { data: cData } = await (supabase as any)
-          .from('class_counselors')
-          .select('department_id, year, section')
-          .eq('faculty_id', targetFacultyId);
-        counselorData = cData || [];
-      }
 
-      // 5. Fetch all approved timetables
-      const { data: timetables, error: ttError } = await (supabase as any)
-        .from('timetables')
-        .select(`
-          department_id,
-          year,
-          section,
-          grid_data,
-          departments!inner(name)
-        `)
-        .order('updated_at', { ascending: false });
-
-      if (ttError) throw ttError;
-      if (!timetables) return { schedule: [], assignments: [] };
-
-      const facultySchedule: FacultyScheduleItem[] = [];
-      const subjectMap: Record<string, SubjectAssignment> = {};
-
-      // 6. Process each timetable strictly checking class section specificity
-      for (const timetable of timetables) {
-        const { grid_data, department_id, year, section, departments } = timetable;
-        if (!grid_data || !Array.isArray(grid_data)) continue;
-
-        const ttDeptId = department_id;
-        const ttYearNum = parseYearNum(year);
-        const ttSecNorm = normalizeSec(section);
-        const ttDeptName = departments?.name;
-
-        // Class-specific subject assignments: ONLY matches if this timetable is the assigned section!
-        const matchingAssignments = facultyAssignments.filter(a => {
-          if (a.department_id !== ttDeptId) return false;
-          if (parseYearNum(a.year) !== ttYearNum) return false;
-          const aSec = normalizeSec(a.section);
-          // If assignment specifies a section (e.g. 'B'), timetable MUST match that exact section!
-          if (aSec && aSec !== 'ALL' && aSec !== ttSecNorm) return false;
-          return true;
-        });
-
-        // Subjects table staff matches (fallback when no conflicting section assignment exists)
-        const matchingStaffSubjects = staffSubjects.filter(s => {
-          if (s.department_id !== ttDeptId) return false;
-          if (parseYearNum(s.year) !== ttYearNum) return false;
-          const hasSpecificAssignments = facultyAssignments.some(a => 
-            a.department_id === ttDeptId && 
-            parseYearNum(a.year) === ttYearNum && 
-            a.subjects?.id === s.id
-          );
-          if (hasSpecificAssignments) return false;
-          return true;
-        });
-
-        // Check if faculty is class counselor for this specific class
-        const isClassCounselor = counselorData.some(c => 
-          c.department_id === ttDeptId && 
-          parseYearNum(c.year) === ttYearNum && 
-          normalizeSec(c.section) === ttSecNorm
-        );
-
-        const hasAnyRole = matchingAssignments.length > 0 || matchingStaffSubjects.length > 0 || isClassCounselor;
-        if (!hasAnyRole) continue;
-
-        // Scan timetable grid
-        grid_data.forEach((dayRow: any[], dayIndex: number) => {
-          if (!Array.isArray(dayRow)) return;
-
-          dayRow.forEach((cell: any, periodIndex: number) => {
-            if (!cell || typeof cell !== 'string') return;
-            const cellText = cell.trim();
-            if (!cellText) return;
-
-            let matchedSubjectName = '';
-            let isSpecial = false;
-
-            // Check counselor hour
-            if (isClassCounselor && ['counselling', 'student counselling', 'counseling'].includes(cellText.toLowerCase())) {
-              matchedSubjectName = 'Student Counselling';
-              isSpecial = true;
-            }
-
-            // Check matching section assignments
-            if (!matchedSubjectName) {
-              for (const a of matchingAssignments) {
-                const subj = a.subjects;
-                if (!subj) continue;
-
-                const sName = (subj.name || '').trim();
-                const sAbbr = (subj.abbreviation || '').trim();
-                const sCode = (subj.code || '').trim();
-
-                let isMatch = false;
-                if (sName && cellText.toLowerCase() === sName.toLowerCase()) {
-                  isMatch = true;
-                } else if (sAbbr && cellText.toLowerCase() === sAbbr.toLowerCase()) {
-                  isMatch = true;
-                } else if (sCode && cellText.toLowerCase() === sCode.toLowerCase()) {
-                  isMatch = true;
-                } else if (cellText.includes('/')) {
-                  const parts = cellText.split('/').map(p => p.trim().toLowerCase());
-                  if (parts.some(p => 
-                    (sName && p === sName.toLowerCase()) || 
-                    (sAbbr && p === sAbbr.toLowerCase()) || 
-                    (sCode && p === sCode.toLowerCase())
-                  )) {
-                    isMatch = true;
-                  }
-                }
-
-                if (isMatch) {
-                  matchedSubjectName = sName;
-                  isSpecial = ['Seminar', 'Library', 'Student Counselling'].includes(sName);
-                  break;
-                }
-              }
-            }
-
-            // Check matching staff subjects if not already matched
-            if (!matchedSubjectName) {
-              for (const s of matchingStaffSubjects) {
-                const sName = (s.name || '').trim();
-                const sAbbr = (s.abbreviation || '').trim();
-                const sCode = (s.code || '').trim();
-
-                let isMatch = false;
-                if (sName && cellText.toLowerCase() === sName.toLowerCase()) {
-                  isMatch = true;
-                } else if (sAbbr && cellText.toLowerCase() === sAbbr.toLowerCase()) {
-                  isMatch = true;
-                } else if (sCode && cellText.toLowerCase() === sCode.toLowerCase()) {
-                  isMatch = true;
-                } else if (cellText.includes('/')) {
-                  const parts = cellText.split('/').map(p => p.trim().toLowerCase());
-                  if (parts.some(p => 
-                    (sName && p === sName.toLowerCase()) || 
-                    (sAbbr && p === sAbbr.toLowerCase()) || 
-                    (sCode && p === sCode.toLowerCase())
-                  )) {
-                    isMatch = true;
-                  }
-                }
-
-                if (isMatch) {
-                  matchedSubjectName = sName;
-                  isSpecial = ['Seminar', 'Library', 'Student Counselling'].includes(sName);
-                  break;
-                }
-              }
-            }
-
-            if (matchedSubjectName) {
-              facultySchedule.push({
-                subject: matchedSubjectName,
-                day: dayIndex,
-                period: periodIndex,
-                year,
-                section,
-                department_name: ttDeptName,
-                is_special: isSpecial
-              });
-
-              // Group by subject for assignments view
-              if (!subjectMap[matchedSubjectName]) {
-                subjectMap[matchedSubjectName] = {
-                  subject: matchedSubjectName,
-                  schedule: []
-                };
-              }
-
-              subjectMap[matchedSubjectName].schedule.push({
-                day: DAYS[dayIndex],
-                period: PERIODS[periodIndex],
-                year,
-                section,
-                department_name: ttDeptName
-              });
-            }
-          });
-        });
-      }
-
-      return {
-        schedule: facultySchedule,
-        assignments: Object.values(subjectMap)
-      };
-    } catch (error) {
-      console.error('Error extracting faculty schedule:', error);
-      throw error;
-    }
-  };
 
   const login = async () => {
     setLoading(true);
@@ -402,11 +186,9 @@ const FacultyDashboard = () => {
         email: facultyMember.email || "",
         designation: facultyMember.designation || ""
       });
+      localStorage.setItem("facultyUser", JSON.stringify(facultyMember));
 
-      // Extract faculty schedule from approved timetables matching exact assigned section
-      const { schedule: facultySchedule, assignments } = await extractFacultyScheduleFromTimetables(facultyMember.name, facultyMember.id);
-      setSchedule(facultySchedule);
-      setSubjectAssignments(assignments);
+      await loadScheduleData(facultyMember, semesterType);
 
       toast({ 
         title: "Welcome!", 
@@ -453,16 +235,10 @@ const FacultyDashboard = () => {
     setSyncing(true);
     try {
       if (!faculty) return;
-      
-      // Re-extract faculty schedule from approved timetables matching exact assigned section
-      const { schedule: freshSchedule, assignments } = await extractFacultyScheduleFromTimetables(faculty.name, faculty.id);
-      setSchedule(freshSchedule);
-      setSubjectAssignments(assignments);
-      
+      await loadScheduleData(faculty, semesterType);
       toast({ 
         title: "Schedule synced!", 
-        description: "Your schedule has been updated from approved timetables.",
-        variant: "default"
+        description: `Your ${semesterType.toUpperCase()} semester schedule is up to date.`,
       });
     } catch (error: any) {
       toast({ 
@@ -472,6 +248,29 @@ const FacultyDashboard = () => {
       });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!fullSchedule) return;
+    setExportingPdf(true);
+    try {
+      await exportFacultyTimetablesToPdf([fullSchedule], undefined, {
+        semesterType,
+      });
+      toast({
+        title: "PDF Downloaded",
+        description: `Downloaded timetable for ${faculty?.name}`
+      });
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        title: "Download Failed",
+        description: e?.message || "Could not generate PDF",
+        variant: "destructive"
+      });
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -936,7 +735,7 @@ const FacultyDashboard = () => {
           <div className={`relative rounded-2xl p-6 overflow-hidden ${glassCard}`}>
             <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-400/30 to-transparent" />
 
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
               <div className="flex items-center gap-2.5">
                 <div className={`h-9 w-9 rounded-xl flex items-center justify-center border ${
                   isDark ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400" : "bg-indigo-50 border-indigo-200 text-indigo-600"
@@ -948,22 +747,63 @@ const FacultyDashboard = () => {
                     Your Personal Timetable
                   </h2>
                   <p className={`text-[11px] font-medium ${isDark ? "text-indigo-400/70" : "text-indigo-600/80"}`}>
-                    6-day weekly schedule with {totalHours + totalSpecialHours} allocated periods
+                    {semesterType.toUpperCase()} semester • {totalHours + totalSpecialHours} allocated periods/week
                   </p>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSyncSchedule}
-                disabled={syncing}
-                className={`h-9 px-4 rounded-xl text-xs font-semibold border transition-all ${
-                  isDark ? "border-indigo-500/20 bg-white/5 hover:bg-white/10 text-slate-300" : "border-indigo-200/80 bg-white hover:bg-indigo-50 text-slate-700"
-                }`}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing...' : 'Sync Schedule'}
-              </Button>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                {/* Semester Switcher */}
+                <div className="flex items-center p-1 rounded-xl border border-indigo-500/20 bg-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setSemesterType('odd')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      semesterType === 'odd'
+                        ? "bg-indigo-600 text-white shadow-xs"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <Sun className="h-3.5 w-3.5" />
+                    Odd Sem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSemesterType('even')}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      semesterType === 'even'
+                        ? "bg-gradient-to-r from-amber-600 to-indigo-600 text-white shadow-xs"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <Moon className="h-3.5 w-3.5" />
+                    Even Sem
+                  </button>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={handleDownloadPdf}
+                  disabled={!fullSchedule || exportingPdf}
+                  className="h-9 px-3.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {exportingPdf ? 'Exporting...' : 'Export PDF'}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSyncSchedule}
+                  disabled={syncing}
+                  className={`h-9 px-3.5 rounded-xl text-xs font-semibold border transition-all ${
+                    isDark ? "border-indigo-500/20 bg-white/5 hover:bg-white/10 text-slate-300" : "border-indigo-200/80 bg-white hover:bg-indigo-50 text-slate-700"
+                  }`}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Syncing...' : 'Sync'}
+                </Button>
+              </div>
             </div>
 
             <div className="overflow-x-auto -mx-2 px-2">

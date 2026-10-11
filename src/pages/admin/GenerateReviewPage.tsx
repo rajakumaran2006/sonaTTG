@@ -69,6 +69,7 @@ import {
   getFacultyByDepartment,
   upsertClassCounselor,
   deactivateClassCounselor,
+  getCleanSectionName,
 } from "@/lib/supabaseService";
 import { generateAllYears, YearSectionResult, verifySubjectHours } from "@/lib/timetable";
 import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
@@ -1700,9 +1701,9 @@ interface GeneratedTimetableResult extends YearSectionResult {
 }
 
 function calculateTotalHours(rawSubjects: any[]): number {
-  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory' || s.type === 'project').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
   const labHours = rawSubjects.filter(s => s.type === 'lab').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
-  const specialHours = rawSubjects.filter(s => s.type === 'special').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const specialHours = rawSubjects.filter(s => s.type === 'special' || s.type === 'library' || s.type === 'seminar' || s.type === 'counselling').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
 
   const pes = rawSubjects.filter(s => s.type === 'elective');
   let electiveHours = 0;
@@ -1762,11 +1763,12 @@ export default function GenerateReviewPage() {
 
   const rawSelections = useMemo(() => {
     if (stateData?.loadPublished && stateData.departmentName && stateData.year && stateData.section) {
+      const cleanSec = getCleanSectionName(stateData.section);
       return [{
         departmentName: stateData.departmentName,
         selectedYears: [{
           year: stateData.year,
-          sections: [stateData.section]
+          sections: [cleanSec || stateData.section]
         }]
       }];
     }
@@ -2018,6 +2020,7 @@ export default function GenerateReviewPage() {
       category: string;
       hours: number;
       faculty: string;
+      abbreviation?: string;
     }[] = [];
 
     // Helper to clean course title of faculty suffixes like (Ms. J. Deepika)
@@ -2282,13 +2285,31 @@ export default function GenerateReviewPage() {
           return;
         }
 
-        const { data: ttData, error } = await (supabase as any)
+        const cleanSec = getCleanSectionName(stateData.section);
+        const isEven = semesterType === 'even';
+        const primarySection = isEven ? `${cleanSec} (Even)` : cleanSec;
+        const fallbackSection = isEven ? cleanSec : `${cleanSec} (Even)`;
+
+        let { data: ttData, error } = await (supabase as any)
           .from('timetables')
           .select('grid_data, special_flags, updated_at')
           .eq('department_id', deptId)
           .eq('year', stateData.year)
-          .eq('section', stateData.section)
+          .eq('section', primarySection)
           .maybeSingle();
+
+        if (!ttData && fallbackSection !== primarySection) {
+          const fallbackRes = await (supabase as any)
+            .from('timetables')
+            .select('grid_data, special_flags, updated_at')
+            .eq('department_id', deptId)
+            .eq('year', stateData.year)
+            .eq('section', fallbackSection)
+            .maybeSingle();
+          if (fallbackRes.data) {
+            ttData = fallbackRes.data;
+          }
+        }
 
         if (error) throw error;
 
@@ -2298,14 +2319,14 @@ export default function GenerateReviewPage() {
             {
               departmentName: deptName,
               year: stateData.year!,
-              section: stateData.section!,
+              section: cleanSec,
               grid: ttData.grid_data,
               status: 'ok',
             }
           ]);
           setActiveDept(deptName);
           setActiveTab(stateData.year!);
-          setActiveSection(stateData.section!);
+          setActiveSection(cleanSec);
           setViewTab('timetable');
           setIsFullScreen(true);
           setFullScreenPage('timetable');
@@ -2315,9 +2336,9 @@ export default function GenerateReviewPage() {
             const { data: rpcData } = await supabase.rpc('get_class_counselor_info', {
               dept_id: deptId,
               year_param: stateData.year!,
-              section_param: stateData.section!
+              section_param: cleanSec
             });
-            const ccKey = `${deptName}_${stateData.year}_${stateData.section}`;
+            const ccKey = `${deptName}_${stateData.year}_${cleanSec}`;
             if (rpcData && rpcData.length > 0 && rpcData[0].faculty_name) {
               setClassCounselorsMap((prev) => ({ ...prev, [ccKey]: rpcData[0].faculty_name }));
               setPdfCounselor(rpcData[0].faculty_name);
@@ -2329,7 +2350,7 @@ export default function GenerateReviewPage() {
             console.warn("Could not fetch published class counselor:", e);
           }
 
-          const snapKey = `ttg_snap_${deptId}_${stateData.year}_${stateData.section}`;
+          const snapKey = `ttg_snap_${deptId}_${stateData.year}_${cleanSec}_${semesterType}`;
           if (!localStorage.getItem(snapKey)) {
             localStorage.setItem(snapKey, JSON.stringify(ttData.grid_data));
           }
@@ -2396,17 +2417,20 @@ export default function GenerateReviewPage() {
         }
         const subjects = subjectsData[key] || [];
         const sectionToSubjectIds = sectionSubjectsData[key] || {};
-        // Sum total_hours from all active special hours configs for this year
-        const specialConfigHours = (specialHoursData[key] || [])
+        // Base special hours on Saturday hours from config (or default)
+        const satConfigHours = (specialHoursData[key] || [])
           .filter((h: any) => h.is_active)
-          .reduce((sum: number, h: any) => sum + (h.total_hours || 0), 0);
+          .reduce((sum: number, h: any) => sum + (h.saturday_hours || 0), 0);
+        const defaultSat = year === 'II' ? 3 : (year === 'III' || year === 'IV' ? 5 : 0);
+        const specialConfigHours = satConfigHours > 0 ? satConfigHours : defaultSat;
 
         const sectionHours: Record<string, number> = {};
         sections.forEach((sec) => {
           const mappedIds = sectionToSubjectIds[sec] || new Set();
-          const sectionSpecificSubjects = mappedIds.size > 0
+          const mappedSubjects = mappedIds.size > 0
             ? subjects.filter((s) => mappedIds.has(s.id))
-            : subjects;
+            : [];
+          const sectionSpecificSubjects = mappedSubjects.length > 0 ? mappedSubjects : subjects;
           // Add special_hours_config totals — these are real occupied timetable periods
           // (e.g. Counselling=2h, Library=1h, Seminar=2h) that count toward the 42h limit.
           sectionHours[sec] = calculateTotalHours(sectionSpecificSubjects) + specialConfigHours;
@@ -2493,8 +2517,8 @@ export default function GenerateReviewPage() {
             let specialHours = await getSpecialHoursConfigsForYear(dept.id, year).catch(() => []);
             const facultyMap = await getSubjectFacultyMapAllSections(dept.id, year, sections).catch(() => ({}));
 
-            if (year === 'IV' && semesterType === 'even') {
-              if (subjects.length === 0) {
+            if (year === 'IV') {
+              if (semesterType === 'even' && subjects.length === 0) {
                 subjects = [{
                   id: `static_proj_${dept.id}`,
                   name: 'Project',
@@ -2524,10 +2548,12 @@ export default function GenerateReviewPage() {
             );
             secSubjectsMap[key] = sectionToSubjectIds;
 
-            // Sum total_hours from all active special hours configs for this year
-            const specialConfigHoursTotal = specialHours
+            // Base special hours on Saturday hours from config (or default)
+            const satConfigHoursTotal = specialHours
               .filter((h: any) => h.is_active)
-              .reduce((sum: number, h: any) => sum + (h.total_hours || 0), 0);
+              .reduce((sum: number, h: any) => sum + (h.saturday_hours || 0), 0);
+            const defaultSat = year === 'II' ? 3 : (year === 'III' || year === 'IV' ? 5 : 0);
+            const specialConfigHoursTotal = satConfigHoursTotal > 0 ? satConfigHoursTotal : defaultSat;
 
             const sectionHours: Record<string, number> = {};
             sections.forEach((sec) => {
@@ -2535,9 +2561,10 @@ export default function GenerateReviewPage() {
                 sectionHours[sec] = 42;
               } else {
                 const mappedIds = sectionToSubjectIds[sec] || new Set();
-                const sectionSpecificSubjects = mappedIds.size > 0
+                const mappedSubjects = mappedIds.size > 0
                   ? subjects.filter((s) => mappedIds.has(s.id))
-                  : subjects;
+                  : [];
+                const sectionSpecificSubjects = mappedSubjects.length > 0 ? mappedSubjects : subjects;
                 // Add special_hours_config totals — these are real occupied timetable periods
                 // (e.g. Counselling=2h, Library=1h, Seminar=2h) that count toward the 42h limit.
                 sectionHours[sec] = calculateTotalHours(sectionSpecificSubjects) + specialConfigHoursTotal;
@@ -2590,11 +2617,11 @@ export default function GenerateReviewPage() {
     } else {
       const deptId = deptIds[activeDept] || stateData?.departmentId;
       if (deptId && activeTab && activeSection) {
-        supabase.rpc('get_class_counselor_info', {
+        (supabase as any).rpc('get_class_counselor_info', {
           dept_id: deptId,
           year_param: activeTab,
           section_param: activeSection
-        }).then(({ data, error }) => {
+        }).then(({ data, error }: any) => {
           if (!error && data && data.length > 0 && data[0].faculty_name) {
             setClassCounselorsMap((prev) => ({ ...prev, [secKey]: data[0].faculty_name }));
             setPdfCounselor(data[0].faculty_name);
@@ -2602,7 +2629,7 @@ export default function GenerateReviewPage() {
             setClassCounselorsMap((prev) => ({ ...prev, [secKey]: '' }));
             setPdfCounselor('');
           }
-        }).catch(() => {
+        }, () => {
           setClassCounselorsMap((prev) => ({ ...prev, [secKey]: '' }));
           setPdfCounselor('');
         });
@@ -2815,18 +2842,20 @@ export default function GenerateReviewPage() {
             r.year,
             r.section,
             r.grid,
-            { seminar: false, library: false, counselling: false }
+            { seminar: false, library: false, counselling: false },
+            semesterType
           );
 
           // Update snapshot in localStorage
-          const snapKey = `ttg_snap_${deptId}_${r.year}_${r.section}`;
+          const cleanSec = getCleanSectionName(r.section);
+          const snapKey = `ttg_snap_${deptId}_${r.year}_${cleanSec}_${semesterType}`;
           localStorage.setItem(snapKey, JSON.stringify(r.grid));
         })
       );
 
       if (cacheKey) sessionStorage.removeItem(cacheKey);
       setHasUserEdits(false);
-      toast.success("All timetables published and saved successfully!");
+      toast.success(`All ${semesterType === 'even' ? 'Even' : 'Odd'} Semester timetables published and saved successfully!`);
       if (!isFullScreen) {
         navigate("/admin");
       }

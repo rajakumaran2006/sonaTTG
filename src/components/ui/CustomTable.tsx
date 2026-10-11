@@ -4,10 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, X, ChevronDown } from "lucide-react";
+import { Search, Trash2, Download, List, LayoutGrid, ArrowUpDown, X, ChevronDown, CheckSquare, Loader2, AlertCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import * as XLSX from "xlsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export interface FilterOption {
   label: string;
@@ -60,6 +68,9 @@ export function CustomTable<T>({
   const [sortAsc, setSortAsc] = useState(true);
   // Delete mode: checkboxes only visible when true
   const [deleteMode, setDeleteMode] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [deleteTargetIds, setDeleteTargetIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Clear selections when data changes
   useEffect(() => {
@@ -121,6 +132,9 @@ export function CustomTable<T>({
   };
 
   const handleSelectRow = (id: string, checked: boolean) => {
+    if (checked && !deleteMode) {
+      setDeleteMode(true);
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (checked) {
@@ -142,6 +156,7 @@ export function CustomTable<T>({
   const exitDeleteMode = () => {
     setDeleteMode(false);
     setSelectedIds(new Set());
+    setConfirmDialogOpen(false);
   };
 
   // 4. Excel Export (respecting active filters!)
@@ -269,14 +284,32 @@ export function CustomTable<T>({
     pdfMake.createPdf(doc).download(`${exportFileName}.pdf`);
   };
 
-  // 5. Bulk Delete
-  const handleDeleteSelected = async () => {
+  // 5. Bulk Delete Handlers
+  const openDeleteSelectedConfirm = () => {
     if (selectedIds.size === 0 || !onDeleteSelected) return;
-    const confirmDelete = window.confirm(`Are you sure you want to delete the ${selectedIds.size} selected item(s)?`);
-    if (confirmDelete) {
-      await onDeleteSelected(Array.from(selectedIds));
+    setDeleteTargetIds(Array.from(selectedIds));
+    setConfirmDialogOpen(true);
+  };
+
+  const openDeleteAllConfirm = () => {
+    if (sortedData.length === 0 || !onDeleteSelected) return;
+    const allIds = sortedData.map((item) => getRowId(item));
+    setDeleteTargetIds(allIds);
+    setConfirmDialogOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (deleteTargetIds.length === 0 || !onDeleteSelected) return;
+    try {
+      setIsDeleting(true);
+      await onDeleteSelected(deleteTargetIds);
       setSelectedIds(new Set());
       setDeleteMode(false);
+      setConfirmDialogOpen(false);
+    } catch (err: any) {
+      console.error("Failed to delete items:", err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -328,17 +361,74 @@ export function CustomTable<T>({
         </div>
 
         {/* Right: Actions & View Switcher */}
-        <div className="flex items-center gap-2">
-          {/* Delete toggle button — enter delete mode */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Delete Action — Initial / inactive delete mode */}
           {onDeleteSelected && !deleteMode && (
             <Button
               onClick={enterDeleteMode}
               variant="outline"
-              className="h-10 rounded-xl px-4 flex items-center gap-2 border-red-300 dark:border-red-800/60 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 hover:border-red-400 transition-all shadow-sm"
+              className="h-10 rounded-xl px-4 flex items-center gap-2 border-red-300 dark:border-red-800/60 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 hover:border-red-400 transition-all shadow-sm font-semibold"
             >
               <Trash2 className="h-4 w-4" />
               <span>Delete</span>
             </Button>
+          )}
+
+          {/* Delete Actions — Active delete mode: keep Delete button visible and functional! */}
+          {onDeleteSelected && deleteMode && (
+            <div className="flex items-center gap-2 flex-wrap animate-in fade-in duration-200">
+              {/* Delete Selected when items are chosen */}
+              {selectedIds.size > 0 ? (
+                <Button
+                  type="button"
+                  onClick={openDeleteSelectedConfirm}
+                  disabled={isDeleting}
+                  className="h-10 rounded-xl px-4 flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold shadow-sm transition-all"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>Delete ({selectedIds.size})</span>
+                </Button>
+              ) : (
+                /* Immediate Delete All button when 0 items chosen */
+                <Button
+                  type="button"
+                  onClick={openDeleteAllConfirm}
+                  disabled={isDeleting || sortedData.length === 0}
+                  variant="outline"
+                  className="h-10 rounded-xl px-4 flex items-center gap-2 border-red-400 dark:border-red-700 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 hover:border-red-500 font-bold transition-all shadow-sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>Delete All ({sortedData.length})</span>
+                </Button>
+              )}
+
+              {/* Also show Delete All if some (but not all) are selected */}
+              {selectedIds.size > 0 && selectedIds.size < sortedData.length && (
+                <Button
+                  type="button"
+                  onClick={openDeleteAllConfirm}
+                  disabled={isDeleting}
+                  variant="outline"
+                  className="h-10 rounded-xl px-3 text-xs font-semibold border-red-300 dark:border-red-800/60 text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 transition-all"
+                  title="Delete all items currently displayed"
+                >
+                  Delete All ({sortedData.length})
+                </Button>
+              )}
+
+              {/* Cancel button to exit delete mode */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={exitDeleteMode}
+                disabled={isDeleting}
+                className="h-10 rounded-xl px-3 flex items-center gap-1.5 border-input bg-background text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+                title="Cancel delete mode"
+              >
+                <X className="h-4 w-4" />
+                <span>Cancel</span>
+              </Button>
+            </div>
           )}
 
           <DropdownMenu>
@@ -385,6 +475,81 @@ export function CustomTable<T>({
           </div>
         </div>
       </div>
+
+      {/* ────────────────── DELETE / SELECTION MODE BANNER ────────────────── */}
+      {onDeleteSelected && deleteMode && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 px-4 rounded-2xl bg-red-500/10 border border-red-500/25 backdrop-blur-xl shadow-xs animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-red-500/20 text-red-600 dark:text-red-400 shrink-0">
+              <Trash2 className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-foreground flex items-center gap-2">
+                <span>Delete Mode Active</span>
+                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
+                  {selectedIds.size} of {sortedData.length} selected
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Check specific rows or click "Select All" to delete. You can also click "Delete All" directly.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => handleSelectAll(!isAllSelected)}
+              disabled={isDeleting || sortedData.length === 0}
+              className="h-8 rounded-xl px-3 text-xs font-semibold border-border bg-background/80 hover:bg-muted"
+            >
+              <CheckSquare className="h-3.5 w-3.5 mr-1.5" />
+              {isAllSelected ? "Deselect All" : `Select All (${sortedData.length})`}
+            </Button>
+
+            {selectedIds.size > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={openDeleteSelectedConfirm}
+                disabled={isDeleting}
+                className="h-8 rounded-xl px-3.5 flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-bold shadow-sm text-xs"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete Selected ({selectedIds.size})</span>
+              </Button>
+            )}
+
+            {(!isAllSelected || selectedIds.size === 0) && sortedData.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={openDeleteAllConfirm}
+                disabled={isDeleting}
+                variant="outline"
+                className="h-8 rounded-xl px-3 flex items-center gap-1.5 border-red-400/60 text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 text-xs font-bold"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Delete All ({sortedData.length})</span>
+              </Button>
+            )}
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={exitDeleteMode}
+              disabled={isDeleting}
+              className="h-8 rounded-xl px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ────────────────── CONTENT VIEW SECTION ────────────────── */}
       {viewMode === "table" ? (
@@ -533,6 +698,56 @@ export function CustomTable<T>({
           )}
         </div>
       )}
+
+      {/* ────────────────── DELETE CONFIRMATION MODAL ────────────────── */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent className="sm:max-w-md rounded-2xl border border-border bg-card">
+          <AlertDialogHeader>
+            <div className="w-11 h-11 rounded-2xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-600 dark:text-red-400 mb-1">
+              <AlertCircle className="h-6 w-6" />
+            </div>
+            <AlertDialogTitle className="text-lg font-bold text-foreground">
+              {deleteTargetIds.length === sortedData.length
+                ? `Delete All ${deleteTargetIds.length} Records?`
+                : `Delete ${deleteTargetIds.length} Selected Record${deleteTargetIds.length > 1 ? "s" : ""}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm text-muted-foreground">
+              {deleteTargetIds.length === sortedData.length
+                ? `Are you sure you want to delete all ${deleteTargetIds.length} records currently displayed? This action cannot be undone.`
+                : `Are you sure you want to delete the ${deleteTargetIds.length} selected record${deleteTargetIds.length > 1 ? "s" : ""}? This action cannot be undone.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeleting}
+              onClick={() => setConfirmDialogOpen(false)}
+              className="rounded-xl h-10 px-4"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeleting}
+              onClick={executeDelete}
+              className="h-10 rounded-xl px-5 bg-red-600 hover:bg-red-700 text-white font-bold gap-2 shadow-sm"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  <span>Delete {deleteTargetIds.length}</span>
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

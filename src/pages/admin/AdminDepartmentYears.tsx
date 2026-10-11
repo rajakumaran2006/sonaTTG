@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,7 +7,8 @@ import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SuperNavbar from '@/components/navbar/Navbar';
 import FacultyNavbar from '@/components/navbar/facultyadmin';
 import SelectionHeader from '@/components/admin/SelectionHeader';
-import { Upload, BookOpen, Clock, ChevronRight, Sparkles } from 'lucide-react';
+import { Upload, BookOpen, Clock, ChevronRight, Sparkles, BookMarked } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTimetableStore } from '@/store/timetableStore';
 import { calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
 import { useDarkMode } from '@/context/DarkModeContext';
@@ -20,6 +21,7 @@ interface YearStats {
 
 const AdminDepartmentYears = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isDark } = useDarkMode();
   const superAdmin = localStorage.getItem("superAdmin") === "true";
   const adminUser = localStorage.getItem("adminUser");
@@ -38,7 +40,7 @@ const AdminDepartmentYears = () => {
   const [loading, setLoading] = useState(true);
 
   const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
-  const [activeDeptId, setActiveDeptId] = useState<string>("");
+  const [activeDeptId, setActiveDeptId] = useState<string>(() => searchParams.get('deptId') || "");
 
   useEffect(() => {
     if (superAdmin) {
@@ -49,7 +51,24 @@ const AdminDepartmentYears = () => {
           .order('name');
         if (data && data.length > 0) {
           setAllocatedDepts(data);
-          setActiveDeptId((prev) => prev || data[0].id);
+          const qDept = searchParams.get('deptId');
+          const matched = data.find((d: any) => d.id === qDept);
+          const initialId = matched?.id || data[0].id;
+          setActiveDeptId(initialId);
+          if (qDept !== initialId) {
+            setSearchParams(prev => {
+              const next = new URLSearchParams(prev);
+              next.set('deptId', initialId);
+              return next;
+            }, { replace: true });
+          }
+          const activeDeptObj = data.find((d: any) => d.id === initialId);
+          if (activeDeptObj) {
+            useTimetableStore.setState(state => ({
+              ...state,
+              selection: { ...state.selection, department: activeDeptObj.name }
+            }));
+          }
         }
       })();
       return;
@@ -90,8 +109,43 @@ const AdminDepartmentYears = () => {
 
         if (data && data.length > 0) {
           setAllocatedDepts(data);
-          const currentActive = data[0]?.id || sessionUser.department_id;
+          const qDept = searchParams.get('deptId');
+          const matchedQ = data.find((d: any) => d.id === qDept);
+          const matchedStored = adminUser ? (() => {
+            try {
+              const p = JSON.parse(adminUser);
+              return data.find((d: any) => d.id === p.department_id);
+            } catch { return undefined; }
+          })() : undefined;
+          
+          const currentActive = matchedQ?.id || matchedStored?.id || data[0]?.id;
           setActiveDeptId(currentActive || '');
+
+          if (currentActive) {
+            if (qDept !== currentActive) {
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.set('deptId', currentActive);
+                return next;
+              }, { replace: true });
+            }
+            if (adminUser) {
+              try {
+                const parsed = JSON.parse(adminUser);
+                if (parsed.department_id !== currentActive) {
+                  parsed.department_id = currentActive;
+                  localStorage.setItem("adminUser", JSON.stringify(parsed));
+                }
+              } catch {}
+            }
+            const activeDeptObj = data.find((d: any) => d.id === currentActive);
+            if (activeDeptObj) {
+              useTimetableStore.setState(state => ({
+                ...state,
+                selection: { ...state.selection, department: activeDeptObj.name }
+              }));
+            }
+          }
         }
       }
     })();
@@ -100,122 +154,178 @@ const AdminDepartmentYears = () => {
   const semesterType = useTimetableStore((s) => s.semesterType);
   const setSemesterType = useTimetableStore((s) => s.setSemesterType);
   const [hasEven, setHasEven] = useState(false);
+  const [addingLibYear, setAddingLibYear] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    if (!userType || !activeDeptId) return;
+    setLoading(true);
+    try {
+      const [deptRes, subsRes, specialRes] = await Promise.all([
+        (supabase as any)
+          .from('departments')
+          .select('name')
+          .eq('id', activeDeptId)
+          .maybeSingle(),
+        (supabase as any)
+          .from('subjects')
+          .select('*')
+          .eq('department_id', activeDeptId)
+          .order('name'),
+        (supabase as any)
+          .from('special_hours_config')
+          .select('*')
+          .eq('department_id', activeDeptId)
+          .eq('is_active', true)
+      ]);
+
+      if (deptRes?.data?.name) {
+        setDeptName(deptRes.data.name);
+        useTimetableStore.setState(state => ({
+          ...state,
+          selection: { ...state.selection, department: deptRes.data.name }
+        }));
+      }
+
+      const allSubs = subsRes?.data || [];
+      const specialConfigs = specialRes?.data || [];
+
+      const evenExists = allSubs.some((s: any) =>
+        (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t))
+      );
+      setHasEven(evenExists);
+
+      const activeSem = (!evenExists && semesterType === 'even') ? 'odd' : semesterType;
+      if (!evenExists && semesterType === 'even') {
+        setSemesterType('odd');
+      }
+
+      const years = ['I', 'II', 'III', 'IV'];
+      const stats: YearStats[] = [];
+
+      for (const yr of years) {
+        const yrSubs = allSubs.filter((s: any) => {
+          if (s.year !== yr) return false;
+          if (evenExists) {
+            const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+            return activeSem === 'even' ? isEven : !isEven;
+          }
+          return true;
+        });
+
+        const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
+        const satHours = yrSpecs.reduce((a: number, b: any) => a + (b.saturday_hours || 0), 0);
+        const defaultSat = yr === 'II' ? 3 : (yr === 'III' || yr === 'IV' ? 5 : 0);
+        const configSpecialHours = satHours > 0 ? satHours : defaultSat;
+
+        const oeHours = (await getOpenElectiveHours(activeDeptId, yr).catch(() => 5)) || 5;
+
+        const calc = calculateYearGrandTotalHours({
+          subjects: yrSubs,
+          specialConfigHours: configSpecialHours,
+          openElectiveHoursSetting: oeHours
+        });
+
+        stats.push({
+          year: yr,
+          subjects: calc.subjectsCount,
+          totalHours: calc.grandTotalHours,
+        });
+      }
+
+      setYearStats(stats);
+    } catch (err) {
+      console.error("Error loading year stats:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeDeptId, userType, semesterType, setSemesterType]);
 
   useEffect(() => {
-    if (!userType || !activeDeptId) {
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const [deptRes, subsRes, specialRes] = await Promise.all([
-          (supabase as any)
-            .from('departments')
-            .select('name')
-            .eq('id', activeDeptId)
-            .maybeSingle(),
-          (supabase as any)
-            .from('subjects')
-            .select('*')
-            .eq('department_id', activeDeptId)
-            .order('name'),
-          (supabase as any)
-            .from('special_hours_config')
-            .select('*')
-            .eq('department_id', activeDeptId)
-            .eq('is_active', true)
-        ]);
-
-        if (!isMounted) return;
-
-        if (deptRes?.data?.name) {
-          setDeptName(deptRes.data.name);
-          useTimetableStore.setState(state => ({
-            ...state,
-            selection: { ...state.selection, department: deptRes.data.name }
-          }));
-        }
-
-        const allSubs = subsRes?.data || [];
-        const specialConfigs = specialRes?.data || [];
-
-        const evenExists = allSubs.some((s: any) =>
-          (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t))
-        );
-        setHasEven(evenExists);
-
-        // If no even semester subjects exist at all for this department but store was set to even,
-        // automatically fallback to odd semester so data is always visible immediately
-        const activeSem = (!evenExists && semesterType === 'even') ? 'odd' : semesterType;
-        if (!evenExists && semesterType === 'even') {
-          setSemesterType('odd');
-        }
-
-        const years = ['I', 'II', 'III', 'IV'];
-        const stats: YearStats[] = [];
-
-        for (const yr of years) {
-          const yrSubs = allSubs.filter((s: any) => {
-            if (s.year !== yr) return false;
-            if (evenExists) {
-              const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
-              return activeSem === 'even' ? isEven : !isEven;
-            }
-            return true;
-          });
-
-          const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
-          const configSpecialHours = yrSpecs.reduce((a: number, b: any) => a + (b.total_hours || 0), 0);
-
-          const oeHours = await getOpenElectiveHours(activeDeptId, yr).catch(() => 5);
-
-          const calc = calculateYearGrandTotalHours({
-            subjects: yrSubs,
-            specialConfigHours: configSpecialHours,
-            openElectiveHoursSetting: oeHours
-          });
-
-          stats.push({
-            year: yr,
-            subjects: calc.subjectsCount,
-            totalHours: calc.grandTotalHours,
-          });
-        }
-
-        if (isMounted) {
-          setYearStats(stats);
-        }
-      } catch (err) {
-        console.error("Error loading year stats:", err);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
     loadData();
+  }, [loadData]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [activeDeptId, userType, semesterType, setSemesterType]);
+  const handleAddLibForYear = async (year: string, currentHours: number) => {
+    if (!activeDeptId || currentHours >= 42 || currentHours <= 0) return;
+    const deficit = Math.max(0, 42 - currentHours);
+    setAddingLibYear(year);
+
+    try {
+      const activeSem = (!hasEven && semesterType === 'even') ? 'odd' : semesterType;
+      // 1. Search for existing Library subject for this department, year, and active semester
+      const { data: existingLibSubs } = await (supabase as any)
+        .from('subjects')
+        .select('*')
+        .eq('department_id', activeDeptId)
+        .eq('year', year)
+        .ilike('name', '%library%');
+
+      const semLib = (existingLibSubs || []).find((s: any) => {
+        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+        return activeSem === 'even' ? isEven : !isEven;
+      });
+
+      if (semLib) {
+        const newHpw = (semLib.hours_per_week || 0) + deficit;
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .update({
+            type: 'theory',
+            hours_per_week: newHpw,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', semLib.id);
+
+        if (error) throw error;
+      } else {
+        const tagList = activeSem === 'even' ? ['even_sem'] : ['odd_sem'];
+        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
+
+        let targetName = activeSem === 'even' ? 'Library (Even)' : 'Library';
+        if (existingNames.has(targetName.toLowerCase())) {
+          targetName = activeSem === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
+        }
+
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .insert({
+            department_id: activeDeptId,
+            year: year,
+            name: targetName,
+            code: 'LIB',
+            abbreviation: 'LIB',
+            type: 'theory',
+            hours_per_week: deficit,
+            credits: 1,
+            tags: tagList,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+      }
+
+      toast.success(`Added ${deficit}h Library for ${activeSem === 'even' ? 'Even' : 'Odd'} Semester. Weekly load is now exactly 42h!`);
+      await loadData();
+    } catch (err: any) {
+      console.error("Failed to add library hours:", err);
+      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
+    } finally {
+      setAddingLibYear(null);
+    }
+  };
 
   const handleManageYear = (year: string) => {
     useTimetableStore.setState(state => ({
       ...state,
-      selection: { ...state.selection, year: year }
+      selection: { ...state.selection, year: year, department: deptName }
     }));
 
     if (userType === 'admin') {
-      navigate(`/admin/subjects/${encodeURIComponent(year)}`);
+      navigate(`/admin/subjects/${encodeURIComponent(year)}?deptId=${activeDeptId}`);
     } else if (userType === 'super') {
-      navigate(`/super-admin/departments/${activeDeptId}/years/${encodeURIComponent(year)}`);
+      navigate(`/super-admin/departments/${activeDeptId}/years/${encodeURIComponent(year)}?deptId=${activeDeptId}`);
     } else {
-      navigate(`/faculty/subjects/${encodeURIComponent(year)}`);
+      navigate(`/faculty/subjects/${encodeURIComponent(year)}?deptId=${activeDeptId}`);
     }
   };
 
@@ -268,10 +378,17 @@ const AdminDepartmentYears = () => {
                     key={dept.id}
                     onClick={() => {
                       setActiveDeptId(dept.id);
+                      setSearchParams(prev => {
+                        const next = new URLSearchParams(prev);
+                        next.set('deptId', dept.id);
+                        return next;
+                      }, { replace: true });
                       if (adminUser) {
-                        const parsed = JSON.parse(adminUser);
-                        parsed.department_id = dept.id;
-                        localStorage.setItem("adminUser", JSON.stringify(parsed));
+                        try {
+                          const parsed = JSON.parse(adminUser);
+                          parsed.department_id = dept.id;
+                          localStorage.setItem("adminUser", JSON.stringify(parsed));
+                        } catch {}
                       }
                       useTimetableStore.setState(state => ({
                         ...state,
@@ -337,7 +454,7 @@ const AdminDepartmentYears = () => {
               </div>
 
               {userType === 'admin' && (
-                <Button onClick={() => navigate('/csv-upload')} className="rounded-xl shadow-md bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-400/40 flex items-center gap-2">
+                <Button onClick={() => navigate(activeDeptId ? `/csv-upload?deptId=${activeDeptId}` : '/csv-upload')} className="rounded-xl shadow-md bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-400/40 flex items-center gap-2">
                   <Upload className="h-4 w-4" />
                   <span>Bulk Import CSV</span>
                 </Button>
@@ -425,13 +542,42 @@ const AdminDepartmentYears = () => {
                       <div className="text-3xl font-bold mt-1 tracking-tight text-foreground">{y.subjects}</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">Active curriculum courses</div>
                     </div>
-                    <div className={`p-4 rounded-2xl ${subCardGlass}`}>
-                      <div className="flex items-center gap-2 text-purple-400 mb-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Weekly Load</span>
+                    <div className={`p-4 rounded-2xl ${subCardGlass} relative flex flex-col justify-between`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 text-purple-400">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Weekly Load</span>
+                        </div>
+                        {y.totalHours < 42 && y.totalHours > 0 && y.subjects > 0 && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Limited ({y.totalHours}/42h)
+                          </span>
+                        )}
                       </div>
-                      <div className="text-3xl font-bold mt-1 tracking-tight text-foreground">{y.totalHours}h</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">Total scheduled instructional hours</div>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <div className="text-3xl font-bold tracking-tight text-foreground">{y.totalHours}h</div>
+                        {y.totalHours < 42 && y.totalHours > 0 && y.subjects > 0 && (
+                          <Button 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddLibForYear(y.year, y.totalHours);
+                            }}
+                            disabled={addingLibYear === y.year}
+                            className="h-7 px-2.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+                          >
+                            <BookMarked className="h-3.5 w-3.5" />
+                            <span>{addingLibYear === y.year ? "Adding..." : "Add Lib"}</span>
+                          </Button>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        {y.subjects === 0
+                          ? "No active curriculum courses"
+                          : y.totalHours < 42 
+                            ? `${42 - y.totalHours}h deficit below 42h required`
+                            : "Total scheduled instructional hours"}
+                      </div>
                     </div>
                   </div>
                 </div>

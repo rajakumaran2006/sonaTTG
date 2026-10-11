@@ -133,31 +133,27 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
         }
       ];
 
-      // Check which defaults don't exist yet
+      // Check which defaults don't exist yet (check ALL rows, even inactive, to prevent unique constraint conflicts)
       const { data: existing } = await supabase
         .from('special_hours_config')
-        .select('special_type')
+        .select('id, special_type, is_active')
         .eq('department_id', departmentId)
-        .eq('year', year)
-        .eq('is_active', true);
+        .eq('year', year);
 
-      const existingTypes = new Set((existing || []).map(e => e.special_type));
-      const toCreate = defaultConfigs.filter(config => !existingTypes.has(config.special_type));
-
-      if (toCreate.length > 0) {
-        const { error } = await supabase
-          .from('special_hours_config')
-          .insert(toCreate.map(config => ({
-            ...config,
+      const existingMap = new Map((existing || []).map(e => [e.special_type.toLowerCase(), e]));
+      
+      for (const def of defaultConfigs) {
+        const found = existingMap.get(def.special_type.toLowerCase());
+        if (!found) {
+          await supabase.from('special_hours_config').insert({
+            ...def,
             department_id: departmentId,
             year,
             is_active: true
-          })));
-
-        if (error) throw error;
-        // Reload after creating defaults
-        loadConfigurations();
+          });
+        }
       }
+      loadConfigurations();
     } catch (error) {
       console.error('Error ensuring default configurations:', error);
     }
@@ -165,33 +161,54 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
 
   const saveConfiguration = async (config: SpecialHoursConfig) => {
     try {
-      if (config.total_hours !== config.saturday_hours + config.weekdays_hours) {
+      const satHours = Number(config.saturday_hours) || 0;
+      const wdHours = Number(config.weekdays_hours) || 0;
+      const totalHours = satHours + wdHours;
+
+      const trimmedType = config.special_type.trim();
+      if (!trimmedType) {
         toast({
           title: "Validation Error",
-          description: "Total hours must equal Saturday hours + Weekdays hours",
+          description: "Special hour type name is required",
           variant: "destructive"
         });
         return;
       }
 
+      // Check if a record already exists with this name (case-insensitive)
+      let targetId = config.id;
+      if (!targetId) {
+        const { data: existingRows } = await supabase
+          .from('special_hours_config')
+          .select('id, special_type')
+          .eq('department_id', departmentId)
+          .eq('year', year);
+        const match = (existingRows || []).find(
+          (r: any) => r.special_type.toLowerCase() === trimmedType.toLowerCase()
+        );
+        if (match) {
+          targetId = match.id;
+        }
+      }
+
       const saveData = {
         department_id: departmentId,
         year,
-        special_type: config.special_type,
-        total_hours: config.total_hours,
-        saturday_hours: config.saturday_hours,
-        weekdays_hours: config.weekdays_hours,
+        special_type: trimmedType,
+        total_hours: totalHours,
+        saturday_hours: satHours,
+        weekdays_hours: wdHours,
         saturday_periods: config.saturday_periods,
         weekdays_periods: config.weekdays_periods,
         is_active: true,
       };
 
       let result;
-      if (config.id) {
+      if (targetId) {
         result = await supabase
           .from('special_hours_config')
           .update(saveData)
-          .eq('id', config.id);
+          .eq('id', targetId);
       } else {
         result = await supabase
           .from('special_hours_config')
@@ -202,7 +219,7 @@ export function SpecialHoursManager({ departmentId, year, onConfigUpdate, classN
 
       toast({
         title: "Success",
-        description: `Special hours configuration ${config.id ? 'updated' : 'created'} successfully`,
+        description: `Special hours configuration ${targetId ? 'updated' : 'created'} successfully`,
       });
 
       loadConfigurations();

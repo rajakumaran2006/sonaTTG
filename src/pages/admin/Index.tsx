@@ -28,8 +28,12 @@ import {
   X,
   Sun,
   Moon,
+  Eye,
+  Download,
 } from "lucide-react";
 import { ImportEvenSemesterModal } from "@/components/admin/ImportEvenSemesterModal";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
+import { exportDepartmentAllFacultyTimetables } from "@/lib/facultyTimetablePdfExport";
 
 
 const years = ["I", "II", "III", "IV"];
@@ -80,6 +84,37 @@ const Index = () => {
   }, [navigate, semesterType]);
 
   const ready = selection.department && selection.year && selection.section;
+
+  // ── Faculty Timetable View & Export State ────────────────────────────────
+  const [facultyModalOpen, setFacultyModalOpen] = useState(false);
+  const [downloadingAllFacultyPdf, setDownloadingAllFacultyPdf] = useState(false);
+
+  const handleDownloadAllFacultyPdf = async () => {
+    const targetDept = departments.find(d => selectedDashboardDepts.includes(d.name)) || departments[0];
+    if (!targetDept) {
+      toast.error("Please select a department first.");
+      return;
+    }
+    setDownloadingAllFacultyPdf(true);
+    try {
+      toast.info(`Preparing all faculty timetables PDF for ${targetDept.name} (${semesterType.toUpperCase()} Sem)...`);
+      const count = await exportDepartmentAllFacultyTimetables(
+        targetDept.id,
+        targetDept.name,
+        semesterType
+      );
+      if (count === 0) {
+        toast.warning(`No faculty members with assignments found in ${targetDept.name}.`);
+      } else {
+        toast.success(`Exported timetables for ${count} faculty members!`);
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || "Failed to generate all faculty PDF.");
+    } finally {
+      setDownloadingAllFacultyPdf(false);
+    }
+  };
 
 
   // Load combined stats across all allocated departments
@@ -161,7 +196,8 @@ const Index = () => {
           }
 
           setDepartments(deptData);
-          setSelection({ department: deptData[0].name });
+          const activeDept = (parsedAdmin.department_id && deptData.find((d: any) => d.id === parsedAdmin.department_id)) || deptData[0];
+          setSelection({ department: activeDept.name });
           setSelectedDashboardDepts(deptData.map(d => d.name));
 
           // Load stats combined for all allocated departments
@@ -372,6 +408,67 @@ const Index = () => {
             })}
           </div>
 
+          {/* Faculty Timetables & PDF Generation Banner */}
+          <div className={`rounded-2xl ${cardBg} border ${cardBorder} p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all duration-300`}>
+            <div className="flex items-center gap-3.5 min-w-0 w-full md:w-auto">
+              <div className={`w-11 h-11 rounded-xl border flex items-center justify-center shrink-0 ${
+                isDark 
+                  ? "bg-indigo-500/15 border-indigo-500/30 text-indigo-400 shadow-[0_0_12px_-2px_rgba(99,102,241,0.25)]" 
+                  : "bg-indigo-50/80 border-indigo-200/80 text-indigo-600 shadow-sm"
+              }`}>
+                <Calendar className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className={`text-sm sm:text-base font-bold tracking-tight ${textPrimary}`}>Faculty Timetables & Official PDF</h3>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    semesterType === 'odd'
+                      ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                      : "bg-indigo-500/10 border-indigo-500/30 text-indigo-400"
+                  }`}>
+                    {semesterType.toUpperCase()} SEM
+                  </span>
+                </div>
+                <p className={`text-xs ${isDark ? textMuted : 'text-slate-500'} mt-0.5 leading-normal`}>
+                  Live faculty schedules with class counselor duties, composite labs, and batch PDF export (5-line header & 2 signatures).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => setFacultyModalOpen(true)}
+                className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                  isDark
+                    ? "border-indigo-500/30 bg-white/5 hover:bg-white/10 text-indigo-300"
+                    : "border-indigo-200/90 bg-white hover:bg-indigo-50 text-indigo-900 shadow-xs"
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                View Faculty Timetables
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadAllFacultyPdf}
+                disabled={downloadingAllFacultyPdf || departments.length === 0}
+                className="flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-sm border border-blue-400/30 transition-all disabled:opacity-50"
+              >
+                {downloadingAllFacultyPdf ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Exporting PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download All Faculty PDF</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* Main Content Grid — equal height matching columns */}
           <div className="grid gap-5 lg:grid-cols-5 items-stretch">
 
@@ -389,18 +486,6 @@ const Index = () => {
                     <div className="relative flex items-center justify-between gap-2 min-h-[32px]">
                       <label className={`text-xs font-bold uppercase tracking-wider ${isDark ? textMuted : 'text-indigo-700'} shrink-0`}>Academic Semester</label>
 
-                      {semesterType === "even" && (
-                        <div className="sm:absolute sm:left-1/2 sm:-translate-x-1/2 z-10">
-                          <button
-                            type="button"
-                            onClick={() => setShowImportEvenModal(true)}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white transition-all shadow-[0_0_14px_-2px_rgba(99,102,241,0.35)] border border-indigo-300/40 backdrop-blur-md active:scale-95"
-                          >
-                            <Upload className="h-3.5 w-3.5" />
-                            <span>Import Even Sem Subjects</span>
-                          </button>
-                        </div>
-                      )}
 
                       <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0 text-right">
                         {semesterType === "odd" ? "Odd Sem (Years II, III, IV)" : "Even Sem (Years II, III, IV)"}
@@ -561,6 +646,14 @@ const Index = () => {
         open={showImportEvenModal}
         onClose={() => setShowImportEvenModal(false)}
         departmentName={selectedDashboardDepts[0] || "AIDS"}
+      />
+
+      {/* ── Faculty Timetable Modal ── */}
+      <FacultyTimetableModal
+        open={facultyModalOpen}
+        onClose={() => setFacultyModalOpen(false)}
+        defaultDepartmentId={departments.find(d => selectedDashboardDepts.includes(d.name))?.id || departments[0]?.id}
+        defaultSemesterType={semesterType}
       />
     </div>
   );

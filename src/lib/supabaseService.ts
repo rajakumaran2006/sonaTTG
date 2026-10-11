@@ -76,6 +76,21 @@ export interface CalculateHoursParams {
   openElectiveHoursSetting?: number;
 }
 
+export function getEffectiveSubjectHours(s: {
+  hours_per_week?: number;
+  hoursPerWeek?: number;
+  tags?: string[];
+}): number {
+  if (Array.isArray(s.tags)) {
+    const hpwTag = s.tags.find((t: string) => /^(?:hpw|hours):(\d+)$/i.test(t));
+    if (hpwTag) {
+      const match = hpwTag.match(/^(?:hpw|hours):(\d+)$/i);
+      if (match) return parseInt(match[1], 10);
+    }
+  }
+  return s.hours_per_week ?? s.hoursPerWeek ?? 0;
+}
+
 export function calculateYearGrandTotalHours({
   subjects,
   specialConfigHours = 0,
@@ -84,12 +99,12 @@ export function calculateYearGrandTotalHours({
   const subjectsCount = subjects.length;
 
   const traditionalTheory = subjects
-    .filter(s => s.type === 'theory')
-    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+    .filter(s => s.type === 'theory' || s.type === 'project')
+    .reduce((sum, s) => sum + getEffectiveSubjectHours(s), 0);
 
   const labHours = subjects
     .filter(s => s.type === 'lab')
-    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+    .reduce((sum, s) => sum + getEffectiveSubjectHours(s), 0);
 
   const pes = subjects.filter(s => s.type === 'elective');
   let electiveHours = 0;
@@ -98,7 +113,7 @@ export function calculateYearGrandTotalHours({
     let untaggedSum = 0;
     pes.forEach(s => {
       const groupTag = (s.tags || []).find(t => /pe_group_\d+/i.test(t) || /^pe\d+/i.test(t));
-      const h = s.hours_per_week ?? s.hoursPerWeek ?? 0;
+      const h = getEffectiveSubjectHours(s);
       if (groupTag) {
         peGroups.set(groupTag, Math.max(peGroups.get(groupTag) || 0, h));
       } else {
@@ -114,10 +129,16 @@ export function calculateYearGrandTotalHours({
   const theoryHours = traditionalTheory + electiveHours + openElectiveHours;
 
   const subjectSpecialHours = subjects
-    .filter(s => s.type === 'special')
-    .reduce((sum, s) => sum + (s.hours_per_week ?? s.hoursPerWeek ?? 0), 0);
+    .filter(s => s.type === 'special' || s.type === 'library' || s.type === 'seminar' || s.type === 'counselling')
+    .reduce((sum, s) => sum + getEffectiveSubjectHours(s), 0);
 
-  const totalSpecialHours = specialConfigHours + subjectSpecialHours;
+  const isYear4Even = subjects.some(s => 
+    (s.year === 'IV' || (s as any).year === 'IV') && 
+    (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t)) &&
+    /project\s*work/i.test(s.name)
+  );
+  const effectiveSpecialHours = isYear4Even ? 5 : specialConfigHours;
+  const totalSpecialHours = effectiveSpecialHours + subjectSpecialHours;
   const totalSubjectHours = theoryHours + labHours;
   const grandTotalHours = totalSubjectHours + totalSpecialHours;
 
@@ -199,15 +220,27 @@ export async function deleteEvenSemesterSubjects(departmentId: string, year?: st
 export async function addSubject(
   subject: Omit<Subject, 'id'> & { departmentId: string; year: string; semesterType?: 'odd' | 'even' }
 ): Promise<Subject> {
-  const tags = [...(subject.tags || [])];
+  let tags = [...(subject.tags || [])];
   if (subject.semesterType === 'even' && !tags.some(t => /even_sem|even\b/i.test(t))) {
     tags.push('even_sem');
   }
+  const rawHours = Number(subject.hoursPerWeek) || 4;
+  if (rawHours > 10) {
+    tags = tags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
+    tags.push(`hpw:${rawHours}`);
+  }
+  const rawCredits = Number(subject.credits) || 3;
+  if (rawCredits > 6) {
+    tags = tags.filter(t => !/^credits:\d+$/i.test(t));
+    tags.push(`credits:${rawCredits}`);
+  }
+  const safeHours = Math.min(Math.max(rawHours, 1), 10);
+  const safeCredits = Math.min(Math.max(rawCredits, 1), 6);
   const { data, error } = await (supabase as any)
     .from('subjects')
     .insert({
       name: subject.name,
-      hours_per_week: subject.hoursPerWeek,
+      hours_per_week: safeHours,
       type: subject.type,
       tags,
       code: subject.code,
@@ -216,7 +249,7 @@ export async function addSubject(
       department_id: subject.departmentId,
       year: subject.year,
       max_faculty_count: subject.maxFacultyCount,
-      credits: subject.credits || 3,
+      credits: safeCredits,
     })
     .select()
     .single();
@@ -230,13 +263,25 @@ export async function addSubjectsBulk(
 ): Promise<Subject[]> {
   if (!subjects?.length) return [];
   const rows = subjects.map((s) => {
-    const tags = [...(s.tags || [])];
+    let tags = [...(s.tags || [])];
     if (s.semesterType === 'even' && !tags.some(t => /even_sem|even\b/i.test(t))) {
       tags.push('even_sem');
     }
+    const rawHours = Number(s.hoursPerWeek) || 4;
+    if (rawHours > 10) {
+      tags = tags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
+      tags.push(`hpw:${rawHours}`);
+    }
+    const rawCredits = Number(s.credits) || 3;
+    if (rawCredits > 6) {
+      tags = tags.filter(t => !/^credits:\d+$/i.test(t));
+      tags.push(`credits:${rawCredits}`);
+    }
+    const safeHours = Math.min(Math.max(rawHours, 1), 10);
+    const safeCredits = Math.min(Math.max(rawCredits, 1), 6);
     return {
       name: s.name,
-      hours_per_week: s.hoursPerWeek,
+      hours_per_week: safeHours,
       type: s.type,
       tags,
       code: s.code,
@@ -245,7 +290,7 @@ export async function addSubjectsBulk(
       department_id: s.departmentId,
       year: s.year,
       max_faculty_count: s.maxFacultyCount,
-      credits: s.credits || 3,
+      credits: safeCredits,
     };
   });
   const { data, error } = await (supabase as any)
@@ -276,9 +321,9 @@ export async function getOpenElectiveHours(departmentId: string, year: string): 
   try {
     const key = `oe_hours:${departmentId}:${year}`;
     const v = localStorage.getItem(key);
-    return v ? Number(v) || 0 : 0;
+    return v !== null ? Number(v) : 5;
   } catch {
-    return 0;
+    return 5;
   }
 }
 
@@ -425,20 +470,80 @@ export async function saveSectionSubjects(departmentId: string, year: string, se
   }
 }
 
+/**
+ * Clean up raw section strings by removing internal semester tags like '(Even)', '[Even]', etc.
+ */
+export function getCleanSectionName(section: string | undefined | null): string {
+  if (!section) return '';
+  return section
+    .replace(/\s*[\(\[]\s*even\s*(sem)?\s*[\)\]]/gi, '')
+    .replace(/\s*[\(\[]\s*odd\s*(sem)?\s*[\)\]]/gi, '')
+    .trim();
+}
+
+/**
+ * Determine whether a timetable row is for odd or even semester.
+ */
+export function getTimetableSemester(row: {
+  section?: string;
+  year?: string;
+  special_flags?: any;
+  grid_data?: any;
+}): 'odd' | 'even' {
+  if (row.special_flags) {
+    let flags = row.special_flags;
+    if (typeof flags === 'string') {
+      try { flags = JSON.parse(flags); } catch { flags = {}; }
+    }
+    if (flags?.semesterType === 'even' || flags?.semester_type === 'even') return 'even';
+    if (flags?.semesterType === 'odd' || flags?.semester_type === 'odd') return 'odd';
+  }
+
+  const sec = String(row.section || '');
+  if (/(\b|\(|\[)even(\b|\)|\])/i.test(sec)) return 'even';
+  if (/(\b|\(|\[)odd(\b|\)|\])/i.test(sec)) return 'odd';
+
+  const yr = String(row.year || '');
+  if (/(\b|\(|\[)even(\b|\)|\])/i.test(yr)) return 'even';
+  if (/(\b|\(|\[)odd(\b|\)|\])/i.test(yr)) return 'odd';
+
+  const grid = Array.isArray(row.grid_data) ? row.grid_data : [];
+  for (const dayRow of grid) {
+    if (!Array.isArray(dayRow)) continue;
+    for (const cell of dayRow) {
+      const cellText = typeof cell === 'string' ? cell : (cell?.name || cell?.subject || cell?.title || '');
+      if (typeof cellText === 'string' && /even\s*sem|\(even\)|\[even\]/i.test(cellText)) {
+        return 'even';
+      }
+    }
+  }
+
+  return 'odd';
+}
+
 // Timetable operations
 export async function saveTimetable(
   departmentId: string,
   year: string,
   section: string,
   gridData: string[][],
-  specialFlags: SpecialFlags
+  specialFlags: SpecialFlags,
+  semesterType: 'odd' | 'even' = 'odd'
 ): Promise<void> {
+  const isEven = semesterType === 'even';
+  const cleanSection = getCleanSectionName(section);
+  // Store even sem with (Even) suffix in section column to prevent overwriting odd sem
+  const dbSection = isEven ? `${cleanSection} (Even)` : cleanSection;
+
   const payload = {
     department_id: departmentId,
     year,
-    section,
+    section: dbSection,
     grid_data: gridData as any,
-    special_flags: (specialFlags as unknown) as any,
+    special_flags: {
+      ...((specialFlags as any) || {}),
+      semesterType,
+    },
     updated_at: new Date().toISOString(),
   } as any;
 
@@ -452,15 +557,32 @@ export async function saveTimetable(
 export async function getTimetable(
   departmentId: string,
   year: string,
-  section: string
+  section: string,
+  semesterType?: 'odd' | 'even'
 ): Promise<{ gridData: string[][]; specialFlags: SpecialFlags } | null> {
-  const { data, error } = await (supabase as any)
+  const cleanSection = getCleanSectionName(section);
+  const isEven = semesterType === 'even';
+  const primarySection = isEven ? `${cleanSection} (Even)` : cleanSection;
+  const fallbackSection = isEven ? cleanSection : `${cleanSection} (Even)`;
+
+  let { data, error } = await (supabase as any)
     .from('timetables')
     .select('grid_data, special_flags')
     .eq('department_id', departmentId)
     .eq('year', year)
-    .eq('section', section)
-    .single();
+    .eq('section', primarySection)
+    .maybeSingle();
+
+  if (!data && fallbackSection !== primarySection) {
+    const fallbackRes = await (supabase as any)
+      .from('timetables')
+      .select('grid_data, special_flags')
+      .eq('department_id', departmentId)
+      .eq('year', year)
+      .eq('section', fallbackSection)
+      .maybeSingle();
+    data = fallbackRes.data;
+  }
   
   if (error && error.code !== 'PGRST116') throw error;
   if (!data) return null;
@@ -536,17 +658,22 @@ export async function getLabPreferences(
 
 // Helper functions
 function dbSubjectToSubject(dbSubject: DbSubject): Subject {
+  const hpwTag = (dbSubject.tags || []).find((t: string) => /^(?:hpw|hours):(\d+)$/i.test(t));
+  const encodedHours = hpwTag ? parseInt(hpwTag.split(':')[1], 10) : null;
+  const creditsTag = (dbSubject.tags || []).find((t: string) => /^credits:(\d+)$/i.test(t));
+  const encodedCredits = creditsTag ? parseInt(creditsTag.split(':')[1], 10) : null;
+
   return {
     id: dbSubject.id,
     name: dbSubject.name,
-    hoursPerWeek: dbSubject.hours_per_week,
+    hoursPerWeek: encodedHours || dbSubject.hours_per_week,
     type: dbSubject.type as Subject['type'],
     tags: dbSubject.tags || [],
     code: dbSubject.code || undefined,
     abbreviation: dbSubject.abbreviation || undefined,
     staff: dbSubject.staff || undefined,
     maxFacultyCount: dbSubject.max_faculty_count,
-    credits: dbSubject.credits || 3,
+    credits: encodedCredits || dbSubject.credits || 3,
     elective_group_name: dbSubject.elective_group_name || undefined,
   };
 }
@@ -663,13 +790,14 @@ export async function getSectionsForYear(deptId: string, year: string): Promise<
   if (ttError) throw ttError;
   if (ssError) throw ssError;
 
-  const sectionsFromTimetables = (ttData || []).map((r: any) => r.section as string);
-  const sectionsFromAssignments = (ssData || []).map((r: any) => r.section as string);
+  const sectionsFromTimetables = (ttData || []).map((r: any) => getCleanSectionName(r.section));
+  const sectionsFromAssignments = (ssData || []).map((r: any) => getCleanSectionName(r.section));
 
   const allNames = Array.from(new Set([...sectionsFromTimetables, ...sectionsFromAssignments])).filter(Boolean);
   const byName = new Map<string, { id?: string }>();
   (ttData || []).forEach((r: any) => {
-    if (r.section) byName.set(r.section, { id: r.id });
+    const cleanSec = getCleanSectionName(r.section);
+    if (cleanSec && !byName.has(cleanSec)) byName.set(cleanSec, { id: r.id });
   });
 
   return allNames
@@ -1015,6 +1143,13 @@ export async function updateFaculty(id: string, patch: Partial<{ name: string; e
 }
 
 export async function deleteFaculty(id: string): Promise<void> {
+  if (!id) return;
+  await Promise.allSettled([
+    (supabase as any).from('faculty_subject_assignments').delete().eq('faculty_id', id),
+    (supabase as any).from('faculty_elective_assignments').delete().eq('faculty_id', id),
+    (supabase as any).from('faculty_labs').delete().eq('faculty_id', id),
+    (supabase as any).from('class_counselors').delete().eq('faculty_id', id),
+  ]);
   const { error } = await (supabase as any)
     .from('faculty_members')
     .delete()
@@ -1023,6 +1158,13 @@ export async function deleteFaculty(id: string): Promise<void> {
 }
 
 export async function deleteFacultyBulk(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  await Promise.allSettled([
+    (supabase as any).from('faculty_subject_assignments').delete().in('faculty_id', ids),
+    (supabase as any).from('faculty_elective_assignments').delete().in('faculty_id', ids),
+    (supabase as any).from('faculty_labs').delete().in('faculty_id', ids),
+    (supabase as any).from('class_counselors').delete().in('faculty_id', ids),
+  ]);
   const { error } = await (supabase as any)
     .from('faculty_members')
     .delete()
@@ -1447,12 +1589,19 @@ export async function approveAndApplyPullRequest(id: string, reviewer?: string):
   }
 
   // Apply to current timetable
+  const isEven = pr.proposed_special_flags?.semesterType === 'even' || /(\b|\(|\[)even(\b|\)|\])/i.test(pr.section || '') || /(\b|\(|\[)even(\b|\)|\])/i.test(pr.title || '');
+  const cleanSection = getCleanSectionName(pr.section || '');
+  const dbSection = isEven ? `${cleanSection} (Even)` : cleanSection;
+
   const payload = {
     department_id: pr.department_id,
     year: pr.year,
-    section: pr.section,
+    section: dbSection,
     grid_data: pr.proposed_grid_data,
-    special_flags: pr.proposed_special_flags || {},
+    special_flags: {
+      ...(pr.proposed_special_flags || {}),
+      semesterType: isEven ? 'even' : 'odd',
+    },
     updated_at: new Date().toISOString(),
   } as any;
   const { error: ttErr } = await (supabase as any)
@@ -1907,7 +2056,8 @@ async function populateFacultyScheduleJS(
 export async function getLabSchedulesForSection(
   departmentId: string,
   year: string,
-  section: string
+  section: string,
+  semesterType: 'odd' | 'even' = 'odd'
 ): Promise<Array<{ day: number; period: number; labId: string; labName: string }>> {
   // Fetch department info and department lab subjects to accurately filter
   let deptName = '';
@@ -1923,15 +2073,20 @@ export async function getLabSchedulesForSection(
 
       const { data: deptSubjects } = await (supabase as any)
         .from('subjects')
-        .select('name')
+        .select('name, tags')
         .eq('department_id', departmentId)
         .eq('year', year)
         .eq('type', 'lab');
       if (deptSubjects) {
-        deptSubjects.forEach((s: any) => {
-          const clean = s.name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
-          deptLabSubjCleanNames.add(clean);
-        });
+        deptSubjects
+          .filter((s: any) => {
+            const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+            return semesterType === 'even' ? isEven : !isEven;
+          })
+          .forEach((s: any) => {
+            const clean = s.name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
+            deptLabSubjCleanNames.add(clean);
+          });
       }
     } catch (e) {
       console.warn('Error fetching dept details for lab schedules:', e);
@@ -1949,6 +2104,7 @@ export async function getLabSchedulesForSection(
       slot_number,
       lab_id,
       semester,
+      academic_year,
       year,
       section,
       labs ( name, lab_code )
@@ -1961,7 +2117,7 @@ export async function getLabSchedulesForSection(
     console.warn('getLabSchedulesForSection: year/section columns not available, falling back to text match');
     const { data: fallbackData, error: fallbackError } = await (supabase as any)
       .from('lab_schedules')
-      .select(`day_of_week, slot_number, lab_id, semester, labs ( name, lab_code )`)
+      .select(`day_of_week, slot_number, lab_id, semester, academic_year, labs ( name, lab_code )`)
       .eq('is_available', true);
     if (fallbackError) {
       console.error('Error fetching lab schedules:', fallbackError);
@@ -1972,6 +2128,12 @@ export async function getLabSchedulesForSection(
     (fallbackData || []).forEach((item: any) => {
       if (item.semester && item.semester.includes(searchPattern)) {
         const sem = (item.semester || '').trim();
+        const acad = (item.academic_year || '').trim();
+
+        // Filter by explicit semester tag if present
+        if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
+        if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
+
         const deptMatch = sem.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*/i);
         if (deptMatch && deptName) {
           const itemDept = (deptMatch[1] || deptMatch[2] || '').trim().toLowerCase();
@@ -1998,6 +2160,12 @@ export async function getLabSchedulesForSection(
 
   const filtered = (data || []).filter((item: any) => {
     const sem = (item.semester || '').trim();
+    const acad = (item.academic_year || '').trim();
+
+    // Check explicit semester indicator in academic_year or semester string
+    if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return false;
+    if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return false;
+
     if (!sem) return true;
 
     // Check department prefix in semester (e.g., "AIDS • ..." vs "IT • ...")
@@ -2036,7 +2204,8 @@ export async function getLabSchedulesForSection(
  */
 export async function getLabAllocationsForSection(
   year: string,
-  section: string
+  section: string,
+  semesterType: 'odd' | 'even' = 'odd'
 ): Promise<Record<string, { labName: string; labCode: string }>> {
   const result: Record<string, { labName: string; labCode: string }> = {};
   const searchPattern = `Year ${year} Sec ${section}`;
@@ -2044,12 +2213,17 @@ export async function getLabAllocationsForSection(
   // Query 1: rows with structured year/section columns populated
   const { data: structuredData } = await (supabase as any)
     .from('lab_schedules')
-    .select(`semester, labs ( name, lab_code )`)
+    .select(`semester, academic_year, labs ( name, lab_code )`)
     .eq('year', year)
     .eq('section', section);
 
   (structuredData || []).forEach((item: any) => {
-    const subjectName = item.semester?.split('-').pop()?.trim() || '';
+    const sem = item.semester || '';
+    const acad = item.academic_year || '';
+    if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
+    if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
+
+    const subjectName = sem.split('-').pop()?.trim() || '';
     if (subjectName) {
       result[subjectName] = {
         labName: item.labs?.name || 'Lab',
@@ -2062,11 +2236,16 @@ export async function getLabAllocationsForSection(
   // but the semester field contains the correct "Year X Sec Y - Subject" pattern
   const { data: textData } = await (supabase as any)
     .from('lab_schedules')
-    .select(`semester, labs ( name, lab_code )`)
+    .select(`semester, academic_year, labs ( name, lab_code )`)
     .like('semester', `%${searchPattern}%`);
 
   (textData || []).forEach((item: any) => {
-    const subjectName = item.semester?.split('-').pop()?.trim() || '';
+    const sem = item.semester || '';
+    const acad = item.academic_year || '';
+    if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
+    if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
+
+    const subjectName = sem.split('-').pop()?.trim() || '';
     if (subjectName && !result[subjectName]) {
       result[subjectName] = {
         labName: item.labs?.name || 'Lab',

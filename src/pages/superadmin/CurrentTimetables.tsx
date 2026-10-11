@@ -26,11 +26,16 @@ import {
   Maximize2,
   Edit,
   LayoutGrid,
-  Printer
+  Printer,
+  BookOpen,
+  Users
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useDarkMode } from "@/context/DarkModeContext";
 import { getDeptShortName } from "@/lib/timetablePdfExport";
+import { getCleanSectionName, getTimetableSemester } from "@/lib/supabaseService";
+import { useTimetableStore } from "@/store/timetableStore";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 
 const timetableColumns = [
   { key: 'p1', label: 'P1', time: '9:00-9:55', type: 'period' },
@@ -155,9 +160,13 @@ const CurrentTimetables = () => {
   const [deptNames, setDeptNames] = useState<Record<string, string>>({});
   const [departments, setDepartments] = useState<any[]>([]);
   const isLoggedIn = useMemo(() => localStorage.getItem("superAdmin") === "true", []);
+  const storeSemesterType = useTimetableStore((s) => s.semesterType);
+  const setStoreSemesterType = useTimetableStore((s) => s.setSemesterType);
+  const [selectedSemester, setSelectedSemester] = useState<'odd' | 'even' | 'all'>(storeSemesterType || 'odd');
   const [viewOpen, setViewOpen] = useState(false);
   const [viewing, setViewing] = useState<{ departmentId: string; year: string; section: string } | null>(null);
   const [fullPreviewOpen, setFullPreviewOpen] = useState(false);
+  const [facultyModalOpen, setFacultyModalOpen] = useState(false);
   
   // Filter & Sort states
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
@@ -170,9 +179,9 @@ const CurrentTimetables = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    document.title = "Current Timetables - Super Admin";
+    document.title = "Current Timetables - Sona TTG";
     const meta = document.querySelector('meta[name="description"]');
-    if (meta) meta.setAttribute("content", "Browse live timetables by department, year, and section.");
+    if (meta) meta.setAttribute("content", "Browse live timetables by department, year, semester, and section.");
     const link: HTMLLinkElement = document.querySelector('link[rel="canonical"]') || document.createElement('link');
     link.setAttribute('rel', 'canonical');
     link.setAttribute('href', window.location.origin + '/current-timetables');
@@ -182,20 +191,28 @@ const CurrentTimetables = () => {
   useEffect(() => {
     (async () => {
       const [{ data: tts }, { data: depts }] = await Promise.all([
-        (supabase as any).from('timetables').select('department_id,year,section,updated_at,grid_data').order('updated_at', { ascending: false }),
+        (supabase as any).from('timetables').select('id,department_id,year,section,updated_at,grid_data,special_flags').order('updated_at', { ascending: false }),
         (supabase as any).from('departments').select('id,name').order('name'),
       ]);
 
-      // Deduplicate rows by (department_id, year, section) keeping the most recent
+      // Deduplicate rows by (department_id, year, cleanSection, semesterType) keeping the most recent
       const uniqueMap = new Map<string, any>();
       (tts || []).forEach((row: any) => {
-        const key = `${row.department_id}-${row.year}-${row.section}`;
+        const semesterType = getTimetableSemester(row);
+        const cleanSection = getCleanSectionName(row.section);
+        const rowWithMeta = {
+          ...row,
+          semesterType,
+          cleanSection,
+        };
+
+        const key = `${row.department_id}-${row.year}-${cleanSection}-${semesterType}`;
         if (!uniqueMap.has(key)) {
-          uniqueMap.set(key, row);
+          uniqueMap.set(key, rowWithMeta);
         } else {
           const existing = uniqueMap.get(key);
           if (new Date(row.updated_at || 0) > new Date(existing.updated_at || 0)) {
-            uniqueMap.set(key, row);
+            uniqueMap.set(key, rowWithMeta);
           }
         }
       });
@@ -207,6 +224,18 @@ const CurrentTimetables = () => {
       setDeptNames(dmap);
     })();
   }, []);
+
+  // Compute counts for Odd and Even semesters
+  const oddCount = useMemo(() => rows.filter(r => r.semesterType === 'odd').length, [rows]);
+  const evenCount = useMemo(() => rows.filter(r => r.semesterType === 'even').length, [rows]);
+  const allCount = rows.length;
+
+  const handleSemesterChange = (sem: 'odd' | 'even' | 'all') => {
+    setSelectedSemester(sem);
+    if (sem !== 'all') {
+      setStoreSemesterType(sem);
+    }
+  };
 
   // Compute unique years available in dataset
   const availableYears = useMemo(() => {
@@ -220,6 +249,11 @@ const CurrentTimetables = () => {
   // Filter and Sort rows with guaranteed natural academic ordering
   const filteredRows = useMemo(() => {
     let list = rows;
+
+    // Filter by semester
+    if (selectedSemester !== "all") {
+      list = list.filter(row => row.semesterType === selectedSemester);
+    }
 
     // Filter by department
     if (selectedDepartment !== "all") {
@@ -237,13 +271,17 @@ const CurrentTimetables = () => {
       list = list.filter(row => {
         const deptName = (deptNames[row.department_id] || row.department_id || "").toLowerCase();
         const yr = String(row.year || "").toLowerCase();
-        const sec = String(row.section || "").toLowerCase();
+        const sec = String(row.cleanSection || row.section || "").toLowerCase();
+        const sem = String(row.semesterType || "").toLowerCase();
         return (
           deptName.includes(q) ||
           yr.includes(q) ||
           `year ${yr}`.includes(q) ||
           sec.includes(q) ||
-          `section ${sec}`.includes(q)
+          `section ${sec}`.includes(q) ||
+          sem.includes(q) ||
+          `${sem} sem`.includes(q) ||
+          `${sem} semester`.includes(q)
         );
       });
     }
@@ -264,8 +302,8 @@ const CurrentTimetables = () => {
         const yearA = parseYearOrder(a.year);
         const yearB = parseYearOrder(b.year);
         if (yearA !== yearB) return yearA - yearB;
-        const secA = String(a.section || "").trim();
-        const secB = String(b.section || "").trim();
+        const secA = String(a.cleanSection || a.section || "").trim();
+        const secB = String(b.cleanSection || b.section || "").trim();
         return secA.localeCompare(secB, undefined, { numeric: true, sensitivity: "base" });
       }
 
@@ -275,14 +313,14 @@ const CurrentTimetables = () => {
         const yearA = parseYearOrder(a.year);
         const yearB = parseYearOrder(b.year);
         if (yearA !== yearB) return yearB - yearA;
-        const secA = String(a.section || "").trim();
-        const secB = String(b.section || "").trim();
+        const secA = String(a.cleanSection || a.section || "").trim();
+        const secB = String(b.cleanSection || b.section || "").trim();
         return secA.localeCompare(secB, undefined, { numeric: true, sensitivity: "base" });
       }
 
       if (sortBy === "section_asc") {
-        const secA = String(a.section || "").trim();
-        const secB = String(b.section || "").trim();
+        const secA = String(a.cleanSection || a.section || "").trim();
+        const secB = String(b.cleanSection || b.section || "").trim();
         const secComp = secA.localeCompare(secB, undefined, { numeric: true, sensitivity: "base" });
         if (secComp !== 0) return secComp;
         const deptComp = deptA.localeCompare(deptB, undefined, { sensitivity: "base" });
@@ -303,22 +341,22 @@ const CurrentTimetables = () => {
       if (yearA !== yearB) return yearA - yearB;
 
       // 3. Section ascending (A -> B -> C -> D)
-      const secA = String(a.section || "").trim();
-      const secB = String(b.section || "").trim();
+      const secA = String(a.cleanSection || a.section || "").trim();
+      const secB = String(b.cleanSection || b.section || "").trim();
       const secComp = secA.localeCompare(secB, undefined, { numeric: true, sensitivity: "base" });
       if (secComp !== 0) return secComp;
 
       // 4. Fallback: newest update
       return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
     });
-  }, [rows, selectedDepartment, selectedYear, searchQuery, sortBy, deptNames]);
+  }, [rows, selectedSemester, selectedDepartment, selectedYear, searchQuery, sortBy, deptNames]);
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
     const totalTimetables = filteredRows.length;
     const departmentCount = new Set(filteredRows.map(r => r.department_id)).size;
     const yearCount = new Set(filteredRows.map(r => r.year)).size;
-    const sectionCount = new Set(filteredRows.map(r => `${r.department_id}-${r.year}-${r.section}`)).size;
+    const sectionCount = new Set(filteredRows.map(r => `${r.department_id}-${r.year}-${r.cleanSection || r.section}`)).size;
     
     return {
       totalTimetables,
@@ -378,8 +416,114 @@ const CurrentTimetables = () => {
                 Current Timetables
               </h1>
               <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}>
-                Browse, filter, and inspect live timetable schedules sorted seamlessly by department, year, and section.
+                Browse, filter, and inspect live timetable schedules separated by Odd and Even academic semesters.
               </p>
+            </div>
+          </div>
+
+          {/* Prominent Odd / Even Semester Switcher Tabs */}
+          <div className={`p-2.5 sm:p-3 rounded-2xl backdrop-blur-2xl border transition-all duration-300 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md ${
+            isDark
+              ? "bg-[#0a0e24]/90 border-indigo-500/30 shadow-[0_4px_24px_rgba(0,0,0,0.5)]"
+              : "bg-white border-indigo-200/90 shadow-[0_4px_20px_rgba(99,102,241,0.07)]"
+          }`}>
+            <div className={`flex items-center gap-1.5 p-1 rounded-xl w-full md:w-auto ${
+              isDark ? "bg-[#060914] border border-white/5" : "bg-slate-100 border border-slate-200/70"
+            }`}>
+              {/* Odd Semester Tab */}
+              <button
+                type="button"
+                onClick={() => handleSemesterChange('odd')}
+                className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                  selectedSemester === 'odd'
+                    ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30 ring-1 ring-white/20 scale-[1.01]"
+                    : isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-600 hover:text-slate-900 hover:bg-white"
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5 text-indigo-200" />
+                <span>Odd Semester</span>
+                <span className={`text-[10.5px] px-2 py-0.5 rounded-full font-black ${
+                  selectedSemester === 'odd'
+                    ? "bg-white/20 text-white"
+                    : isDark ? "bg-white/10 text-slate-300" : "bg-slate-200 text-slate-700"
+                }`}>
+                  {oddCount}
+                </span>
+              </button>
+
+              {/* Even Semester Tab */}
+              <button
+                type="button"
+                onClick={() => handleSemesterChange('even')}
+                className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                  selectedSemester === 'even'
+                    ? "bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white shadow-md shadow-emerald-600/30 ring-1 ring-white/20 scale-[1.01]"
+                    : isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-600 hover:text-slate-900 hover:bg-white"
+                }`}
+              >
+                <Calendar className="h-3.5 w-3.5 text-emerald-200" />
+                <span>Even Semester</span>
+                <span className={`text-[10.5px] px-2 py-0.5 rounded-full font-black ${
+                  selectedSemester === 'even'
+                    ? "bg-white/20 text-white"
+                    : isDark ? "bg-white/10 text-slate-300" : "bg-slate-200 text-slate-700"
+                }`}>
+                  {evenCount}
+                </span>
+              </button>
+
+              {/* All Schedules Tab */}
+              <button
+                type="button"
+                onClick={() => handleSemesterChange('all')}
+                className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                  selectedSemester === 'all'
+                    ? "bg-gradient-to-r from-slate-700 via-slate-800 to-slate-900 text-white shadow-md shadow-slate-900/30 ring-1 ring-white/20"
+                    : isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-600 hover:text-slate-900 hover:bg-white"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>All</span>
+                <span className={`text-[10.5px] px-2 py-0.5 rounded-full font-black ${
+                  selectedSemester === 'all'
+                    ? "bg-white/20 text-white"
+                    : isDark ? "bg-white/10 text-slate-300" : "bg-slate-200 text-slate-700"
+                }`}>
+                  {allCount}
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2.5 px-2 self-end md:self-center flex-wrap justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setFacultyModalOpen(true)}
+                className={`h-8 px-3 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                  isDark
+                    ? "border-indigo-500/30 bg-white/5 hover:bg-white/10 text-indigo-300"
+                    : "border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-900 shadow-xs"
+                }`}
+              >
+                <Users className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Faculty Timetables</span>
+              </Button>
+
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <span className={isDark ? "text-slate-400" : "text-slate-500"}>Active View:</span>
+                <span className={`font-bold uppercase tracking-wider text-[11px] px-3 py-1 rounded-full border flex items-center gap-1.5 ${
+                  selectedSemester === 'odd'
+                    ? isDark ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/35" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                    : selectedSemester === 'even'
+                    ? isDark ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/35" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : isDark ? "bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-100 text-slate-700 border-slate-200"
+                }`}>
+                  <span className={`h-2 w-2 rounded-full ${
+                    selectedSemester === 'odd' ? "bg-indigo-500" : selectedSemester === 'even' ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                  }`} />
+                  {selectedSemester === 'odd' ? 'Odd Semester Schedules' : selectedSemester === 'even' ? 'Even Semester Schedules' : 'All Semesters'}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -393,7 +537,7 @@ const CurrentTimetables = () => {
             <div className="relative flex-1 min-w-[220px]">
               <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 ${isDark ? "text-indigo-400" : "text-indigo-600"}`} />
               <Input
-                placeholder="Search department, year (e.g. II), section..."
+                placeholder="Search department, year (e.g. II), section, odd/even..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`pl-10 h-10 rounded-xl text-xs font-medium border transition-all ${
@@ -406,6 +550,35 @@ const CurrentTimetables = () => {
 
             {/* Filter & Sort Controls */}
             <div className="flex items-center gap-2.5 flex-wrap">
+              {/* Semester Selector Dropdown */}
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shrink-0 ${
+                isDark ? "bg-white/[0.04] border-indigo-500/20" : "bg-white border-indigo-200/80 shadow-xs"
+              }`}>
+                <Calendar className={`h-3.5 w-3.5 ${
+                  selectedSemester === 'even'
+                    ? (isDark ? "text-emerald-400" : "text-emerald-600")
+                    : (isDark ? "text-indigo-400" : "text-indigo-600")
+                }`} />
+                <Select value={selectedSemester} onValueChange={(v: any) => handleSemesterChange(v)}>
+                  <SelectTrigger className="w-[135px] sm:w-[155px] border-0 bg-transparent shadow-none font-bold text-xs focus:ring-0 h-8">
+                    <SelectValue placeholder="Semester" />
+                  </SelectTrigger>
+                  <SelectContent className={`rounded-2xl border backdrop-blur-2xl shadow-2xl p-1 max-h-[300px] ${
+                    isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
+                  }`}>
+                    <SelectItem value="odd" className="cursor-pointer font-semibold text-xs rounded-xl py-2">
+                      Odd Semester ({oddCount})
+                    </SelectItem>
+                    <SelectItem value="even" className="cursor-pointer font-semibold text-xs rounded-xl py-2">
+                      Even Semester ({evenCount})
+                    </SelectItem>
+                    <SelectItem value="all" className="cursor-pointer font-semibold text-xs rounded-xl py-2">
+                      All Semesters ({allCount})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Department Filter */}
               <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border shrink-0 ${
                 isDark ? "bg-white/[0.04] border-indigo-500/20" : "bg-white border-indigo-200/80 shadow-xs"
@@ -494,7 +667,7 @@ const CurrentTimetables = () => {
               </div>
 
               {/* Reset button */}
-              {(selectedDepartment !== 'all' || selectedYear !== 'all' || searchQuery.trim() !== '' || sortBy !== 'academic') && (
+              {(selectedDepartment !== 'all' || selectedYear !== 'all' || searchQuery.trim() !== '' || sortBy !== 'academic' || selectedSemester !== 'odd') && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -503,6 +676,7 @@ const CurrentTimetables = () => {
                     setSelectedYear('all');
                     setSearchQuery('');
                     setSortBy('academic');
+                    setSelectedSemester('odd');
                   }}
                   className={`h-8 px-2.5 rounded-xl text-xs font-semibold shrink-0 transition-colors ${
                     isDark ? "text-slate-400 hover:text-white hover:bg-white/5" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
@@ -526,7 +700,7 @@ const CurrentTimetables = () => {
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent" />
               <div className="flex items-center justify-between">
                 <span className={`text-[11px] sm:text-xs font-bold uppercase tracking-wider ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                  Total Timetables
+                  {selectedSemester === 'odd' ? 'Odd Sem Timetables' : selectedSemester === 'even' ? 'Even Sem Timetables' : 'Total Timetables'}
                 </span>
                 <Clock className={`h-4 w-4 ${isDark ? "text-cyan-400" : "text-cyan-600"}`} />
               </div>
@@ -534,7 +708,7 @@ const CurrentTimetables = () => {
                 {summaryStats.totalTimetables}
               </div>
               <p className={`text-[11px] mt-1.5 font-medium ${isDark ? "text-cyan-400/70" : "text-cyan-700/80"}`}>
-                Published schedules
+                Published {selectedSemester === 'odd' ? 'Odd' : selectedSemester === 'even' ? 'Even' : ''} schedules
               </p>
             </div>
 
@@ -607,12 +781,15 @@ const CurrentTimetables = () => {
                   Schedules List ({filteredRows.length})
                 </h2>
                 <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${
-                  isDark ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                  selectedSemester === 'even'
+                    ? isDark ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : isDark ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25" : "bg-indigo-50 text-indigo-700 border-indigo-200"
                 }`}>
-                  {sortBy === 'academic' ? 'Sorted: Year & Section (Asc)' : 
-                   sortBy === 'year_desc' ? 'Sorted: Year (Highest First)' :
-                   sortBy === 'section_asc' ? 'Sorted: Section (A → Z)' :
-                   sortBy === 'dept_asc' ? 'Sorted: Department (A → Z)' : 'Sorted: Recently Updated'}
+                  {selectedSemester === 'odd' ? 'Odd Semester' : selectedSemester === 'even' ? 'Even Semester' : 'All Semesters'} • {
+                   sortBy === 'academic' ? 'Year & Section (Asc)' : 
+                   sortBy === 'year_desc' ? 'Year (Highest First)' :
+                   sortBy === 'section_asc' ? 'Section (A → Z)' :
+                   sortBy === 'dept_asc' ? 'Department (A → Z)' : 'Recently Updated'}
                 </span>
               </div>
 
@@ -634,7 +811,7 @@ const CurrentTimetables = () => {
                     className="h-9 px-4 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 flex items-center gap-2"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    Delete All{selectedDepartment !== 'all' ? ` (${filteredRows.length})` : ''}
+                    Delete All{selectedSemester !== 'all' ? ` (${selectedSemester.toUpperCase()} - ${filteredRows.length})` : ` (${filteredRows.length})`}
                   </Button>
                 )}
               </div>
@@ -643,7 +820,7 @@ const CurrentTimetables = () => {
             <div className="grid gap-4">
               {filteredRows.map((r, idx) => (
                 <div
-                  key={`${r.department_id}-${r.year}-${r.section}-${idx}`}
+                  key={`${r.department_id}-${r.year}-${r.cleanSection || r.section}-${r.semesterType}-${idx}`}
                   className={`relative rounded-2xl p-4 sm:p-5 lg:p-6 backdrop-blur-2xl border transition-all duration-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-5 overflow-hidden ${
                     isDark
                       ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.5),0_0_12px_-2px_rgba(99,102,241,0.12)] hover:border-indigo-400/40"
@@ -672,8 +849,29 @@ const CurrentTimetables = () => {
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                         isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-slate-100 text-slate-700 border-slate-200"
                       }`}>
-                        Section {r.section}
+                        Section {r.cleanSection || r.section}
                       </span>
+
+                      {/* Semester Type Badge */}
+                      {r.semesterType === 'even' ? (
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
+                          isDark
+                            ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/35 shadow-xs"
+                            : "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-xs"
+                        }`}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Even Sem
+                        </span>
+                      ) : (
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
+                          isDark
+                            ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/35 shadow-xs"
+                            : "bg-indigo-50 text-indigo-700 border-indigo-200 shadow-xs"
+                        }`}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                          Odd Sem
+                        </span>
+                      )}
                     </div>
 
                     <div className={`flex items-center gap-2 text-xs pt-0.5 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
@@ -693,6 +891,8 @@ const CurrentTimetables = () => {
                             departmentName: deptNames[r.department_id] || r.department_id,
                             year: r.year,
                             section: r.section,
+                            cleanSection: r.cleanSection,
+                            semesterType: r.semesterType,
                           }
                         });
                       }}
@@ -719,10 +919,14 @@ const CurrentTimetables = () => {
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-lg font-bold">Delete timetable schedule?</AlertDialogTitle>
                           <AlertDialogDescription className={isDark ? "text-slate-400" : "text-slate-600"}>
-                            This will permanently remove the timetable for{" "}
+                            This will permanently remove the{" "}
+                            <span className="font-bold text-amber-500">
+                              {r.semesterType === 'even' ? 'Even Semester' : 'Odd Semester'}
+                            </span>{" "}
+                            timetable for{" "}
                             <strong className={isDark ? "text-white" : "text-slate-900"}>
-                              {deptNames[r.department_id]} Year {r.year} Section {r.section}
-                            </strong>. This action cannot be undone.
+                              {deptNames[r.department_id]} Year {r.year} Section {r.cleanSection || r.section}
+                            </strong>. The other semester schedule will remain untouched.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -747,7 +951,7 @@ const CurrentTimetables = () => {
 
                                 toast({
                                   title: "Timetable deleted",
-                                  description: `Removed timetable for ${deptNames[r.department_id]} Year ${r.year} Section ${r.section}`,
+                                  description: `Removed ${r.semesterType === 'even' ? 'Even' : 'Odd'} Semester timetable for ${deptNames[r.department_id]} Year ${r.year} Section ${r.cleanSection || r.section}`,
                                 });
                               } catch (error) {
                                 toast({
@@ -831,7 +1035,7 @@ const CurrentTimetables = () => {
                     </span>
                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                       {filteredRows.map((r, i) => {
-                        const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}`;
+                        const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}-${r.semesterType}`;
                         return (
                           <button
                             key={cardId}
@@ -846,7 +1050,7 @@ const CurrentTimetables = () => {
                                 : "bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-600 border-blue-200 hover:border-blue-300 shadow-xs"
                             }`}
                           >
-                            Yr {r.year} - Sec {r.section} ({deptNames[r.department_id] ? getDeptShortName(deptNames[r.department_id]) : r.department_id})
+                            Yr {r.year} - Sec {r.cleanSection || r.section} ({r.semesterType === 'even' ? 'EVEN' : 'ODD'})
                           </button>
                         );
                       })}
@@ -858,7 +1062,7 @@ const CurrentTimetables = () => {
               {/* Scrollable container with all timetables */}
               <div className="overflow-y-auto p-4 sm:p-6 space-y-8 max-h-[calc(94vh-130px)]">
                 {filteredRows.map((r, idx) => {
-                  const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}`;
+                  const cardId = `class-preview-${r.department_id}-${r.year}-${r.section}-${r.semesterType}`;
                   const grid = parseGrid(r.grid_data);
                   const daysCount = grid.length > 0 ? Math.min(Math.max(grid.length, 5), 6) : 6;
                   const displayDays = dayNames.slice(0, daysCount);
@@ -893,7 +1097,14 @@ const CurrentTimetables = () => {
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                               isDark ? "bg-white/5 text-slate-300 border-white/10" : "bg-blue-50 text-blue-800 border-blue-200"
                             }`}>
-                              Section {r.section}
+                              Section {r.cleanSection || r.section}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1 ${
+                              r.semesterType === 'even'
+                                ? isDark ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-amber-100 text-amber-800 border-amber-300'
+                                : isDark ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-blue-100 text-blue-800 border-blue-300'
+                            }`}>
+                              {r.semesterType === 'even' ? '⚡ Even Sem' : '📘 Odd Sem'}
                             </span>
                           </div>
                           <p className={`text-[11px] ${isDark ? "text-slate-400" : "text-slate-500"}`}>
@@ -912,6 +1123,8 @@ const CurrentTimetables = () => {
                                 departmentName: deptNames[r.department_id] || r.department_id,
                                 year: r.year,
                                 section: r.section,
+                                cleanSection: r.cleanSection,
+                                semesterType: r.semesterType,
                               }
                             });
                           }}
@@ -1051,16 +1264,16 @@ const CurrentTimetables = () => {
               isDark ? "bg-[#0a0e1e]/95 border-indigo-500/25 text-white" : "bg-white/95 border-indigo-200/80 text-slate-900"
             }`}>
               <AlertDialogHeader>
-                <AlertDialogTitle className="text-xl font-bold">Delete All Timetables?</AlertDialogTitle>
+                <AlertDialogTitle className="text-xl font-bold">Delete Timetables?</AlertDialogTitle>
                 <AlertDialogDescription className={isDark ? "text-slate-400" : "text-slate-600"}>
                   This will permanently remove <strong className={isDark ? "text-white" : "text-slate-900"}>
-                    {filteredRows.length} timetable{filteredRows.length !== 1 ? 's' : ''}
+                    {filteredRows.length} {selectedSemester !== 'all' ? selectedSemester.toUpperCase() + ' semester ' : ''}timetable{filteredRows.length !== 1 ? 's' : ''}
                   </strong>
                   {selectedDepartment !== 'all' && (
                     <> for department <strong className={isDark ? "text-white" : "text-slate-900"}>
                       {deptNames[selectedDepartment]}
                     </strong></>
-                  )}. This action cannot be undone.
+                  )}. {selectedSemester !== 'all' ? 'Other semester timetables will remain untouched.' : ''} This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1071,42 +1284,21 @@ const CurrentTimetables = () => {
                   onClick={async () => {
                     setDeletingAll(true);
                     try {
-                      // Group by unique department_id+year+section to delete
-                      const uniqueKeys = new Map<string, { department_id: string; year: string; section: string }>();
-                      filteredRows.forEach(r => {
-                        const key = `${r.department_id}-${r.year}-${r.section}`;
-                        if (!uniqueKeys.has(key)) {
-                          uniqueKeys.set(key, { department_id: r.department_id, year: r.year, section: r.section });
-                        }
-                      });
-
-                      // Delete all matching timetables
-                      if (selectedDepartment !== 'all') {
+                      // Delete all matching timetables safely by exact IDs
+                      const idsToDelete = filteredRows.map(r => r.id).filter(Boolean);
+                      if (idsToDelete.length > 0) {
                         const { error } = await (supabase as any)
                           .from('timetables')
                           .delete()
-                          .eq('department_id', selectedDepartment);
-                        if (error) throw error;
-                      } else {
-                        // Delete all timetables
-                        const deptIds = Array.from(new Set(filteredRows.map(r => r.department_id)));
-                        const { error } = await (supabase as any)
-                          .from('timetables')
-                          .delete()
-                          .in('department_id', deptIds);
+                          .in('id', idsToDelete);
                         if (error) throw error;
                       }
 
                       const deletedCount = filteredRows.length;
-                      setRows(prev => {
-                        if (selectedDepartment !== 'all') {
-                          return prev.filter(r => r.department_id !== selectedDepartment);
-                        }
-                        return [];
-                      });
+                      setRows(prev => prev.filter(r => !idsToDelete.includes(r.id)));
 
                       toast({
-                        title: "All timetables deleted",
+                        title: "Timetables deleted",
                         description: `Successfully removed ${deletedCount} timetable(s).`,
                       });
                       setDeleteAllOpen(false);
@@ -1127,6 +1319,14 @@ const CurrentTimetables = () => {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          {/* Faculty Timetable Modal for inspection & PDF downloads */}
+          <FacultyTimetableModal
+            open={facultyModalOpen}
+            onClose={() => setFacultyModalOpen(false)}
+            defaultDepartmentId={selectedDepartment !== 'all' ? selectedDepartment : undefined}
+            defaultSemesterType={selectedSemester === 'even' ? 'even' : 'odd'}
+          />
         </section>
       </main>
     </div>

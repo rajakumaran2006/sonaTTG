@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
-import { getSubjectsForYear } from "@/lib/supabaseService";
+import { getSubjectsForYear, getCleanSectionName, getTimetableSemester } from "@/lib/supabaseService";
 import { exportTimetablesToPdf, TimetableExportClassItem } from "@/lib/timetablePdfExport";
 import { useDarkMode } from "@/context/DarkModeContext";
 
@@ -468,16 +468,20 @@ function Timetable() {
         return;
       }
 
-      const uniqueYears = Array.from(new Set(dbTimetables.map(t => t.year)));
+      const activeSemester = useTimetableStore.getState().semesterType || 'odd';
+      const semesterTimetables = dbTimetables.filter(t => getTimetableSemester(t) === activeSemester);
+      const tablesToExport = semesterTimetables.length > 0 ? semesterTimetables : dbTimetables;
+
+      const uniqueYears = Array.from(new Set(tablesToExport.map(t => t.year)));
       const subjectsByYear: Record<string, any[]> = {};
       await Promise.all(
         uniqueYears.map(async (y) => {
-          subjectsByYear[y] = await getSubjectsForYear(dept.id, y, useTimetableStore.getState().semesterType).catch(() => []);
+          subjectsByYear[y] = await getSubjectsForYear(dept.id, y, activeSemester).catch(() => []);
         })
       );
 
       const exportItems: TimetableExportClassItem[] = await Promise.all(
-        dbTimetables.map(async (t) => {
+        tablesToExport.map(async (t) => {
           const rawGrid = (t as any).grid_data ?? (t as any).data;
           let grid: string[][] = [];
           if (Array.isArray(rawGrid)) {
@@ -487,7 +491,8 @@ function Timetable() {
           }
 
           const yearSubjects = subjectsByYear[t.year] || [];
-          const facultyMap = await getSubjectFacultyMapByDeptName(selection.department!, t.year, t.section).catch(() => ({}));
+          const cleanSec = getCleanSectionName(t.section);
+          const facultyMap = await getSubjectFacultyMapByDeptName(selection.department!, t.year, cleanSec).catch(() => ({}));
 
           const exportSubjects = yearSubjects.map((s: any) => ({
             id: s.id,
@@ -502,7 +507,7 @@ function Timetable() {
           return {
             departmentName: selection.department!,
             year: t.year,
-            section: t.section,
+            section: cleanSec,
             grid,
             departmentId: dept.id,
             subjects: exportSubjects
@@ -518,7 +523,7 @@ function Timetable() {
         return a.section.localeCompare(b.section);
       });
 
-      await exportTimetablesToPdf(exportItems, `Timetables_All_Classes_${selection.department.replace(/\s+/g, '_')}.pdf`);
+      await exportTimetablesToPdf(exportItems, `Timetables_${activeSemester.toUpperCase()}_Classes_${selection.department.replace(/\s+/g, '_')}.pdf`);
       toast({ title: 'PDF Exported', description: `Exported ${exportItems.length} class timetable(s) successfully!` });
     } catch (e: any) {
       console.error('Export all error:', e);

@@ -3,8 +3,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink, BookMarked } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { getDepartmentByName, getSubjectsForYear, getSectionSubjects, getSpecialHoursConfigsForYear, getOpenElectiveHours } from "@/lib/supabaseService";
 import { useDarkMode } from "@/context/DarkModeContext";
 
@@ -17,9 +19,9 @@ const YEAR_ORDER = ["II", "III", "IV"];
 const TOTAL_HOURS = 42;
 
 function calculateTotalHours(rawSubjects: any[]): number {
-  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const traditionalTheory = rawSubjects.filter(s => s.type === 'theory' || s.type === 'project').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
   const labHours = rawSubjects.filter(s => s.type === 'lab').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
-  const specialHours = rawSubjects.filter(s => s.type === 'special').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
+  const specialHours = rawSubjects.filter(s => s.type === 'special' || s.type === 'library' || s.type === 'seminar' || s.type === 'counselling').reduce((a, b) => a + (b.hoursPerWeek || b.hours_per_week || 0), 0);
   
   // Elective hours: group only by tag matching pe_group or pe
   const pes = rawSubjects.filter(s => s.type === 'elective');
@@ -75,6 +77,8 @@ interface HourCheck {
   year: string;
   totalHours: number;
   status: "ok" | "warning" | "error";
+  deptId?: string;
+  rawYear?: string;
 }
 
 interface GenerateWizardModalProps {
@@ -152,12 +156,13 @@ export function GenerateWizardModal({
       .filter((deptSel) => deptSel.selectedYears.length > 0);
   };
 
-  const handleNext = async () => {
+  const [addingLibYear, setAddingLibYear] = useState<string | null>(null);
+
+  const runHourValidation = async () => {
     const selections = getWizardSelection();
     if (selections.length === 0) return;
 
     setLoadingHours(true);
-    setStep(2);
 
     try {
       const checks: HourCheck[] = [];
@@ -170,7 +175,7 @@ export function GenerateWizardModal({
           deptSel.selectedYears.map(async ({ year, sections }) => {
             // For Year IV in Even Semester, it is a 100% static timetable (42h guaranteed)
             if (year === 'IV' && semesterType === 'even') {
-              return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: TOTAL_HOURS, status: "ok" as const };
+              return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: TOTAL_HOURS, status: "ok" as const, deptId: dept.id, rawYear: year };
             }
 
             const [subjects, specialHoursConfigs] = await Promise.all([
@@ -180,18 +185,24 @@ export function GenerateWizardModal({
             
             let specialHoursTotal = 0;
             specialHoursConfigs.forEach((config: any) => {
-              specialHoursTotal += config.total_hours || 0;
+              specialHoursTotal += config.saturday_hours || 0;
             });
+            const defaultSat = year === 'II' ? 3 : (year === 'III' || year === 'IV' ? 5 : 0);
+            if (specialHoursTotal === 0) {
+              specialHoursTotal = defaultSat;
+            }
             
             let maxSectionHours = 0;
+            let minSectionHours = TOTAL_HOURS;
             let hasError = false;
             let hasWarning = false;
             
             for (const section of sections) {
               const secSubjIds = await getSectionSubjects(dept.id, year, section).catch(() => [] as string[]);
-              const secSubjects = secSubjIds.length > 0 
+              const matchingSecSubjects = secSubjIds.length > 0 
                 ? subjects.filter(s => secSubjIds.includes(s.id))
-                : subjects;
+                : [];
+              const secSubjects = matchingSecSubjects.length > 0 ? matchingSecSubjects : subjects;
               let subjectsTotal = calculateTotalHours(secSubjects);
               // For Year III in Even Semester, Open Elective is automatically fixed to 5 hours
               if (year === 'III' && semesterType === 'even' && !secSubjects.some(s => s.type === 'open elective')) {
@@ -199,6 +210,7 @@ export function GenerateWizardModal({
               }
               const total = subjectsTotal + specialHoursTotal;
               maxSectionHours = Math.max(maxSectionHours, total);
+              minSectionHours = Math.min(minSectionHours, total);
               if (total > TOTAL_HOURS) hasError = true;
               if (total < TOTAL_HOURS) hasWarning = true;
             }
@@ -207,7 +219,8 @@ export function GenerateWizardModal({
             if (hasError) status = "error";
             else if (hasWarning) status = "warning";
             
-            return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: maxSectionHours, status };
+            const displayHours = hasWarning ? minSectionHours : maxSectionHours;
+            return { year: `${deptSel.departmentName} - Yr ${year}`, totalHours: displayHours, status, deptId: dept.id, rawYear: year };
           })
         );
         checks.push(...deptChecks);
@@ -215,6 +228,79 @@ export function GenerateWizardModal({
       setHourChecks(checks);
     } finally {
       setLoadingHours(false);
+    }
+  };
+
+  const handleNext = async () => {
+    setStep(2);
+    await runHourValidation();
+  };
+
+  const handleAddLib = async (deptId?: string, rawYear?: string, currentHours?: number) => {
+    if (!deptId || !rawYear || !currentHours || currentHours >= TOTAL_HOURS || currentHours <= 0) return;
+    const deficit = TOTAL_HOURS - currentHours;
+    setAddingLibYear(rawYear);
+
+    try {
+      const { data: existingLibSubs } = await (supabase as any)
+        .from('subjects')
+        .select('*')
+        .eq('department_id', deptId)
+        .eq('year', rawYear)
+        .ilike('name', '%library%');
+
+      const semLib = (existingLibSubs || []).find((s: any) => {
+        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
+        return semesterType === 'even' ? isEven : !isEven;
+      });
+
+      if (semLib) {
+        const newHpw = (semLib.hours_per_week || 0) + deficit;
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .update({
+            type: 'theory',
+            hours_per_week: newHpw,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', semLib.id);
+
+        if (error) throw error;
+      } else {
+        const tagList = semesterType === 'even' ? ['even_sem'] : ['odd_sem'];
+        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
+
+        let targetName = semesterType === 'even' ? 'Library (Even)' : 'Library';
+        if (existingNames.has(targetName.toLowerCase())) {
+          targetName = semesterType === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
+        }
+
+        const { error } = await (supabase as any)
+          .from('subjects')
+          .insert({
+            department_id: deptId,
+            year: rawYear,
+            name: targetName,
+            code: 'LIB',
+            abbreviation: 'LIB',
+            type: 'theory',
+            hours_per_week: deficit,
+            credits: 1,
+            tags: tagList,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+      }
+
+      toast.success(`Added ${deficit}h Library to Year ${rawYear} (${semesterType === 'even' ? 'Even' : 'Odd'} Sem). Weekly load is now 42h!`);
+      await runHourValidation();
+    } catch (err: any) {
+      console.error("Failed to add library hours:", err);
+      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
+    } finally {
+      setAddingLibYear(null);
     }
   };
 
@@ -433,23 +519,54 @@ export function GenerateWizardModal({
                       <div className="flex flex-col items-end gap-1">
                         {check.status === 'ok' && <CheckCircle2 className="h-5 w-5 text-indigo-400" />}
                         {check.status === 'warning' && (
-                          <>
-                            <AlertTriangle className="h-5 w-5 text-amber-500" />
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                               {check.totalHours > 0 && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleAddLib(check.deptId, check.rawYear, check.totalHours)}
+                                  disabled={addingLibYear === check.rawYear}
+                                  className="h-6 px-2 text-[10px] font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1"
+                                >
+                                  <BookMarked className="h-3 w-3" />
+                                  <span>{addingLibYear === check.rawYear ? "Adding..." : "Add Lib"}</span>
+                                </Button>
+                              )}
+                            </div>
                             <button
-                              onClick={() => { onClose(); navigate(`/admin/subjects`); }}
+                              onClick={() => {
+                                onClose();
+                                if (check.deptId && check.rawYear) {
+                                  navigate(`/admin/subjects/${encodeURIComponent(check.rawYear)}?deptId=${check.deptId}`);
+                                } else if (check.deptId) {
+                                  navigate(`/admin/subjects?deptId=${check.deptId}`);
+                                } else {
+                                  navigate(`/admin/subjects`);
+                                }
+                              }}
                               className={`flex items-center gap-1 text-[10px] underline ${
                                 isDark ? "text-amber-300 hover:text-amber-200" : "text-amber-600 hover:text-amber-700"
                               }`}
                             >
                               Edit <ExternalLink className="h-3 w-3" />
                             </button>
-                          </>
+                          </div>
                         )}
                         {check.status === 'error' && (
                           <>
                             <XCircle className="h-5 w-5 text-rose-500" />
                             <button
-                              onClick={() => { onClose(); navigate(`/admin/subjects`); }}
+                              onClick={() => {
+                                onClose();
+                                if (check.deptId && check.rawYear) {
+                                  navigate(`/admin/subjects/${encodeURIComponent(check.rawYear)}?deptId=${check.deptId}`);
+                                } else if (check.deptId) {
+                                  navigate(`/admin/subjects?deptId=${check.deptId}`);
+                                } else {
+                                  navigate(`/admin/subjects`);
+                                }
+                              }}
                               className={`flex items-center gap-1 text-[10px] underline ${
                                 isDark ? "text-rose-300 hover:text-rose-200" : "text-rose-600 hover:text-rose-800"
                               }`}
