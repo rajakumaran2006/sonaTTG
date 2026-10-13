@@ -364,4 +364,234 @@
 .dark .glass-card-hover:hover {
   border-color: rgba(99, 102, 241, 0.35);
   box-shadow: 0 12px 24px -10px rgba(0, 0, 0, 0.6), 0 0 15px rgba(99, 102, 241, 0.12);
+}
+
+/* ==========================================================================
+   Faculty Timetable Responsive & Mobile Media Queries
+   ========================================================================== */
+
+/* Smooth momentum touch scrolling & sleek scrollbar */
+.timetable-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+  position: relative;
+}
+
+.timetable-scroll-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+.timetable-scroll-wrapper::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 9999px;
+}
+
+.timetable-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.timetable-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Sticky Day column base */
+.timetable-day-col {
+  position: sticky;
+  left: 0;
+  background-color: #ffffff !important;
+  z-index: 10;
+}
+
+/* Shadow indicator on sticky edge */
+.timetable-day-col-shadow {
+  box-shadow: 3px 0 8px -2px rgba(0, 0, 0, 0.18);
+}
+
+/* ── Media Query: Tablet & Smaller (<= 1024px) ────────────────────────── */
+@media screen and (max-width: 1024px) {
+  .faculty-dashboard-main {
+    padding-top: 4.75rem;
+  }
+}
+
+/* ── Media Query: Mobile & Tablet Screens (<= 768px) ─────────────────── */
+@media screen and (max-width: 768px) {
+  /* Container paddings */
+  .faculty-dashboard-main {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+    padding-top: 4.25rem !important;
+  }
+
+  .faculty-sheet-container {
+    padding: 1rem 0.625rem !important;
+    border-radius: 0.75rem !important;
+    box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.08) !important;
+  }
+
+  /* Institutional Header Typography scaling */
+  .faculty-header-college {
+    font-size: 0.925rem !important; /* ~15px */
+    line-height: 1.25 !important;
+  }
+
+  .faculty-header-dept {
+    font-size: 0.775rem !important; /* ~12.5px */
+    line-height: 1.25 !important;
+  }
+
+  .faculty-header-meta {
+    font-size: 0.7rem !important;
+    line-height: 1.25 !important;
+  }
+
+  .faculty-header-name {
+    font-size: 0.775rem !important;
+    line-height: 1.25 !important;
+  }
+
+  /* Timetable Grid cell sizes & text */
+  .timetable-grid-table th {
+    padding: 0.35rem 0.2rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  .timetable-period-th {
+    min-width: 80px !important;
+  }
+
+  .timetable-day-th {
+    min-width: 50px !important;
+    width: 50px !important;
+  }
+
+  .timetable-lunch-th {
+    min-width: 36px !important;
+    width: 36px !important;
+    font-size: 0.625rem !important;
+  }
+
+  .timetable-cell {
+    padding: 0.25rem 0.2rem !important;
+    height: 56px !important;
+    min-height: 56px !important;
+  }
+
+  .timetable-cell-class {
+    font-size: 0.625rem !important;
+    line-height: 1.15 !important;
+  }
+
+  .timetable-cell-subj {
+    font-size: 0.575rem !important;
+    line-height: 1.15 !important;
+  }
+
+  /* Teaching Load Table on mobile */
+  .timetable-load-table th {
+    padding: 0.35rem 0.25rem !important;
+    font-size: 0.65rem !important;
+    white-space: nowrap;
+  }
+
+  .timetable-load-table td {
+    padding: 0.35rem 0.25rem !important;
+    font-size: 0.625rem !important;
+  }
+
+  /* Sticky Day column on mobile table */
+  .timetable-day-col {
+    position: sticky !important;
+    left: 0 !important;
+    background-color: #ffffff !important;
+    z-index: 20 !important;
+  }
+
+  th.timetable-day-col {
+    z-index: 25 !important;
+  }
+}
+
+/* ── Media Query: Compact Mobile Phones (<= 480px) ───────────────────── */
+@media screen and (max-width: 480px) {
+  .faculty-dashboard-main {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    padding-top: 4rem !important;
+  }
+
+  .faculty-sheet-container {
+    padding: 0.875rem 0.5rem !important;
+  }
+
+  .faculty-header-college {
+    font-size: 0.85rem !important;
+  }
+
+  .faculty-header-dept {
+    font-size: 0.725rem !important;
+  }
+
+  .faculty-header-meta {
+    font-size: 0.65rem !important;
+  }
+
+  .faculty-header-name {
+    font-size: 0.725rem !important;
+  }
+
+  .timetable-period-th {
+    min-width: 74px !important;
+  }
+
+  .timetable-day-th {
+    min-width: 44px !important;
+    width: 44px !important;
+  }
+
+  .timetable-cell {
+    height: 52px !important;
+    min-height: 52px !important;
+  }
+
+  .timetable-cell-class {
+    font-size: 0.58rem !important;
+  }
+
+  .timetable-cell-subj {
+    font-size: 0.525rem !important;
+  }
+}
+
+/* ── Media Query: Landscape Phones (Orientation Landscape & height <= 500px) */
+@media screen and (max-height: 500px) and (orientation: landscape) {
+  .faculty-dashboard-main {
+    padding-top: 3.5rem !important;
+  }
+
+  .timetable-cell {
+    height: 48px !important;
+    min-height: 48px !important;
+  }
+}
+
+/* ── Media Query: Print Styles ────────────────────────────────────────── */
+@media print {
+  .timetable-scroll-wrapper {
+    overflow: visible !important;
+  }
+
+  .timetable-day-col {
+    position: static !important;
+    box-shadow: none !important;
+  }
+
+  .faculty-sheet-container {
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
 }

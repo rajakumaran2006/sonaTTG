@@ -173,7 +173,7 @@ const Navbar = () => {
 
   return (
     <header className="sticky top-0 z-40 border-b backdrop-blur-md bg-background/80 border-border transition-colors duration-300">
-      <nav className="container h-14 flex items-center justify-between px-4">
+      <nav className="w-full max-w-7xl mx-auto h-14 flex items-center justify-between px-3 sm:px-6">
         
         {/* Left Side: Brand Logo and Desktop Nav */}
         <div className="flex items-center gap-6">
@@ -213,8 +213,13 @@ const Navbar = () => {
           <Badge variant="outline" className="hidden sm:inline-flex uppercase tracking-wide text-[9px] font-bold px-2 py-0.5 border-border">
             {userSession.role}
           </Badge>
-          
 
+          {/* Mobile User Initial */}
+          <div className="md:hidden flex items-center gap-1.5">
+            <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold border ${isDark ? 'bg-gray-800 border-gray-600 text-gray-200' : 'bg-slate-900 border-slate-700 text-white'}`}>
+              {userSession.details.name.charAt(0).toUpperCase()}
+            </div>
+          </div>
 
           {/* Mobile Hamburger Drawer */}
           <div className="md:hidden">
