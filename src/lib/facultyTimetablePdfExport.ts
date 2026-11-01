@@ -63,7 +63,7 @@ export function buildFacultyPdfPageContent(
       margin: [0, 0, 0, 1]
     },
     {
-      text: `${fac.name.toUpperCase()} (${(fac.designation || 'FACULTY').toUpperCase()})`,
+      text: `${(fac?.name || 'FACULTY').toUpperCase()} (${(fac?.designation || 'FACULTY').toUpperCase()})`,
       bold: true,
       fontSize: 10,
       decoration: 'underline',
@@ -137,7 +137,9 @@ export function buildFacultyPdfPageContent(
     const deptPart = deptShort && deptShort !== 'DEPT' ? ` ${deptShort}` : '';
     const ccSuffix = slot.is_counselor_hour ? ' (CC)' : '';
     const extSuffix = slot.is_external ? ' (Ext)' : '';
-    const classInfo = `Yr ${slot.year}${deptPart} - Sec ${slot.cleanSection || slot.section}${ccSuffix}${extSuffix}`;
+    const secStr = slot.cleanSection || slot.section || '';
+    const secPart = secStr ? ` - Sec ${secStr}` : '';
+    const classInfo = `Yr ${slot.year || ''}${deptPart}${secPart}${ccSuffix}${extSuffix}`.trim();
     const subjectName = slot.subject || slot.rawCellText || '';
 
     const cellObj: any = {
@@ -166,7 +168,7 @@ export function buildFacultyPdfPageContent(
       while (i <= endIndex) {
         const currentSlot = dayRow[i];
         if (!currentSlot) {
-          cells.push({ text: '', alignment: 'center', fontSize: 8 });
+          cells.push({ text: 'FREE', alignment: 'center', fontSize: 7.5, bold: false, color: '#444444' });
           i++;
           continue;
         }
@@ -278,7 +280,7 @@ export function buildFacultyPdfPageContent(
           {
             text: [
               { text: 'FACULTY SIGNATURE\n', bold: true, fontSize: 9 },
-              { text: fac.name.toUpperCase(), bold: true, fontSize: 8.5 }
+              { text: (fac?.name || 'FACULTY').toUpperCase(), bold: true, fontSize: 8.5 }
             ],
             alignment: 'center'
           },
@@ -328,10 +330,14 @@ export async function exportFacultyTimetablesToPdf(
   });
 
   const defaultFileName = schedules.length === 1
-    ? `Faculty_Timetable_${schedules[0].faculty.name.replace(/\s+/g, '_')}_${(schedules[0].semesterType || 'ODD').toUpperCase()}.pdf`
+    ? `Faculty_Timetable_${(schedules[0]?.faculty?.name || 'Faculty').replace(/\s+/g, '_')}_${(schedules[0]?.semesterType || 'ODD').toUpperCase()}.pdf`
     : `All_Faculty_Timetables_${(options?.departmentName || 'Department').replace(/\s+/g, '_')}_${(options?.semesterType || 'ODD').toUpperCase()}.pdf`;
 
-  const finalFileName = fileName || defaultFileName;
+  const finalFileName = (fileName || defaultFileName).replace(/[/\\?%*:|"<>]/g, '_');
+
+  const hasTimesInVfs = Boolean(
+    fonts?.Times && (vfs?.['times.ttf'] || (pdfMake as any)?.vfs?.['times.ttf'])
+  );
 
   const docDefinition: any = {
     pageSize: 'A4',
@@ -340,7 +346,7 @@ export async function exportFacultyTimetablesToPdf(
     content,
     defaultStyle: {
       color: '#000000',
-      font: fonts?.Times ? 'Times' : 'Roboto'
+      font: hasTimesInVfs ? 'Times' : 'Roboto'
     }
   };
 

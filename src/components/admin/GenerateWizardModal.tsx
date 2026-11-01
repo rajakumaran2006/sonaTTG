@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink, BookMarked } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Zap, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -156,8 +156,6 @@ export function GenerateWizardModal({
       .filter((deptSel) => deptSel.selectedYears.length > 0);
   };
 
-  const [addingLibYear, setAddingLibYear] = useState<string | null>(null);
-
   const runHourValidation = async () => {
     const selections = getWizardSelection();
     if (selections.length === 0) return;
@@ -236,74 +234,6 @@ export function GenerateWizardModal({
     await runHourValidation();
   };
 
-  const handleAddLib = async (deptId?: string, rawYear?: string, currentHours?: number) => {
-    if (!deptId || !rawYear || !currentHours || currentHours >= TOTAL_HOURS || currentHours <= 0) return;
-    const deficit = TOTAL_HOURS - currentHours;
-    setAddingLibYear(rawYear);
-
-    try {
-      const { data: existingLibSubs } = await (supabase as any)
-        .from('subjects')
-        .select('*')
-        .eq('department_id', deptId)
-        .eq('year', rawYear)
-        .ilike('name', '%library%');
-
-      const semLib = (existingLibSubs || []).find((s: any) => {
-        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
-        return semesterType === 'even' ? isEven : !isEven;
-      });
-
-      if (semLib) {
-        const newHpw = (semLib.hours_per_week || 0) + deficit;
-        const { error } = await (supabase as any)
-          .from('subjects')
-          .update({
-            type: 'theory',
-            hours_per_week: newHpw,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', semLib.id);
-
-        if (error) throw error;
-      } else {
-        const tagList = semesterType === 'even' ? ['even_sem'] : ['odd_sem'];
-        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
-
-        let targetName = semesterType === 'even' ? 'Library (Even)' : 'Library';
-        if (existingNames.has(targetName.toLowerCase())) {
-          targetName = semesterType === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
-        }
-
-        const { error } = await (supabase as any)
-          .from('subjects')
-          .insert({
-            department_id: deptId,
-            year: rawYear,
-            name: targetName,
-            code: 'LIB',
-            abbreviation: 'LIB',
-            type: 'theory',
-            hours_per_week: deficit,
-            credits: 1,
-            tags: tagList,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-
-        if (error) throw error;
-      }
-
-      toast.success(`Added ${deficit}h Library to Year ${rawYear} (${semesterType === 'even' ? 'Even' : 'Odd'} Sem). Weekly load is now 42h!`);
-      await runHourValidation();
-    } catch (err: any) {
-      console.error("Failed to add library hours:", err);
-      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
-    } finally {
-      setAddingLibYear(null);
-    }
-  };
-
   const canProceed = hourChecks.length > 0 && !hourChecks.some((c) => c.status === "error");
 
   return (
@@ -328,7 +258,7 @@ export function GenerateWizardModal({
               <DialogTitle className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>
                 {step === 1 ? "Select Departments, Years & Sections" : "Hour Validation"}
               </DialogTitle>
-              <p className={`text-xs mt-0.5 ${isDark ? "text-indigo-300/70" : "text-slate-500"}`}>Step {step} of 2</p>
+              <DialogDescription className={`text-xs mt-0.5 ${isDark ? "text-indigo-300/70" : "text-slate-500"}`}>Step {step} of 2</DialogDescription>
             </div>
           </div>
           <div className="flex gap-1.5 mt-1">
@@ -520,20 +450,7 @@ export function GenerateWizardModal({
                         {check.status === 'ok' && <CheckCircle2 className="h-5 w-5 text-indigo-400" />}
                         {check.status === 'warning' && (
                           <div className="flex flex-col items-end gap-1">
-                            <div className="flex items-center gap-1.5">
-                              <AlertTriangle className="h-4 w-4 text-amber-500" />
-                               {check.totalHours > 0 && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleAddLib(check.deptId, check.rawYear, check.totalHours)}
-                                  disabled={addingLibYear === check.rawYear}
-                                  className="h-6 px-2 text-[10px] font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1"
-                                >
-                                  <BookMarked className="h-3 w-3" />
-                                  <span>{addingLibYear === check.rawYear ? "Adding..." : "Add Lib"}</span>
-                                </Button>
-                              )}
-                            </div>
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
                             <button
                               onClick={() => {
                                 onClose();

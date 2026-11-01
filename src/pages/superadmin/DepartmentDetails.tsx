@@ -62,7 +62,7 @@ const DepartmentDetails = () => {
         (supabase as any).from('faculty_members').select('id,name,email,designation').eq('department_id', id).order('name'),
         (supabase as any).from('department_settings').select('*').eq('department_id', id).maybeSingle(),
         (supabase as any).from('special_hours_config').select('year,special_type,total_hours,is_active').eq('department_id', id).eq('is_active', true),
-        (supabase as any).from('open_elective_settings').select('year,hours').eq('department_id', id),
+        (supabase as any).from('open_elective_hours').select('year, hours_per_week').eq('department_id', id),
       ]);
 
       setDeptName(deptRes?.data?.name || "");
@@ -75,14 +75,16 @@ const DepartmentDetails = () => {
       const yearsList = ['I', 'II', 'III', 'IV'];
       for (const yr of yearsList) {
         const yrSubs = subs.filter((s: any) => s.year === yr);
+        const yrSpecs = specialConfigs.filter((c: any) => c.year === yr);
         const satHours = yrSpecs.reduce((a: number, b: any) => a + (b.saturday_hours || 0), 0);
         const defaultSat = yr === 'II' ? 3 : (yr === 'III' || yr === 'IV' ? 5 : 0);
         const configSpecialHours = satHours > 0 ? satHours : defaultSat;
 
         let oeHoursSetting = 5;
         const foundOe = oeSettingsList.find((o: any) => o.year === yr);
-        if (foundOe && typeof foundOe.hours === 'number') {
-          oeHoursSetting = foundOe.hours;
+        const configuredHours = foundOe?.hours_per_week ?? foundOe?.hours;
+        if (typeof configuredHours === 'number') {
+          oeHoursSetting = configuredHours;
         } else {
           oeHoursSetting = (await getOpenElectiveHours(id, yr).catch(() => 5)) || 5;
         }

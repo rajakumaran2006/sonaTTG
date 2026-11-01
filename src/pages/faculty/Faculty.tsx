@@ -24,7 +24,7 @@ import { useDarkMode } from "@/context/DarkModeContext";
 import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 
 type Department = { id: string; name: string };
-type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean };
+type FacultyItem = { id: string; name: string; email?: string | null; designation?: string | null; departmentId: string; takesElectives?: boolean; semesterType?: 'odd' | 'even' };
 type Subject = { id: string; name: string; year: string; type: string; hoursPerWeek: number; code?: string; abbreviation?: string; departmentId: string; maxFacultyCount?: number };
 type FacultySubjectClass = { id?: string; departmentId: string; facultyId: string; subjectId: string; year: string; section: string };
 type SubjectSection = { subjectId: string; sections: string[] };
@@ -47,6 +47,8 @@ const FacultyPage = () => {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [isFaculty, setIsFaculty] = useState<boolean>(false);
   const [adminDeptId, setAdminDeptId] = useState<string>("");
+  const { semesterType: globalSemesterType, setSemesterType: setGlobalSemesterType } = useTimetableStore();
+  const [semesterFilter, setSemesterFilter] = useState<'odd' | 'even'>(globalSemesterType || 'odd');
 
   const [allocatedDepts, setAllocatedDepts] = useState<{ id: string; name: string }[]>([]);
   const [timetableModalOpen, setTimetableModalOpen] = useState<boolean>(false);
@@ -249,9 +251,17 @@ const FacultyPage = () => {
     const effectiveFilter = isAdmin ? adminDeptId : deptFilterId;
 
     if (effectiveFilter === "ALL") {
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from('faculty_members')
-        .select('id, name, email, designation, department_id');
+        .select('id, name, email, designation, department_id, takes_electives');
+
+      if (semesterFilter === 'even') {
+        query = query.eq('takes_electives', 'even');
+      } else {
+        query = query.or('takes_electives.eq.odd,takes_electives.is.null');
+      }
+
+      const { data, error } = await query.order('name');
       if (!error) {
         const list = (data || []).map((f: any) => ({
           id: f.id,
@@ -259,6 +269,8 @@ const FacultyPage = () => {
           email: f.email ?? null,
           designation: f.designation ?? null,
           departmentId: f.department_id,
+          takesElectives: Boolean(f.takes_electives),
+          semesterType: f.takes_electives === 'even' ? 'even' : 'odd',
         })) as FacultyItem[];
         setFaculty(list);
         
@@ -266,7 +278,7 @@ const FacultyPage = () => {
         await loadFacultyYears(list.map(f => f.id));
       }
     } else if (effectiveFilter) {
-      const list = await getFacultyByDepartment(effectiveFilter);
+      const list = await getFacultyByDepartment(effectiveFilter, semesterFilter);
       setFaculty(list);
       
       // Load faculty year mappings
@@ -276,7 +288,7 @@ const FacultyPage = () => {
 
   useEffect(() => {
     loadFaculty();
-  }, [deptFilterId, isAdmin, adminDeptId]);
+  }, [deptFilterId, isAdmin, adminDeptId, semesterFilter]);
 
   const loadFacultyYears = async (facultyIds: string[]) => {
     try {
@@ -544,7 +556,7 @@ const FacultyPage = () => {
     try {
       const deptForCreate = formDeptId || (deptFilterId !== 'ALL' ? deptFilterId : departments[0]?.id);
       if (!deptForCreate) { toast.error('Select department'); return; }
-      const f = await createFaculty({ departmentId: deptForCreate, name: name.trim(), email: email.trim() || null, designation: designation.trim() || null, takesElectives });
+      const f = await createFaculty({ departmentId: deptForCreate, name: name.trim(), email: email.trim() || null, designation: designation.trim() || null, takesElectives, semesterType: semesterFilter });
       setFaculty((list) => [...list, f]);
       
       // Assign selected subjects to the faculty with their sections
@@ -1012,30 +1024,69 @@ const FacultyPage = () => {
       }`}>
         <SelectionHeader />
         <section className="max-w-7xl mx-auto px-6 sm:px-8 py-8 md:py-10 space-y-8">
-          {allocatedDepts.length > 0 && (
-            <div className={`flex p-1.5 rounded-2xl border backdrop-blur-xl gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shadow-sm ${
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {allocatedDepts.length > 0 && (
+              <div className={`flex p-1.5 rounded-2xl border backdrop-blur-xl gap-2 overflow-x-auto whitespace-nowrap scrollbar-none shadow-sm flex-1 ${
+                isDark ? "bg-[#090d1c]/80 border-indigo-500/20" : "bg-white/80 border-indigo-200/60"
+              }`}>
+                {allocatedDepts.map((dept) => {
+                  const isActive = dept.id === deptFilterId;
+                  return (
+                    <button
+                      key={dept.id}
+                      onClick={() => handleDepartmentSwitch(dept.id, dept.name)}
+                      className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                        isActive
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25 border border-indigo-400/40"
+                          : isDark
+                            ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                            : "text-slate-600 hover:text-indigo-900 hover:bg-indigo-50/60"
+                      }`}
+                    >
+                      {dept.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className={`flex p-1.5 rounded-2xl border backdrop-blur-xl gap-1.5 shadow-sm self-start sm:self-auto shrink-0 ${
               isDark ? "bg-[#090d1c]/80 border-indigo-500/20" : "bg-white/80 border-indigo-200/60"
             }`}>
-              {allocatedDepts.map((dept) => {
-                const isActive = dept.id === deptFilterId;
-                return (
-                  <button
-                    key={dept.id}
-                    onClick={() => handleDepartmentSwitch(dept.id, dept.name)}
-                    className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
-                      isActive
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25 border border-indigo-400/40"
-                        : isDark
-                          ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
-                          : "text-slate-600 hover:text-indigo-900 hover:bg-indigo-50/60"
-                    }`}
-                  >
-                    {dept.name}
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                onClick={() => {
+                  setSemesterFilter("odd");
+                  setGlobalSemesterType("odd");
+                }}
+                className={`px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
+                  semesterFilter === "odd"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25 border border-indigo-400/40"
+                    : isDark
+                      ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                      : "text-slate-600 hover:text-indigo-900 hover:bg-indigo-50/60"
+                }`}
+              >
+                Odd Semester
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSemesterFilter("even");
+                  setGlobalSemesterType("even");
+                }}
+                className={`px-4 py-2 text-sm font-bold rounded-xl transition-all duration-200 ${
+                  semesterFilter === "even"
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-500/25 border border-purple-400/40"
+                    : isDark
+                      ? "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+                      : "text-slate-600 hover:text-purple-900 hover:bg-purple-50/60"
+                }`}
+              >
+                Even Semester
+              </button>
             </div>
-          )}
+          </div>
 
           <header className={`flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl backdrop-blur-2xl border transition-all duration-300 ${
             isDark ? "bg-[#090d1c]/80 border-indigo-500/25 shadow-[0_4px_24px_rgba(0,0,0,0.4)]" : "bg-white/80 border-indigo-200/70 shadow-[0_4px_20px_rgba(99,102,241,0.06)]"
@@ -1131,6 +1182,20 @@ const FacultyPage = () => {
                   header: "Designation",
                   sortable: true,
                   render: (row) => <span className="text-slate-700 dark:text-slate-300 text-sm">{row.designation || '-'}</span>
+                },
+                {
+                  key: "semesterType",
+                  header: "Semester",
+                  sortable: true,
+                  render: (row) => (
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      row.semesterType === 'even'
+                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-700/50'
+                        : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700/50'
+                    }`}>
+                      {row.semesterType === 'even' ? 'Even Semester' : 'Odd Semester'}
+                    </span>
+                  )
                 },
                 {
                   key: "actions",

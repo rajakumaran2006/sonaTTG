@@ -68,6 +68,8 @@ export async function ensureDepartment(name: string): Promise<DbDepartment> {
 export interface CalculateHoursParams {
   subjects: Array<{
     type: string;
+    name?: string;
+    year?: string;
     hours_per_week?: number;
     hoursPerWeek?: number;
     tags?: string[];
@@ -133,9 +135,9 @@ export function calculateYearGrandTotalHours({
     .reduce((sum, s) => sum + getEffectiveSubjectHours(s), 0);
 
   const isYear4Even = subjects.some(s => 
-    (s.year === 'IV' || (s as any).year === 'IV') && 
+    s.year === 'IV' && 
     (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t)) &&
-    /project\s*work/i.test(s.name)
+    /project\s*work/i.test(s.name || '')
   );
   const effectiveSpecialHours = isYear4Even ? 5 : specialConfigHours;
   const totalSpecialHours = effectiveSpecialHours + subjectSpecialHours;
@@ -229,13 +231,15 @@ export async function addSubject(
     tags = tags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
     tags.push(`hpw:${rawHours}`);
   }
-  const rawCredits = Number(subject.credits) || 3;
-  if (rawCredits > 6) {
-    tags = tags.filter(t => !/^credits:\d+$/i.test(t));
+  const rawCredits = (subject.credits !== undefined && subject.credits !== null && !isNaN(Number(subject.credits)))
+    ? Number(subject.credits)
+    : 3;
+  tags = tags.filter(t => !/^credits:[\d.]+$/i.test(t));
+  if (rawCredits < 1 || rawCredits > 6 || !Number.isInteger(rawCredits)) {
     tags.push(`credits:${rawCredits}`);
   }
   const safeHours = Math.min(Math.max(rawHours, 1), 10);
-  const safeCredits = Math.min(Math.max(rawCredits, 1), 6);
+  const safeCredits = Math.max(1, Math.min(Math.round(rawCredits), 6));
   const { data, error } = await (supabase as any)
     .from('subjects')
     .insert({
@@ -272,13 +276,15 @@ export async function addSubjectsBulk(
       tags = tags.filter(t => !/^(?:hpw|hours):\d+$/i.test(t));
       tags.push(`hpw:${rawHours}`);
     }
-    const rawCredits = Number(s.credits) || 3;
-    if (rawCredits > 6) {
-      tags = tags.filter(t => !/^credits:\d+$/i.test(t));
+    const rawCredits = (s.credits !== undefined && s.credits !== null && !isNaN(Number(s.credits)))
+      ? Number(s.credits)
+      : 3;
+    tags = tags.filter(t => !/^credits:[\d.]+$/i.test(t));
+    if (rawCredits < 1 || rawCredits > 6 || !Number.isInteger(rawCredits)) {
       tags.push(`credits:${rawCredits}`);
     }
     const safeHours = Math.min(Math.max(rawHours, 1), 10);
-    const safeCredits = Math.min(Math.max(rawCredits, 1), 6);
+    const safeCredits = Math.max(1, Math.min(Math.round(rawCredits), 6));
     return {
       name: s.name,
       hours_per_week: safeHours,
@@ -308,15 +314,17 @@ export async function addSubjectsBulk(
 export async function getOpenElectiveHours(departmentId: string, year: string): Promise<number> {
   try {
     const { data, error } = await (supabase as any)
-      .from('open_elective_settings')
-      .select('hours')
+      .from('open_elective_hours')
+      .select('hours_per_week')
       .eq('department_id', departmentId)
       .eq('year', year)
       .maybeSingle();
-    if (error && error.code !== 'PGRST116') throw error;
-    if (data && typeof data.hours === 'number') return data.hours;
+    if (error && error.code !== 'PGRST116') {
+      console.warn(`[getOpenElectiveHours] Notice for dept ${departmentId} yr ${year}:`, error.message);
+    }
+    if (data && typeof data.hours_per_week === 'number') return data.hours_per_week;
   } catch (e: any) {
-    // Fallback to local storage if table doesn't exist or DB call fails
+    console.warn(`[getOpenElectiveHours] Exception for dept ${departmentId} yr ${year}:`, e);
   }
   try {
     const key = `oe_hours:${departmentId}:${year}`;
@@ -343,24 +351,32 @@ export async function getOpenElectiveConfig(departmentId: string, year: string):
   };
   try {
     const { data, error } = await (supabase as any)
-      .from('open_elective_settings')
-      .select('hours, group_name, is_shared_slot, selected_slots')
+      .from('open_elective_hours')
+      .select('hours_per_week, is_active')
       .eq('department_id', departmentId)
       .eq('year', year)
       .maybeSingle();
     if (!error && data) {
       let slots = defaultConfig.selected_slots;
-      if (Array.isArray(data.selected_slots) && data.selected_slots.length > 0) {
-        slots = data.selected_slots;
-      }
+      try {
+        const raw = localStorage.getItem(`oe_config:${departmentId}:${year}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed.selected_slots) && parsed.selected_slots.length > 0) {
+            slots = parsed.selected_slots;
+          }
+        }
+      } catch {}
       return {
-        hours: typeof data.hours === 'number' ? data.hours : defaultConfig.hours,
-        group_name: data.group_name || defaultConfig.group_name,
-        is_shared_slot: data.is_shared_slot !== undefined ? Boolean(data.is_shared_slot) : true,
+        hours: typeof data.hours_per_week === 'number' ? data.hours_per_week : defaultConfig.hours,
+        group_name: defaultConfig.group_name,
+        is_shared_slot: true,
         selected_slots: slots,
       };
     }
-  } catch (e: any) {}
+  } catch (e: any) {
+    console.warn(`[getOpenElectiveConfig] DB query error for dept ${departmentId} yr ${year}:`, e);
+  }
   try {
     const key = `oe_config:${departmentId}:${year}`;
     const raw = localStorage.getItem(key);
@@ -385,18 +401,21 @@ export async function setOpenElectiveConfig(
   const finalSlots = config.selected_slots || ['Mon-1', 'Wed-1', 'Fri-1', 'Sat-1', 'Sat-2'];
 
   try {
-    await (supabase as any)
-      .from('open_elective_settings')
+    const { error } = await (supabase as any)
+      .from('open_elective_hours')
       .upsert({
         department_id: departmentId,
         year,
-        hours: config.hours,
-        group_name: config.group_name,
-        is_shared_slot: config.is_shared_slot,
-        selected_slots: finalSlots
+        hours_per_week: config.hours,
+        is_active: true
       })
       .maybeSingle();
-  } catch (e: any) {}
+    if (error) {
+      console.warn(`[setOpenElectiveConfig] DB notice for dept ${departmentId} yr ${year}:`, error.message);
+    }
+  } catch (e: any) {
+    console.warn(`[setOpenElectiveConfig] Error saving OE config for dept ${departmentId} yr ${year}:`, e);
+  }
   try {
     const key = `oe_config:${departmentId}:${year}`;
     localStorage.setItem(key, JSON.stringify({ ...config, selected_slots: finalSlots }));
@@ -410,20 +429,26 @@ export async function setOpenElectiveHours(
   hours: number,
 ): Promise<void> {
   try {
-    // Upsert hours into open_elective_settings
     const { error } = await (supabase as any)
-      .from('open_elective_settings')
-      .upsert({ department_id: departmentId, year, hours })
-      .select('hours')
+      .from('open_elective_hours')
+      .upsert({
+        department_id: departmentId,
+        year,
+        hours_per_week: hours,
+        is_active: true
+      })
+      .select('hours_per_week')
       .maybeSingle();
-    if (error) throw error;
+    if (error) {
+      console.warn(`[setOpenElectiveHours] DB notice for dept ${departmentId} yr ${year}:`, error.message);
+    }
   } catch (e: any) {
-    // Fallback to local storage if table not found or DB call fails
-    try {
-      const key = `oe_hours:${departmentId}:${year}`;
-      localStorage.setItem(key, String(Math.max(0, Math.min(42, Number(hours) || 0))));
-    } catch {}
+    console.warn(`[setOpenElectiveHours] Error saving OE hours for dept ${departmentId} yr ${year}:`, e);
   }
+  try {
+    const key = `oe_hours:${departmentId}:${year}`;
+    localStorage.setItem(key, String(Math.max(0, Math.min(42, Number(hours) || 0))));
+  } catch {}
 }
 
 export async function deleteSubject(id: string): Promise<void> {
@@ -657,23 +682,35 @@ export async function getLabPreferences(
 }
 
 // Helper functions
+export function extractSubjectCredits(dbSubject: { credits?: number | null; tags?: string[] | null }): number {
+  const creditsTag = (dbSubject.tags || []).find((t: string) => /^credits:([0-9.]+)$/i.test(t));
+  if (creditsTag) {
+    const parsed = parseFloat(creditsTag.split(':')[1]);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (dbSubject.credits !== undefined && dbSubject.credits !== null) {
+    return Number(dbSubject.credits);
+  }
+  return 3;
+}
+
 function dbSubjectToSubject(dbSubject: DbSubject): Subject {
   const hpwTag = (dbSubject.tags || []).find((t: string) => /^(?:hpw|hours):(\d+)$/i.test(t));
   const encodedHours = hpwTag ? parseInt(hpwTag.split(':')[1], 10) : null;
-  const creditsTag = (dbSubject.tags || []).find((t: string) => /^credits:(\d+)$/i.test(t));
-  const encodedCredits = creditsTag ? parseInt(creditsTag.split(':')[1], 10) : null;
+  const creditsTag = (dbSubject.tags || []).find((t: string) => /^credits:([0-9.]+)$/i.test(t));
+  const encodedCredits = creditsTag ? parseFloat(creditsTag.split(':')[1]) : null;
 
   return {
     id: dbSubject.id,
     name: dbSubject.name,
-    hoursPerWeek: encodedHours || dbSubject.hours_per_week,
+    hoursPerWeek: encodedHours ?? dbSubject.hours_per_week,
     type: dbSubject.type as Subject['type'],
     tags: dbSubject.tags || [],
     code: dbSubject.code || undefined,
     abbreviation: dbSubject.abbreviation || undefined,
     staff: dbSubject.staff || undefined,
     maxFacultyCount: dbSubject.max_faculty_count,
-    credits: encodedCredits || dbSubject.credits || 3,
+    credits: encodedCredits ?? (dbSubject.credits !== undefined && dbSubject.credits !== null ? Number(dbSubject.credits) : 3),
     elective_group_name: dbSubject.elective_group_name || undefined,
   };
 }
@@ -694,6 +731,7 @@ export type Faculty = {
   email?: string | null;
   designation?: string | null;
   takesElectives?: boolean;
+  semesterType?: 'odd' | 'even';
   departmentId: string;
 };
 
@@ -836,12 +874,19 @@ export async function createSection(deptId: string, year: string, sectionName: s
 }
 
 // Faculty management
-export async function getFacultyByDepartment(deptId: string): Promise<Faculty[]> {
-  const { data, error } = await (supabase as any)
+export async function getFacultyByDepartment(deptId: string, semesterType?: 'odd' | 'even'): Promise<Faculty[]> {
+  let query = (supabase as any)
     .from('faculty_members')
     .select('id, name, email, designation, takes_electives, department_id')
-    .eq('department_id', deptId)
-    .order('name');
+    .eq('department_id', deptId);
+  
+  if (semesterType === 'even') {
+    query = query.eq('takes_electives', 'even');
+  } else if (semesterType === 'odd') {
+    query = query.or('takes_electives.eq.odd,takes_electives.is.null');
+  }
+  
+  const { data, error } = await query.order('name');
   
   if (error) throw error;
   
@@ -851,13 +896,14 @@ export async function getFacultyByDepartment(deptId: string): Promise<Faculty[]>
     email: f.email ?? null,
     designation: f.designation ?? null,
     takesElectives: Boolean(f.takes_electives),
+    semesterType: f.takes_electives === 'even' ? 'even' : 'odd',
     departmentId: f.department_id,
   }));
 }
 
 // Get faculty assigned to a specific section
-export async function getFacultyBySection(deptId: string, year: string, section: string): Promise<Faculty[]> {
-  const { data, error } = await (supabase as any)
+export async function getFacultyBySection(deptId: string, year: string, section: string, semesterType?: 'odd' | 'even'): Promise<Faculty[]> {
+  let query = (supabase as any)
     .from('faculty_members')
     .select(`
       id, name, email, designation, takes_electives, department_id,
@@ -865,8 +911,15 @@ export async function getFacultyBySection(deptId: string, year: string, section:
     `)
     .eq('department_id', deptId)
     .eq('faculty_subject_assignments.year', year)
-    .eq('faculty_subject_assignments.section', section)
-    .order('name');
+    .eq('faculty_subject_assignments.section', section);
+
+  if (semesterType === 'even') {
+    query = query.eq('takes_electives', 'even');
+  } else if (semesterType === 'odd') {
+    query = query.or('takes_electives.eq.odd,takes_electives.is.null');
+  }
+
+  const { data, error } = await query.order('name');
   
   if (error) throw error;
   
@@ -876,6 +929,7 @@ export async function getFacultyBySection(deptId: string, year: string, section:
     email: f.email ?? null,
     designation: f.designation ?? null,
     takesElectives: Boolean(f.takes_electives),
+    semesterType: f.takes_electives === 'even' ? 'even' : 'odd',
     departmentId: f.department_id,
   }));
 }
@@ -1105,6 +1159,7 @@ export async function createFaculty(input: {
   email?: string | null;
   designation?: string | null;
   takesElectives?: boolean;
+  semesterType?: 'odd' | 'even';
 }): Promise<Faculty> {
   const { data, error } = await (supabase as any)
     .from('faculty_members')
@@ -1113,7 +1168,7 @@ export async function createFaculty(input: {
       name: input.name,
       email: input.email ?? null,
       designation: input.designation ?? null,
-      takes_electives: input.takesElectives ?? false,
+      takes_electives: input.semesterType || 'odd',
     })
     .select('id, name, email, designation, takes_electives, department_id')
     .single();
@@ -1124,6 +1179,7 @@ export async function createFaculty(input: {
     email: data.email ?? null,
     designation: data.designation ?? null,
     takesElectives: Boolean(data.takes_electives),
+    semesterType: data.takes_electives === 'even' ? 'even' : 'odd',
     departmentId: data.department_id,
   };
 }
@@ -2052,49 +2108,84 @@ async function populateFacultyScheduleJS(
   }
 }
 
+// Extract subject name from semester string, handling hyphens in subject names (e.g. "Soft Skills - II")
+export function extractSubjectFromSemester(semester: string, fallback = ''): string {
+  if (!semester) return fallback;
+  const match = semester.match(/Sec\s+\S+\s*-\s*(.+)$/i);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  const dashIndex = semester.indexOf(' - ');
+  if (dashIndex !== -1) {
+    return semester.slice(dashIndex + 3).trim();
+  }
+  return semester.split('-').pop()?.trim() || fallback;
+}
+
 // Fetch manual lab schedules for a specific section
 export async function getLabSchedulesForSection(
   departmentId: string,
   year: string,
   section: string,
-  semesterType: 'odd' | 'even' = 'odd'
+  semesterType: 'odd' | 'even' = 'odd',
+  yearSubjects?: any[],
+  departmentName?: string
 ): Promise<Array<{ day: number; period: number; labId: string; labName: string }>> {
   // Fetch department info and department lab subjects to accurately filter
-  let deptName = '';
+  let deptName = departmentName ? departmentName.trim() : '';
   const deptLabSubjCleanNames = new Set<string>();
-  if (departmentId) {
-    try {
-      const { data: deptData } = await (supabase as any)
-        .from('departments')
-        .select('name')
-        .eq('id', departmentId)
-        .maybeSingle();
-      if (deptData?.name) deptName = deptData.name.trim();
 
-      const { data: deptSubjects } = await (supabase as any)
-        .from('subjects')
-        .select('name, tags')
-        .eq('department_id', departmentId)
-        .eq('year', year)
-        .eq('type', 'lab');
-      if (deptSubjects) {
-        deptSubjects
+  if (yearSubjects && yearSubjects.length > 0) {
+    yearSubjects
+      .filter((s: any) => s.type === 'lab')
+      .forEach((s: any) => {
+        let clean = s.name.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+        clean = clean.replace(/\blabs?\b/g, 'laboratory').replace(/\bpracticals?\b/g, 'laboratory');
+        deptLabSubjCleanNames.add(clean.replace(/[^a-z0-9]/g, ''));
+      });
+  }
+
+  if (departmentId && (!deptName || deptLabSubjCleanNames.size === 0)) {
+    try {
+      if (!deptName) {
+        const { data: deptData } = await (supabase as any)
+          .from('departments')
+          .select('name')
+          .eq('id', departmentId)
+          .maybeSingle();
+        if (deptData?.name) deptName = deptData.name.trim();
+      }
+
+      if (deptLabSubjCleanNames.size === 0) {
+        const { data: deptSubjects } = await (supabase as any)
+          .from('subjects')
+          .select('name, tags')
+          .eq('department_id', departmentId)
+          .eq('year', year)
+          .eq('type', 'lab');
+        if (deptSubjects) {
+          deptSubjects
           .filter((s: any) => {
             const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
             return semesterType === 'even' ? isEven : !isEven;
           })
           .forEach((s: any) => {
-            const clean = s.name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
-            deptLabSubjCleanNames.add(clean);
+            let clean = s.name.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+            clean = clean.replace(/\blabs?\b/g, 'laboratory').replace(/\bpracticals?\b/g, 'laboratory');
+            deptLabSubjCleanNames.add(clean.replace(/[^a-z0-9]/g, ''));
           });
+        }
       }
     } catch (e) {
       console.warn('Error fetching dept details for lab schedules:', e);
     }
   }
 
-  const cleanSubject = (name: string) =>
-    name.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(laboratory|lab|practicals|practical)$/, '');
+  const cleanSubject = (name: string) => {
+    let s = name.toLowerCase().replace(/\s*\(.*?\)\s*/g, '').trim();
+    s = s.replace(/\blabs?\b/g, 'laboratory').replace(/\bpracticals?\b/g, 'laboratory');
+    return s.replace(/[^a-z0-9]/g, '');
+  };
 
   // Use the structured year/section columns for reliable matching
   const { data, error } = await (supabase as any)
@@ -2107,17 +2198,20 @@ export async function getLabSchedulesForSection(
       academic_year,
       year,
       section,
-      labs ( name, lab_code )
+      labs ( name, lab_code, department_id )
     `)
     .eq('year', year)
     .eq('section', section);
+
+  const dName = deptName.toLowerCase();
+  const isLegacyDept = dName === 'it' || dName.includes('information tech');
 
   if (error) {
     // Fallback: try text-based matching on semester field (legacy support)
     console.warn('getLabSchedulesForSection: year/section columns not available, falling back to text match');
     const { data: fallbackData, error: fallbackError } = await (supabase as any)
       .from('lab_schedules')
-      .select(`day_of_week, slot_number, lab_id, semester, academic_year, labs ( name, lab_code )`)
+      .select(`day_of_week, slot_number, lab_id, semester, academic_year, labs ( name, lab_code, department_id )`)
       .eq('is_available', true);
     if (fallbackError) {
       console.error('Error fetching lab schedules:', fallbackError);
@@ -2125,6 +2219,8 @@ export async function getLabSchedulesForSection(
     }
     const schedules: Array<{ day: number; period: number; labId: string; labName: string }> = [];
     const searchPattern = `Year ${year} Sec ${section}`;
+    const seenSlots = new Set<string>();
+
     (fallbackData || []).forEach((item: any) => {
       if (item.semester && item.semester.includes(searchPattern)) {
         const sem = (item.semester || '').trim();
@@ -2134,25 +2230,41 @@ export async function getLabSchedulesForSection(
         if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
         if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
 
+        const subjName = extractSubjectFromSemester(sem, item.labs?.name || 'Lab');
+        const cleanSubj = cleanSubject(subjName);
+
         const deptMatch = sem.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*/i);
         if (deptMatch && deptName) {
           const itemDept = (deptMatch[1] || deptMatch[2] || '').trim().toLowerCase();
-          const dName = deptName.toLowerCase();
           if (itemDept !== dName && !itemDept.includes(dName) && !dName.includes(itemDept)) {
             return;
           }
+        } else if (deptName && !deptMatch) {
+          if (item.labs?.department_id) {
+            if (item.labs.department_id !== departmentId) return;
+          } else if (deptLabSubjCleanNames.size > 0 && deptLabSubjCleanNames.has(cleanSubj)) {
+            // Matches this department's lab curriculum
+          } else if (!isLegacyDept) {
+            return;
+          }
         }
-        const subjName = sem.split('-').pop()?.trim() || item.labs?.name || 'Lab';
-        if (deptLabSubjCleanNames.size > 0 && !deptLabSubjCleanNames.has(cleanSubject(subjName))) {
+
+        if (deptLabSubjCleanNames.size > 0 && !deptLabSubjCleanNames.has(cleanSubj)) {
           return;
         }
 
-        schedules.push({
-          day: item.day_of_week - 1,
-          period: item.slot_number - 1,
-          labId: item.lab_id,
-          labName: subjName,
-        });
+        const day = item.day_of_week - 1;
+        const period = item.slot_number - 1;
+        const slotKey = `${day}:${period}`;
+        if (!seenSlots.has(slotKey)) {
+          seenSlots.add(slotKey);
+          schedules.push({
+            day,
+            period,
+            labId: item.lab_id,
+            labName: subjName,
+          });
+        }
       }
     });
     return schedules;
@@ -2168,20 +2280,28 @@ export async function getLabSchedulesForSection(
 
     if (!sem) return true;
 
+    const subjName = extractSubjectFromSemester(sem, item.labs?.name || '');
+    const cleanSubj = cleanSubject(subjName);
+
     // Check department prefix in semester (e.g., "AIDS • ..." vs "IT • ...")
     const deptMatch = sem.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*/i);
     if (deptMatch && deptName) {
       const itemDept = (deptMatch[1] || deptMatch[2] || '').trim().toLowerCase();
-      const dName = deptName.toLowerCase();
       if (itemDept !== dName && !itemDept.includes(dName) && !dName.includes(itemDept)) {
+        return false;
+      }
+    } else if (deptName && !deptMatch) {
+      if (item.labs?.department_id) {
+        if (item.labs.department_id !== departmentId) return false;
+      } else if (deptLabSubjCleanNames.size > 0 && deptLabSubjCleanNames.has(cleanSubj)) {
+        // Matches this department's lab curriculum
+      } else if (!isLegacyDept) {
         return false;
       }
     }
 
     // Filter by subject name if department subjects were fetched
     if (deptLabSubjCleanNames.size > 0) {
-      const subjName = sem.split('-').pop()?.trim() || item.labs?.name || '';
-      const cleanSubj = cleanSubject(subjName);
       if (cleanSubj && !deptLabSubjCleanNames.has(cleanSubj)) {
         return false;
       }
@@ -2190,12 +2310,26 @@ export async function getLabSchedulesForSection(
     return true;
   });
 
-  return filtered.map((item: any) => ({
-    day: item.day_of_week - 1,   // Convert 1-based day to 0-based
-    period: item.slot_number - 1, // Convert 1-based slot to 0-based
-    labId: item.lab_id,
-    labName: item.semester?.split('-').pop()?.trim() || item.labs?.name || 'Lab',
-  }));
+  // Deduplicate by (day, period) so no section ever receives duplicate lab schedules on the same slot
+  const seenSlots = new Set<string>();
+  const deduped: Array<{ day: number; period: number; labId: string; labName: string }> = [];
+
+  for (const item of filtered) {
+    const day = item.day_of_week - 1;   // Convert 1-based day to 0-based
+    const period = item.slot_number - 1; // Convert 1-based slot to 0-based
+    const slotKey = `${day}:${period}`;
+    if (!seenSlots.has(slotKey)) {
+      seenSlots.add(slotKey);
+      deduped.push({
+        day,
+        period,
+        labId: item.lab_id,
+        labName: extractSubjectFromSemester(item.semester || '', item.labs?.name || 'Lab'),
+      });
+    }
+  }
+
+  return deduped;
 }
 
 /**
@@ -2223,7 +2357,7 @@ export async function getLabAllocationsForSection(
     if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
     if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
 
-    const subjectName = sem.split('-').pop()?.trim() || '';
+    const subjectName = extractSubjectFromSemester(sem, '');
     if (subjectName) {
       result[subjectName] = {
         labName: item.labs?.name || 'Lab',
@@ -2245,7 +2379,7 @@ export async function getLabAllocationsForSection(
     if (semesterType === 'even' && (/\bodd\b/i.test(acad) || /\[odd\]/i.test(sem))) return;
     if (semesterType === 'odd' && (/\beven\b/i.test(acad) || /\[even\]/i.test(sem))) return;
 
-    const subjectName = sem.split('-').pop()?.trim() || '';
+    const subjectName = extractSubjectFromSemester(sem, '');
     if (subjectName && !result[subjectName]) {
       result[subjectName] = {
         labName: item.labs?.name || 'Lab',

@@ -70,6 +70,16 @@ export interface FacultyWeeklyScheduleResult {
   labHours: number;
   theoryHours: number;
   totalHours: number;
+  dailyTeachingHours: number[]; // teaching hours per day (Mon..Sat)
+  dailyFreeHours: number[]; // free hours per day (Mon..Sat: 7 - teaching)
+  hasConflicts: boolean;
+  conflicts: Array<{
+    day: number;
+    period: number;
+    slot1: FacultyPeriodSlot;
+    slot2: FacultyPeriodSlot;
+    description: string;
+  }>;
   subjectsSummary: SubjectSummaryItem[];
   classesTaught: string[];
   departmentsTaught: string[];
@@ -114,37 +124,47 @@ const parseGrid = (data: any): string[][] => {
   return [];
 };
 
-/**
- * Normalizes text by removing non-alphanumeric noise and 'lab' / 'laboratory'
- * to enable fuzzy matching for practical subjects.
- */
-const normalizeSubjectName = (name: string): string => {
-  return (name || '')
-    .toLowerCase()
-    .replace(/laboratory|lab/g, '')
-    .replace(/[^a-z0-9]/g, '');
+const isLabSubjectOrCell = (text: string, type?: string): boolean => {
+  if (type === 'lab') return true;
+  return /\blabs?\b|\blaboratory\b|\bpracticals?\b/i.test(text || '');
 };
 
 /**
  * Robust matching between a grid cell text and candidate subject definitions.
+ * Strictly separates practical / laboratory subjects from theory courses.
  */
-const matchesSubject = (cellText: string, subj: { name?: string; abbreviation?: string; code?: string }): boolean => {
+const matchesSubject = (cellText: string, subj: { name?: string; abbreviation?: string; code?: string; type?: string }): boolean => {
   if (!cellText || !subj) return false;
   const ct = cellText.trim().toLowerCase();
   const sName = (subj.name || '').trim().toLowerCase();
   const sAbbr = (subj.abbreviation || '').trim().toLowerCase();
   const sCode = (subj.code || '').trim().toLowerCase();
 
+  // LAB TYPE MISMATCH GUARD:
+  // A lab subject MUST NOT match a theory cell, and a theory subject MUST NOT match a lab cell.
+  const cellIsLab = isLabSubjectOrCell(ct);
+  const subjIsLab = isLabSubjectOrCell(sName, subj.type);
+  if (cellIsLab !== subjIsLab) {
+    return false;
+  }
+
   // 1. Direct exact matches
   if (sName && ct === sName) return true;
   if (sAbbr && ct === sAbbr) return true;
   if (sCode && ct === sCode) return true;
 
-  // 2. Direct abbreviations without 'LAB'
-  const abbrNoLab = sAbbr.replace(/\s*lab$/i, '').trim();
-  if (abbrNoLab && ct === abbrNoLab) return true;
-  const ctNoLab = ct.replace(/\s*lab$/i, '').trim();
-  if (abbrNoLab && ctNoLab === abbrNoLab) return true;
+  // Open Elective Matching:
+  const isOeCell = ct === 'open elective' || ct === 'oe' || ct.startsWith('open elective') || ct.startsWith('oe:');
+  const isOeSubj = subj.type === 'open elective' || sName.includes('open elective') || sAbbr === 'oe' || (sCode && sCode.includes('oe'));
+  if (isOeCell && isOeSubj) return true;
+
+  // 2. Direct abbreviations without 'LAB' (only when both are labs)
+  if (cellIsLab && subjIsLab) {
+    const abbrNoLab = sAbbr.replace(/\s*lab$/i, '').trim();
+    if (abbrNoLab && ct === abbrNoLab) return true;
+    const ctNoLab = ct.replace(/\s*lab$/i, '').trim();
+    if (abbrNoLab && ctNoLab === abbrNoLab) return true;
+  }
 
   // 3. Multi-subject cells (e.g., "MAD LAB / CN LAB" or "CS8611 / CS8612" or "MAD LAB & CN LAB")
   const parts = ct.split(/[/&+,]/).map(p => p.trim()).filter(Boolean);
@@ -154,13 +174,23 @@ const matchesSubject = (cellText: string, subj: { name?: string; abbreviation?: 
     }
   }
 
-  // 4. Normalized lab names (e.g. "Cloud Computing Laboratory" vs "Cloud Computing Lab")
-  const normSubj = normalizeSubjectName(sName);
-  const normCell = normalizeSubjectName(ct);
-  if (normSubj && normCell && normSubj === normCell) return true;
+  // 4. Normalized lab names (only when both are labs, e.g. "Cloud Computing Laboratory" vs "Cloud Computing Lab")
+  if (cellIsLab && subjIsLab) {
+    const normSubj = sName.replace(/laboratory|lab/g, '').replace(/[^a-z0-9]/g, '');
+    const normCell = ct.replace(/laboratory|lab/g, '').replace(/[^a-z0-9]/g, '');
+    if (normSubj && normCell && normSubj === normCell) return true;
+  }
 
   // 5. Code in cell text (e.g., "CS8381 (Lab)")
   if (sCode && ct.includes(sCode)) return true;
+
+  // 6. Normalized alphanumeric match for theory subjects (e.g. "Distributed Systems" vs "Distributed Systems (DS)")
+  const cleanNorm = (str: string) => str.replace(/\s*\(.*?\)\s*/g, '').replace(/[^a-z0-9]/g, '');
+  const normCt = cleanNorm(ct);
+  const normSName = cleanNorm(sName);
+  if (normCt && normSName && (normCt === normSName || (normSName.startsWith(normCt) && normCt.length >= 6))) {
+    return true;
+  }
 
   return false;
 };
@@ -223,34 +253,40 @@ export async function getFacultyWeeklySchedule(
   const fDeptId = resolvedFaculty?.department_id || preferredDeptId;
   const fDeptName = resolvedFaculty?.departments?.name || '';
 
-  // 2. Fetch specific section assignments for this faculty from faculty_subject_assignments
+  // 2. Fetch specific section assignments for this faculty AND all assignments across faculty
   let facultyAssignments: any[] = [];
-  if (fId) {
-    const { data: fsaData } = await (supabase as any)
+  let allFacultyAssignments: any[] = [];
+
+  const [fsaRes, allFsaRes] = await Promise.all([
+    fId
+      ? (supabase as any)
+          .from('faculty_subject_assignments')
+          .select(`
+            faculty_id,
+            department_id,
+            year,
+            section,
+            subjects!inner(id, name, abbreviation, code, type, hours_per_week)
+          `)
+          .eq('faculty_id', fId)
+      : (supabase as any)
+          .from('faculty_subject_assignments')
+          .select(`
+            faculty_id,
+            department_id,
+            year,
+            section,
+            faculty_members!inner(name),
+            subjects!inner(id, name, abbreviation, code, type, hours_per_week)
+          `)
+          .eq('faculty_members.name', fName),
+    (supabase as any)
       .from('faculty_subject_assignments')
-      .select(`
-        faculty_id,
-        department_id,
-        year,
-        section,
-        subjects!inner(id, name, abbreviation, code, type, hours_per_week)
-      `)
-      .eq('faculty_id', fId);
-    facultyAssignments = fsaData || [];
-  } else {
-    const { data: fsaData } = await (supabase as any)
-      .from('faculty_subject_assignments')
-      .select(`
-        faculty_id,
-        department_id,
-        year,
-        section,
-        faculty_members!inner(name),
-        subjects!inner(id, name, abbreviation, code, type, hours_per_week)
-      `)
-      .eq('faculty_members.name', fName);
-    facultyAssignments = fsaData || [];
-  }
+      .select('faculty_id, department_id, year, section, subject_id')
+  ]);
+
+  facultyAssignments = fsaRes?.data || [];
+  allFacultyAssignments = allFsaRes?.data || [];
 
   // 3. Fetch subjects where staff column matches faculty
   let staffSubjects: any[] = [];
@@ -322,9 +358,27 @@ export async function getFacultyWeeklySchedule(
   const subjectsSummaryMap: Record<string, SubjectSummaryItem> = {};
   const classesSet = new Set<string>();
   const deptsSet = new Set<string>();
+  const detectedConflicts: Array<{
+    day: number;
+    period: number;
+    slot1: FacultyPeriodSlot;
+    slot2: FacultyPeriodSlot;
+    description: string;
+  }> = [];
+
+  // Deduplicate timetables: Keep only the most recently updated timetable for each distinct class
+  const seenClassKeys = new Set<string>();
+  const dedupedTimetables: any[] = [];
+  for (const tt of validTimetables) {
+    const key = `${tt.department_id}:${parseYearNum(tt.year)}:${normalizeSec(tt.section)}`;
+    if (!seenClassKeys.has(key)) {
+      seenClassKeys.add(key);
+      dedupedTimetables.push(tt);
+    }
+  }
 
   // Process timetables to find faculty periods
-  for (const tt of validTimetables) {
+  for (const tt of dedupedTimetables) {
     const ttDeptId = tt.department_id;
     const ttDeptName = deptMap[ttDeptId] || ttDeptId;
     const ttYear = String(tt.year || '').trim();
@@ -351,16 +405,18 @@ export async function getFacultyWeeklySchedule(
       return true;
     });
 
-    // Matching staff subjects (fallback when no specific section assignment exists)
+    // Matching staff subjects (fallback ONLY when no specific section assignment exists for this class)
     const matchingStaffSubjects = staffSubjects.filter(s => {
       if (s.department_id !== ttDeptId) return false;
       if (parseYearNum(s.year) !== ttYearNum) return false;
-      const hasSpecificAssignment = facultyAssignments.some(a =>
+      // If ANY faculty member is specifically assigned to this subject for this section, do NOT use staff fallback!
+      const assignedToAnyone = allFacultyAssignments.some(a =>
         a.department_id === ttDeptId &&
         parseYearNum(a.year) === ttYearNum &&
-        a.subjects?.id === s.id
+        (normalizeSec(a.section) === ttSecNorm || normalizeSec(a.section) === 'ALL') &&
+        a.subject_id === s.id
       );
-      if (hasSpecificAssignment) return false;
+      if (assignedToAnyone) return false;
       return true;
     });
 
@@ -378,14 +434,34 @@ export async function getFacultyWeeklySchedule(
 
         let matchedSlot: FacultyPeriodSlot | null = null;
 
-        // Check A: Class Counselor special hour (Seminar, Library, Counselling, etc.)
-        if (isClassCounselor) {
-          const specialCheck = isSpecialHourCell(cellText);
-          if (specialCheck.isSpecial) {
+        // Check 0: Exact cellMetadata if saved with timetable (100% sync guarantee)
+        const cellMeta = tt.special_flags?.cellMetadata?.[dayIdx]?.[periodIdx];
+
+        // Year IV Even Sem Rule:
+        // All 37 project hours are classroom-only and NOT included in faculty timetables.
+        // For Year IV, faculty timetables ONLY include Saturday last 5 hours (P3-P7, periodIdx >= 2)
+        // for the section's Class Counselor only.
+        const isYear4 = ttYearNum === 4;
+        if (isYear4) {
+          const isSatLast5 = dayIdx === 5 && periodIdx >= 2;
+          if (!isSatLast5 || !isClassCounselor) {
+            return; // Skip: not included in faculty timetable
+          }
+        }
+        if (cellMeta) {
+          const isPrimary = cellMeta.facultyId && cellMeta.facultyId === fId;
+          const isSecondary = Array.isArray(cellMeta.secondaryFacultyIds) && cellMeta.secondaryFacultyIds.includes(fId);
+          const isNamed = cellMeta.facultyName && (
+            cellMeta.facultyName.toLowerCase().includes(fName.toLowerCase()) ||
+            fName.toLowerCase().includes(cellMeta.facultyName.toLowerCase())
+          );
+          if (isPrimary || isSecondary || isNamed) {
+            const isLab = cellMeta.activityType === 'lab' || isLabSubjectOrCell(cellText);
+            const isSpec = cellMeta.activityType === 'special' || cellMeta.activityType === 'counseling' || cellMeta.activityType === 'seminar' || cellMeta.activityType === 'library';
             matchedSlot = {
-              subject: specialCheck.label,
-              code: specialCheck.label === 'Seminar' ? 'SEM' : specialCheck.label === 'Library' ? 'LIB' : 'SC',
-              type: 'special',
+              subject: cellMeta.subjectName || cellText,
+              code: cellMeta.subjectCode || (isLab ? 'LAB' : isSpec ? 'SPEC' : 'SUBJ'),
+              type: isLab ? 'lab' : isSpec ? 'special' : cellMeta.activityType === 'open_elective' ? 'elective' : 'theory',
               day: dayIdx,
               period: periodIdx,
               year: ttYear,
@@ -393,10 +469,95 @@ export async function getFacultyWeeklySchedule(
               cleanSection: ttCleanSec,
               department_name: ttDeptName,
               department_id: ttDeptId,
-              is_special: true,
-              is_counselor_hour: true,
+              is_lab: isLab,
+              is_special: isSpec,
               rawCellText: cellText,
             };
+          }
+        }
+
+        // Check OE: Open Elective cell matching
+        if (!matchedSlot && (/open elective|\boe\b/i.test(cellText) || cellText.toLowerCase().startsWith('open elective'))) {
+          const isAssignedToOe = matchingAssignments.some(a =>
+            a.subjects?.type === 'open elective' ||
+            /open elective|\boe\b/i.test(a.subjects?.name || '') ||
+            (a.subjects?.code && /\boe\b/i.test(a.subjects?.code))
+          ) || staffSubjects.some(s =>
+            s.type === 'open elective' ||
+            /open elective|\boe\b/i.test(s.name || '') ||
+            (s.code && /\boe\b/i.test(s.code))
+          );
+          if (isAssignedToOe) {
+            matchedSlot = {
+              subject: 'Open Elective',
+              code: 'OE',
+              type: 'elective',
+              day: dayIdx,
+              period: periodIdx,
+              year: ttYear,
+              section: tt.section,
+              cleanSection: ttCleanSec,
+              department_name: ttDeptName,
+              department_id: ttDeptId,
+              is_lab: false,
+              is_special: false,
+              rawCellText: cellText,
+            };
+          }
+        }
+
+        // Check A: Class Counselor special hour (Seminar, Library, Counselling, etc.)
+        if (!matchedSlot && isClassCounselor) {
+          const specialCheck = isSpecialHourCell(cellText);
+          if (specialCheck.isSpecial) {
+            // Check if cell explicitly mentions a different faculty name in parentheses
+            const parenMatch = cellText.match(/^(.*?)\s*\((.*?)\)$/);
+            const namedTeacher = parenMatch ? parenMatch[2].trim().toLowerCase() : null;
+            const isExplicitlyForThisFaculty = namedTeacher && (namedTeacher.includes(fName.toLowerCase()) || fName.toLowerCase().includes(namedTeacher));
+            const isNamedOther = namedTeacher && !isExplicitlyForThisFaculty;
+
+            // All section special hours (Seminar, Library, Counselling) belong to its Class Counselor
+            if (!isNamedOther) {
+              matchedSlot = {
+                subject: specialCheck.label,
+                code: specialCheck.label === 'Seminar' ? 'SEM' : specialCheck.label === 'Library' ? 'LIB' : 'SC',
+                type: 'special',
+                day: dayIdx,
+                period: periodIdx,
+                year: ttYear,
+                section: tt.section,
+                cleanSection: ttCleanSec,
+                department_name: ttDeptName,
+                department_id: ttDeptId,
+                is_special: true,
+                is_counselor_hour: true,
+                rawCellText: cellText,
+              };
+            }
+          }
+        }
+
+        // Check A2: Explicit faculty name in parentheses for special slots (e.g. "Seminar (Faculty Name)")
+        if (!matchedSlot) {
+          const parenMatch = cellText.match(/^(.*?)\s*\((.*?)\)$/);
+          if (parenMatch) {
+            const namedTeacher = parenMatch[2].trim().toLowerCase();
+            if (namedTeacher.includes(fName.toLowerCase()) || fName.toLowerCase().includes(namedTeacher)) {
+              matchedSlot = {
+                subject: parenMatch[1].trim(),
+                code: 'SPEC',
+                type: 'special',
+                day: dayIdx,
+                period: periodIdx,
+                year: ttYear,
+                section: tt.section,
+                cleanSection: ttCleanSec,
+                department_name: ttDeptName,
+                department_id: ttDeptId,
+                is_special: true,
+                rawCellText: cellText,
+              };
+            }
           }
         }
 
@@ -459,39 +620,78 @@ export async function getFacultyWeeklySchedule(
 
           const existingSlot = grid[dayIdx][periodIdx];
           if (existingSlot) {
-            // Merge parallel classes (e.g., shared elective or combined batch)
-            const secs = existingSlot.sections || [existingSlot.cleanSection];
-            if (!secs.includes(ttCleanSec)) {
-              secs.push(ttCleanSec);
+            const normSubj1 = existingSlot.subject.replace(/^Elective\s*[:-]\s*/i, '').trim().toLowerCase();
+            const normSubj2 = matchedSlot.subject.replace(/^Elective\s*[:-]\s*/i, '').trim().toLowerCase();
+            const isOe1 = normSubj1 === 'open elective' || normSubj1 === 'oe' || normSubj1.startsWith('open elective');
+            const isOe2 = normSubj2 === 'open elective' || normSubj2 === 'oe' || normSubj2.startsWith('open elective');
+            const isBothOe = isOe1 && isOe2;
+
+            const isSameSubj =
+              normSubj1 === normSubj2 ||
+              isBothOe ||
+              (Boolean(existingSlot.code && matchedSlot.code && existingSlot.code !== '-' && matchedSlot.code !== 'SPEC') &&
+               existingSlot.code.toLowerCase() === matchedSlot.code.toLowerCase()) ||
+              (existingSlot.is_special && matchedSlot.is_special && normSubj1 === normSubj2);
+
+            if (isSameSubj) {
+              // Merge parallel classes (e.g., shared elective or combined batch)
+              const existingDept = existingSlot.department_name || '';
+              const newDept = matchedSlot.department_name || ttDeptName || '';
+              const secLabel = existingDept === newDept || !existingDept
+                ? ttCleanSec
+                : `${newDept} ${ttCleanSec}`;
+              const secs = existingSlot.sections || [existingSlot.cleanSection];
+              if (!secs.includes(secLabel)) {
+                secs.push(secLabel);
+              }
+              grid[dayIdx][periodIdx] = {
+                ...existingSlot,
+                cleanSection: secs.sort().join(', '),
+                sections: secs,
+              };
+
+              // Add class to summary for merged classes without double-counting hours
+              const summaryKey = `${matchedSlot.code || matchedSlot.subject}_${matchedSlot.is_counselor_hour ? 'CC' : ''}`;
+              if (subjectsSummaryMap[summaryKey] && !subjectsSummaryMap[summaryKey].classes.includes(classDesc)) {
+                subjectsSummaryMap[summaryKey].classes.push(classDesc);
+              }
+            } else {
+              // True conflict detected between different classes/subjects!
+              const existingDept = existingSlot.department_name || '';
+              const matchedDept = matchedSlot.department_name || ttDeptName || '';
+              const existingClass = `${existingDept ? existingDept + ' ' : ''}Yr ${existingSlot.year} Sec ${existingSlot.cleanSection}`;
+              const matchedClass = `${matchedDept ? matchedDept + ' ' : ''}Yr ${matchedSlot.year} Sec ${matchedSlot.cleanSection}`;
+              detectedConflicts.push({
+                day: dayIdx,
+                period: periodIdx,
+                slot1: existingSlot,
+                slot2: matchedSlot,
+                description: `Slot collision on Day ${dayIdx + 1} Period ${periodIdx + 1}: "${existingSlot.subject}" (${existingClass}) vs "${matchedSlot.subject}" (${matchedClass})`
+              });
             }
-            grid[dayIdx][periodIdx] = {
-              ...existingSlot,
-              cleanSection: secs.sort().join(', '),
-              sections: secs,
-            };
           } else {
             grid[dayIdx][periodIdx] = {
               ...matchedSlot,
               sections: [ttCleanSec],
             };
             flatSlots.push(matchedSlot);
-          }
 
-          // Aggregate into subjects summary
-          const summaryKey = `${matchedSlot.code || matchedSlot.subject}_${matchedSlot.is_counselor_hour ? 'CC' : ''}`;
-          if (!subjectsSummaryMap[summaryKey]) {
-            subjectsSummaryMap[summaryKey] = {
-              code: matchedSlot.code || '-',
-              name: matchedSlot.subject,
-              abbreviation: matchedSlot.code || matchedSlot.subject.substring(0, 6).toUpperCase(),
-              type: matchedSlot.type || 'theory',
-              hoursCount: 0,
-              classes: [],
-            };
-          }
-          subjectsSummaryMap[summaryKey].hoursCount += 1;
-          if (!subjectsSummaryMap[summaryKey].classes.includes(classDesc)) {
-            subjectsSummaryMap[summaryKey].classes.push(classDesc);
+            // Aggregate into subjects summary for newly allocated unique slots
+            const summaryKey = `${matchedSlot.code || matchedSlot.subject}_${matchedSlot.is_counselor_hour ? 'CC' : ''}`;
+            if (!subjectsSummaryMap[summaryKey]) {
+              subjectsSummaryMap[summaryKey] = {
+                code: matchedSlot.code || '-',
+                name: matchedSlot.subject,
+                abbreviation: matchedSlot.code || matchedSlot.subject.substring(0, 6).toUpperCase(),
+                type: matchedSlot.type || 'theory',
+                hoursCount: 0,
+                classes: [],
+              };
+            }
+            subjectsSummaryMap[summaryKey].hoursCount += 1;
+            if (!subjectsSummaryMap[summaryKey].classes.includes(classDesc)) {
+              subjectsSummaryMap[summaryKey].classes.push(classDesc);
+            }
           }
         }
       });
@@ -552,10 +752,78 @@ export async function getFacultyWeeklySchedule(
     console.warn('Could not load external faculty slots:', e);
   }
 
-  // Calculate totals
-  const regularSlots = flatSlots.filter(s => !s.is_special);
-  const specialSlots = flatSlots.filter(s => s.is_special);
-  const labSlots = flatSlots.filter(s => s.is_lab);
+  // Ensure Open Elective hours are populated for all OE staff on standard OE slots:
+  // Mon 1st hr (0:0), Wed 1st hr (2:0), Fri 1st hr (4:0), Sat 1st hr (5:0), Sat 2nd hr (5:1)
+  const isFacultyOeStaff = facultyAssignments.some(a =>
+    a.subjects?.type === 'open elective' ||
+    /open elective|\boe\b/i.test(a.subjects?.name || '') ||
+    (a.subjects?.code && /\boe\b/i.test(a.subjects?.code))
+  ) || staffSubjects.some(s =>
+    s.type === 'open elective' || /open elective|\boe\b/i.test(s.name || '') || (s.code && /\boe\b/i.test(s.code))
+  );
+
+  if (isFacultyOeStaff) {
+    const standardOeCoords: Array<[number, number]> = [[0, 0], [2, 0], [4, 0], [5, 0], [5, 1]];
+    const oeAssignment = facultyAssignments.find(a =>
+      a.subjects?.type === 'open elective' || /open elective|\boe\b/i.test(a.subjects?.name || '')
+    );
+    const oeSubjName = oeAssignment?.subjects?.name || 'Open Elective';
+    const oeSubjCode = oeAssignment?.subjects?.code || 'OE';
+
+    for (const [d, p] of standardOeCoords) {
+      if (!grid[d][p]) {
+        const slot: FacultyPeriodSlot = {
+          subject: oeSubjName,
+          code: oeSubjCode,
+          type: 'elective',
+          day: d,
+          period: p,
+          year: oeAssignment?.year || 'III',
+          section: oeAssignment?.section || 'All',
+          cleanSection: getCleanSectionName(oeAssignment?.section || 'All'),
+          department_name: fDeptName || 'Institutional',
+          department_id: fDeptId || '',
+          is_lab: false,
+          is_special: false,
+          rawCellText: 'Open Elective',
+        };
+        grid[d][p] = slot;
+        flatSlots.push(slot);
+
+        const summaryKey = `${oeSubjCode}_OE`;
+        if (!subjectsSummaryMap[summaryKey]) {
+          subjectsSummaryMap[summaryKey] = {
+            code: oeSubjCode,
+            name: oeSubjName,
+            abbreviation: 'OE',
+            type: 'elective',
+            hoursCount: 0,
+            classes: [],
+          };
+        }
+        subjectsSummaryMap[summaryKey].hoursCount += 1;
+        const clsLabel = `${fDeptName || 'College'} - Year ${oeAssignment?.year || 'III'} Sec ${getCleanSectionName(oeAssignment?.section || 'All')} (${oeSubjCode})`;
+        if (!subjectsSummaryMap[summaryKey].classes.includes(clsLabel)) {
+          subjectsSummaryMap[summaryKey].classes.push(clsLabel);
+        }
+        classesSet.add(`${fDeptName || 'College'} - ${clsLabel}`);
+      }
+    }
+  }
+
+  // Calculate totals and daily workload/free hours directly from verified grid cells
+  const uniqueGridSlots: FacultyPeriodSlot[] = [];
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < 7; p++) {
+      if (grid[d][p]) {
+        uniqueGridSlots.push(grid[d][p]!);
+      }
+    }
+  }
+
+  const regularSlots = uniqueGridSlots.filter(s => !s.is_special);
+  const specialSlots = uniqueGridSlots.filter(s => s.is_special);
+  const labSlots = uniqueGridSlots.filter(s => s.is_lab);
   const theorySlots = regularSlots.filter(s => !s.is_lab);
 
   const counselorClasses = counselorData.map(c => ({
@@ -564,6 +832,15 @@ export async function getFacultyWeeklySchedule(
     year: c.year,
     section: getCleanSectionName(c.section),
   }));
+
+  const dailyTeachingHours = [0, 1, 2, 3, 4, 5].map(d => {
+    let count = 0;
+    for (let p = 0; p < 7; p++) {
+      if (grid[d][p] !== null) count++;
+    }
+    return count;
+  });
+  const dailyFreeHours = dailyTeachingHours.map(count => 7 - count);
 
   return {
     faculty: {
@@ -576,12 +853,16 @@ export async function getFacultyWeeklySchedule(
     },
     semesterType,
     grid,
-    slots: flatSlots,
+    slots: uniqueGridSlots,
     teachingHours: regularSlots.length,
     specialHours: specialSlots.length,
     labHours: labSlots.length,
     theoryHours: theorySlots.length,
-    totalHours: flatSlots.length,
+    totalHours: uniqueGridSlots.length,
+    dailyTeachingHours,
+    dailyFreeHours,
+    hasConflicts: detectedConflicts.length > 0,
+    conflicts: detectedConflicts,
     subjectsSummary: Object.values(subjectsSummaryMap),
     classesTaught: Array.from(classesSet),
     departmentsTaught: Array.from(deptsSet),

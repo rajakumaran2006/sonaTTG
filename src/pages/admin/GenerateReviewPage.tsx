@@ -31,6 +31,7 @@ import {
   Maximize2,
   Minimize2,
   RotateCcw,
+  RotateCw,
   Edit2,
   Check,
   Plus,
@@ -41,6 +42,7 @@ import {
   checkSwapFacultyConflict,
   getFacultyForSubject,
   loadGlobalConflictData,
+  auditBatchTimetableConflicts,
   DISPLAY_COL_TO_PERIOD,
   FacultyConflict,
 } from "@/lib/timetableConflictService";
@@ -74,7 +76,10 @@ import {
 import { generateAllYears, YearSectionResult, verifySubjectHours } from "@/lib/timetable";
 import { SubjectHoursVerificationCard } from "@/components/admin/SubjectHoursVerificationCard";
 import { buildFacultyAllocationMap } from "@/lib/facultyAllocation";
+import { generateOptimizedTimetableBatch, toGeneratedTimetableResults } from "@/lib/optimizer/optimizerIntegration";
+import { validateCompleteTimetableBatch } from "@/lib/optimizer/timetableValidator";
 import type { WizardSelection } from "@/components/admin/GenerateWizardModal";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -1698,6 +1703,8 @@ interface SubjectRowWithFaculty {
 
 interface GeneratedTimetableResult extends YearSectionResult {
   departmentName: string;
+  departmentId?: string;
+  cellMetadata?: any;
 }
 
 function calculateTotalHours(rawSubjects: any[]): number {
@@ -1811,7 +1818,17 @@ export default function GenerateReviewPage() {
       const stored = sessionStorage.getItem(selKey);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // If any cached timetable has hour verification discrepancies, purge the stale cache
+          // so the solver runs with the newest DP augmenting path rebalancer!
+          const hasInvalid = parsed.some(r => r.status === 'ok' && r.hourVerification && !r.hourVerification.isValid);
+          if (!hasInvalid) {
+            return parsed;
+          }
+          try {
+            sessionStorage.removeItem(selKey);
+          } catch (_) {}
+        }
       }
     } catch (e) {
       // ignore
@@ -1820,6 +1837,7 @@ export default function GenerateReviewPage() {
   });
   const [facultyBeforeAfternoon, setFacultyBeforeAfternoon] = useState(false);
   const [specialHoursDialogOpen, setSpecialHoursDialogOpen] = useState(false);
+  const [facultyModalOpen, setFacultyModalOpen] = useState(false);
 
   // Embed View states
   const [viewTab, setViewTab] = useState<'review' | 'timetable'>('review');
@@ -1964,10 +1982,18 @@ export default function GenerateReviewPage() {
       prev.map((r) => {
         if (r.departmentName === activeDept && r.year === activeTab && r.section === activeSection) {
           const newGrid = r.grid.map((row) => [...row]);
+          // Swap cell values
           const temp = newGrid[source.day][source.period];
           newGrid[source.day][source.period] = newGrid[target.day][target.period];
           newGrid[target.day][target.period] = temp;
-          return { ...r, grid: newGrid };
+          let newMeta = r.cellMetadata;
+          if (Array.isArray(r.cellMetadata)) {
+            newMeta = r.cellMetadata.map((row: any[]) => [...row]);
+            const tempM = newMeta[source.day]?.[source.period];
+            if (newMeta[source.day]) newMeta[source.day][source.period] = newMeta[target.day]?.[target.period];
+            if (newMeta[target.day]) newMeta[target.day][target.period] = tempM;
+          }
+          return { ...r, grid: newGrid, cellMetadata: newMeta };
         }
         return r;
       })
@@ -1989,10 +2015,18 @@ export default function GenerateReviewPage() {
       prev.map((r) => {
         if (r.departmentName === activeDept && r.year === activeTab && r.section === activeSection) {
           const newGrid = r.grid.map((row) => [...row]);
+          // Swap cell values
           const temp = newGrid[source.day][source.period];
           newGrid[source.day][source.period] = newGrid[target.day][target.period];
           newGrid[target.day][target.period] = temp;
-          return { ...r, grid: newGrid };
+          let newMeta = r.cellMetadata;
+          if (Array.isArray(r.cellMetadata)) {
+            newMeta = r.cellMetadata.map((row: any[]) => [...row]);
+            const tempM = newMeta[source.day]?.[source.period];
+            if (newMeta[source.day]) newMeta[source.day][source.period] = newMeta[target.day]?.[target.period];
+            if (newMeta[target.day]) newMeta[target.day][target.period] = tempM;
+          }
+          return { ...r, grid: newGrid, cellMetadata: newMeta };
         }
         return r;
       })
@@ -2041,16 +2075,24 @@ export default function GenerateReviewPage() {
       return match && match[1] ? match[1].trim() : null;
     };
 
+    const currentSecKey = `${activeDept}_${activeTab}_${activeSection}`;
+    const assignedCC = classCounselorsMap[currentSecKey] || '';
+
     // Add curriculum subjects
     subjects.forEach((sub) => {
       const isMapped = !mappedSet || mappedSet.size === 0 || mappedSet.has(sub.id);
       if (!isMapped) return;
 
-      const fac = sub.facultyBySection[activeSection] || extractFacultyFromTitle(sub.name) || '—';
+      const isCCSubject = /seminar|library|counsel|counselling|mentor/i.test(sub.name);
+      let fac = sub.facultyBySection[activeSection] || extractFacultyFromTitle(sub.name);
+      if (!fac && isCCSubject && assignedCC) {
+        fac = assignedCC;
+      }
+      if (!fac) fac = '—';
       const cat = sub.type ? (sub.type.charAt(0).toUpperCase() + sub.type.slice(1)) : 'Theory';
 
       rows.push({
-        code: sub.code || '—',
+        code: sub.code || (isCCSubject ? (sub.name.toLowerCase().includes('lib') ? 'LIB' : sub.name.toLowerCase().includes('sem') ? 'SEM' : 'SC') : '—'),
         title: cleanCourseTitle(sub.name),
         category: cat,
         hours: sub.hoursPerWeek,
@@ -2060,22 +2102,19 @@ export default function GenerateReviewPage() {
     });
 
     // Add active special hours (e.g. Library, Seminar, Counselling)
-    const currentSecKey = `${activeDept}_${activeTab}_${activeSection}`;
-    const assignedCC = classCounselorsMap[currentSecKey] || '';
-
     specialList
       .filter((sp: any) => sp.is_active && (sp.total_hours || 0) > 0)
       .forEach((sp: any) => {
         const cTitle = cleanCourseTitle(sp.special_type);
-        const isCounsel = /counsel|student counselling|counselling|mentor/i.test(cTitle);
-        const exists = rows.some((r) => cleanCourseTitle(r.title).toLowerCase() === cTitle.toLowerCase());
+        const isCCSubject = /seminar|library|counsel|counselling|mentor/i.test(cTitle);
+        const exists = rows.some((r) => cleanCourseTitle(r.title).toLowerCase() === cTitle.toLowerCase() && r.category === 'Special');
         if (!exists) {
           rows.push({
-            code: isCounsel ? 'SC' : '—',
+            code: isCCSubject ? (cTitle.toLowerCase().includes('lib') ? 'LIB' : cTitle.toLowerCase().includes('sem') ? 'SEM' : 'SC') : '—',
             title: cTitle,
             category: 'Special',
             hours: sp.total_hours,
-            faculty: (isCounsel && assignedCC) ? assignedCC : (sp.faculty_name || extractFacultyFromTitle(sp.special_type) || '—'),
+            faculty: (isCCSubject && assignedCC) ? assignedCC : (sp.faculty_name || extractFacultyFromTitle(sp.special_type) || '—'),
           });
         }
       });
@@ -2131,7 +2170,8 @@ export default function GenerateReviewPage() {
                 activeTab,
                 activeSection,
                 subjectsData,
-                specialHoursData
+                specialHoursData,
+                classCounselorsMap
               );
               if (faculties.length > 0) found.faculty = faculties.join(' / ');
             }
@@ -2145,7 +2185,8 @@ export default function GenerateReviewPage() {
               activeTab,
               activeSection,
               subjectsData,
-              specialHoursData
+              specialHoursData,
+              classCounselorsMap
             );
             fac = faculties.length > 0 ? faculties.join(' / ') : '—';
           }
@@ -2219,7 +2260,7 @@ export default function GenerateReviewPage() {
       return [matchedRow.faculty];
     }
 
-    if (/counsel|student counselling|counselling|mentor/i.test(rawClean)) {
+    if (/counsel|student counselling|counselling|mentor|seminar|library/i.test(rawClean)) {
       const cc = classCounselorsMap[secKey];
       if (cc) return [cc];
     }
@@ -2321,6 +2362,7 @@ export default function GenerateReviewPage() {
               year: stateData.year!,
               section: cleanSec,
               grid: ttData.grid_data,
+              cellMetadata: ttData.special_flags?.cellMetadata,
               status: 'ok',
             }
           ]);
@@ -2646,14 +2688,15 @@ export default function GenerateReviewPage() {
     // 1. Update per-class map
     setClassCounselorsMap((prev) => ({ ...prev, [secKey]: val }));
 
-    // 2. Also assign for special hours (Counselling / Student Counselling / Special)
+    // 2. Also assign for special & CC hours (Counselling, Seminar, Library)
     const curRows = customAllocations[secKey] || allocationRows;
-    const hasCounsel = curRows.some((r) => /counsel|counselor|counselling/i.test(r.title));
+    const isCCSpecial = (title: string) => /counsel|counselor|counselling|mentor|seminar|library/i.test(title);
+    const hasCounsel = curRows.some((r) => isCCSpecial(r.title));
 
     let updatedRows: AllocationRow[];
     if (hasCounsel) {
       updatedRows = curRows.map((r) => {
-        if (/counsel|counselor|counselling/i.test(r.title) || (r.category === 'Special' && /counsel/i.test(r.title))) {
+        if (isCCSpecial(r.title) || (r.category === 'Special' && isCCSpecial(r.title))) {
           return { ...r, faculty: val.trim() || '—' };
         }
         return r;
@@ -2708,61 +2751,39 @@ export default function GenerateReviewPage() {
     setGeneratedResults([]);
 
     try {
-      // Collect all classes being generated across all selected departments to exclude stale DB timetables
-      const allSelectedClasses: Array<{ departmentId?: string; year: string; section: string }> = [];
+      // 1. Gather all ClassIdentifiers for fallback/progress tracking
+      const fallbackClasses: Array<{ departmentId: string; departmentName: string; year: string; section: string }> = [];
       for (const deptSel of selections) {
         const dept = await getDepartmentByName(deptSel.departmentName);
-        const deptId = dept?.id;
+        const deptId = dept?.id || deptSel.departmentName;
         for (const yr of deptSel.selectedYears) {
           for (const sec of yr.sections) {
-            allSelectedClasses.push({ departmentId: deptId, year: yr.year, section: sec });
+            fallbackClasses.push({ departmentId: deptId, departmentName: deptSel.departmentName, year: yr.year, section: sec });
           }
         }
       }
 
-      // Build unified college-wide shared faculty allocation map
-      const sharedFacultyMap = await buildFacultyAllocationMap(
-        '',
-        undefined,
-        undefined,
-        { allClasses: true, excludeClasses: allSelectedClasses }
-      );
+      // 2. Invoke Global Constraint Optimization Engine (Holistic simultaneous multi-department solver)
+      const optimizationSolution = await generateOptimizedTimetableBatch({
+        selections,
+        semesterType,
+        facultyBeforeAfternoon,
+        onProgress: (deptName, year, section, status, error) => {
+          setProgressItems((prev) =>
+            prev.map((p) =>
+              p.departmentName === deptName && p.year === year && p.section === section
+                ? { ...p, status: status as ProgressStatus, error }
+                : p
+            )
+          );
+        },
+      });
 
-      const resultsArray: GeneratedTimetableResult[][] = [];
+      const allFinalResults = toGeneratedTimetableResults(optimizationSolution, fallbackClasses);
 
-      // Run departments sequentially to prevent cross-department staff collisions
-      for (const deptSel of selections) {
-        const result = await generateAllYears(
-          deptSel.departmentName,
-          (year, section, status, error) => {
-            setProgressItems((prev) =>
-              prev.map((p) =>
-                p.departmentName === deptSel.departmentName && p.year === year && p.section === section
-                  ? { ...p, status: status as ProgressStatus, error }
-                  : p
-              )
-            );
-          },
-          facultyBeforeAfternoon,
-          sharedFacultyMap,
-          deptSel.selectedYears,
-          semesterType
-        );
-
-        const selectedYearSet = new Set(deptSel.selectedYears.map(y => y.year));
-        const finalResults: GeneratedTimetableResult[] = result.results.filter(r => {
-          if (!selectedYearSet.has(r.year)) return false;
-          const matchingYear = deptSel.selectedYears.find(y => y.year === r.year);
-          return matchingYear?.sections.includes(r.section) ?? false;
-        }).map(r => ({
-          ...r,
-          departmentName: deptSel.departmentName
-        }));
-
-        resultsArray.push(finalResults);
+      if (!optimizationSolution.isFeasible && optimizationSolution.diagnostics && optimizationSolution.diagnostics.length > 0) {
+        toast.error(`Scheduling Infeasible: ${optimizationSolution.diagnostics[0].description}`, { duration: 8000 });
       }
-
-      const allFinalResults = resultsArray.flat();
       setGeneratedResults(allFinalResults);
       const totalOk = allFinalResults.filter(r => r.status === "ok").length;
       const totalErr = allFinalResults.filter(r => r.status === "error").length;
@@ -2832,6 +2853,28 @@ export default function GenerateReviewPage() {
         return;
       }
 
+      // Independent pre-publication validation check (Guarantee: Zero hard constraint violations)
+      const validation = validateCompleteTimetableBatch(
+        okResults.map(r => ({
+          departmentId: deptIds[r.departmentName] || stateData?.departmentId || '',
+          departmentName: r.departmentName,
+          year: r.year,
+          section: r.section,
+          grid: r.grid,
+          weeklyHourVerification: {
+            isValid: !r.hourVerification || r.hourVerification.isValid,
+            allocatedHours: r.hourVerification?.allocatedHours || {},
+            expectedHours: r.hourVerification?.expectedHours || {},
+            mismatches: r.hourVerification?.mismatches || [],
+          },
+        }))
+      );
+
+      if (!validation.isValid) {
+        toast.error(`Cannot publish: Hard constraint violation detected. ${validation.violations[0]?.message}`, { duration: 8000 });
+        return;
+      }
+
       await Promise.all(
         okResults.map(async (r) => {
           const deptId = deptIds[r.departmentName] || stateData?.departmentId;
@@ -2842,7 +2885,7 @@ export default function GenerateReviewPage() {
             r.year,
             r.section,
             r.grid,
-            { seminar: false, library: false, counselling: false },
+            { seminar: false, library: false, counselling: false, cellMetadata: (r as any).cellMetadata } as any,
             semesterType
           );
 
@@ -2850,6 +2893,86 @@ export default function GenerateReviewPage() {
           const cleanSec = getCleanSectionName(r.section);
           const snapKey = `ttg_snap_${deptId}_${r.year}_${cleanSec}_${semesterType}`;
           localStorage.setItem(snapKey, JSON.stringify(r.grid));
+
+          // 100% Collision-free sync: update class_counselors and faculty_subject_assignments
+          const secKey = `${r.departmentName}_${r.year}_${r.section}`;
+          const currentCounselor = classCounselorsMap[secKey];
+          const facList = departmentFaculty[r.departmentName] || [];
+
+          if (currentCounselor) {
+            const matchFac = facList.find(f => f.name.toLowerCase() === currentCounselor.toLowerCase());
+            if (matchFac) {
+              await upsertClassCounselor({
+                departmentId: deptId,
+                facultyId: matchFac.id,
+                year: r.year,
+                section: cleanSec,
+              }).catch(err => console.warn("Failed to persist class counselor:", err));
+            }
+          }
+
+          // Sync subject-faculty assignments
+          const assignmentsToUpsert: Array<{ subject_id: string; faculty_id: string; department_id: string; year: string; section: string }> = [];
+          const seenPairs = new Set<string>();
+
+          if (r.cellMetadata && Array.isArray(r.cellMetadata)) {
+            for (let d = 0; d < r.cellMetadata.length; d++) {
+              for (let p = 0; p < (r.cellMetadata[d]?.length || 0); p++) {
+                const cell = r.cellMetadata[d][p];
+                if (cell && cell.subjectId && cell.facultyId && !cell.subjectId.startsWith('sp_') && !cell.subjectId.startsWith('filler_')) {
+                  const sIds = cell.subjectId.split('_').filter(Boolean);
+                  for (const sid of sIds) {
+                    const pairKey = `${sid}_${cell.facultyId}`;
+                    if (!seenPairs.has(pairKey)) {
+                      seenPairs.add(pairKey);
+                      assignmentsToUpsert.push({
+                        department_id: deptId,
+                        faculty_id: cell.facultyId,
+                        subject_id: sid,
+                        year: r.year,
+                        section: cleanSec,
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // Also collect from allocation rows if custom user edits were made
+          const curRows = customAllocations[secKey];
+          if (curRows && Array.isArray(curRows)) {
+            const rawSubs = (subjectsData[`${r.departmentName}_${r.year}`] || []);
+            for (const row of curRows) {
+              if (row.faculty && row.faculty !== '—') {
+                const facMatch = facList.find(f => f.name.toLowerCase() === row.faculty.toLowerCase());
+                const subMatch = rawSubs.find(s => s.name.toLowerCase() === row.title.toLowerCase() || s.code === row.code);
+                if (facMatch && subMatch) {
+                  const pairKey = `${subMatch.id}_${facMatch.id}`;
+                  if (!seenPairs.has(pairKey)) {
+                    seenPairs.add(pairKey);
+                    assignmentsToUpsert.push({
+                      department_id: deptId,
+                      faculty_id: facMatch.id,
+                      subject_id: subMatch.id,
+                      year: r.year,
+                      section: cleanSec,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          if (assignmentsToUpsert.length > 0) {
+            try {
+              await (supabase as any)
+                .from('faculty_subject_assignments')
+                .upsert(assignmentsToUpsert, { onConflict: 'department_id,faculty_id,subject_id,year,section' });
+            } catch (assignErr) {
+              console.warn("Could not batch upsert faculty_subject_assignments:", assignErr);
+            }
+          }
         })
       );
 
@@ -3370,26 +3493,32 @@ export default function GenerateReviewPage() {
             {/* Section switcher pills */}
             {currentYearResults.length > 0 && (
               <div className={`flex p-0.5 rounded-xl border ${isDark ? "border-blue-500/25 bg-slate-900/60" : "border-blue-200/60 bg-blue-50/50"} backdrop-blur-md gap-0.5 shadow-xs overflow-x-auto no-scrollbar`}>
-                {currentYearResults.map((r) => (
-                  <button
-                    key={r.section}
-                    onClick={() => setActiveSection(r.section)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0 ${activeSection === r.section
-                        ? isDark
-                          ? "bg-[#1c3166] text-blue-100 shadow-xs border border-blue-500/40 font-bold"
-                          : "bg-white text-blue-700 shadow-xs border border-blue-300 font-bold"
-                        : isDark
-                          ? "text-slate-300 hover:text-white hover:bg-slate-800/80"
-                          : "text-slate-600 hover:text-blue-700 hover:bg-white/60"
-                      }`}
-                  >
-                    {r.section}
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${r.hourVerification?.isValid ?? true ? (isDark ? "bg-blue-400" : "bg-blue-600") : "bg-amber-500"
+                {currentYearResults.map((r) => {
+                  const isCurrent = activeSection === r.section;
+                  const isSectionValid = (isCurrent && currentVerification)
+                    ? currentVerification.isValid
+                    : (r.hourVerification?.isValid ?? true);
+                  return (
+                    <button
+                      key={r.section}
+                      onClick={() => setActiveSection(r.section)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0 ${isCurrent
+                          ? isDark
+                            ? "bg-[#1c3166] text-blue-100 shadow-xs border border-blue-500/40 font-bold"
+                            : "bg-white text-blue-700 shadow-xs border border-blue-300 font-bold"
+                          : isDark
+                            ? "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                            : "text-slate-600 hover:text-blue-700 hover:bg-white/60"
                         }`}
-                    />
-                  </button>
-                ))}
+                    >
+                      {r.section}
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${isSectionValid ? (isDark ? "bg-blue-400" : "bg-blue-600") : "bg-amber-500"
+                          }`}
+                      />
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -3556,6 +3685,39 @@ export default function GenerateReviewPage() {
                 size="sm"
                 onClick={() => {
                   if (cacheKey) sessionStorage.removeItem(cacheKey);
+                  autoGeneratedRef.current = false;
+                  handleGenerate();
+                }}
+                disabled={generating || publishing || exporting}
+                className={`h-8.5 px-3 rounded-xl text-xs gap-1.5 font-semibold border ${isDark
+                    ? "border-slate-700 bg-slate-800/80 hover:bg-blue-900/40 hover:border-blue-500/40 text-slate-300 hover:text-blue-300"
+                    : "border-slate-200/90 bg-white/90 hover:bg-blue-50 hover:border-blue-300 text-slate-700 hover:text-blue-800"
+                  } shadow-xs flex items-center transition-all`}
+                title="Regenerate all timetables with latest solver constraints"
+              >
+                <RotateCw className={`h-3.5 w-3.5 ${generating ? "animate-spin" : ""} text-blue-500`} />
+                <span>Regenerate</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFacultyModalOpen(true)}
+                disabled={generating || publishing}
+                className={`h-8.5 px-3 rounded-xl text-xs gap-1.5 font-semibold border ${isDark
+                    ? "border-slate-700 bg-slate-800/80 hover:bg-indigo-900/40 hover:border-indigo-500/40 text-slate-300 hover:text-indigo-300"
+                    : "border-slate-200/90 bg-white/90 hover:bg-indigo-50 hover:border-indigo-300 text-slate-700 hover:text-indigo-800"
+                  } shadow-xs flex items-center transition-all`}
+                title="View synchronized individual faculty schedules"
+              >
+                <Users className="h-3.5 w-3.5 text-indigo-500" />
+                <span>Faculty Timetables</span>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (cacheKey) sessionStorage.removeItem(cacheKey);
                   setGeneratedResults([]);
                   navigate('/admin');
                 }}
@@ -3644,7 +3806,7 @@ export default function GenerateReviewPage() {
                   <DialogTitle className="text-base font-bold text-slate-900">
                     Faculty Schedule Conflict Detected
                   </DialogTitle>
-                  <p className="text-xs mt-0.5 text-blue-700/80">
+                  <DialogDescription className="text-xs mt-0.5 text-blue-700/80">
                     {conflictData?.source && conflictData?.target ? (
                       <>
                         Attempted swap between <strong>{DAYS[conflictData.source.day]} P{conflictData.source.period + 1}</strong> and <strong>{DAYS[conflictData.target.day]} P{conflictData.target.period + 1}</strong> causes a clash.
@@ -3652,7 +3814,7 @@ export default function GenerateReviewPage() {
                     ) : (
                       "The requested hour change causes a faculty clash."
                     )}
-                  </p>
+                  </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
@@ -3920,6 +4082,13 @@ export default function GenerateReviewPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <FacultyTimetableModal
+          open={facultyModalOpen}
+          onOpenChange={setFacultyModalOpen}
+          defaultDepartmentId={deptIds[activeDept] || stateData?.departmentId}
+          defaultSemesterType={semesterType}
+        />
       </div>
     );
   }

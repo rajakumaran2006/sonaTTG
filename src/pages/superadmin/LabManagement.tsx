@@ -84,6 +84,8 @@ const LabManagement = () => {
   // Form states for dialogs
   const [scheduleViewDialog, setScheduleViewDialog] = useState(false);
   const [labDialog, setLabDialog] = useState(false);
+  const [selectedLabDepartments, setSelectedLabDepartments] = useState<string[]>([]);
+  const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
   const [selectedLabForSchedule, setSelectedLabForSchedule] = useState<Lab | null>(null);
   const [labForm, setLabForm] = useState({
     name: "",
@@ -192,6 +194,19 @@ const LabManagement = () => {
     }
   };
 
+  const generateLabCode = (name: string) => {
+    const words = name.trim().split(/\s+/);
+    let code = words
+      .map(word => word.replace(/[^a-zA-Z0-9]/g, ""))
+      .filter(Boolean)
+      .map(word => (/^\d+$/.test(word) ? word : word[0].toUpperCase()))
+      .join("");
+    if (!code) {
+      code = "LAB-" + Math.floor(100 + Math.random() * 900);
+    }
+    return code;
+  };
+
   const resetLabForm = () => {
     setLabForm({
       name: "",
@@ -209,18 +224,39 @@ const LabManagement = () => {
     });
   };
 
+  const openAddLabDialog = () => {
+    const defaultDepts = (selectedDepartment && selectedDepartment !== "all-departments")
+      ? [selectedDepartment]
+      : (departments.length > 0 ? [departments[0].id] : []);
+    setSelectedLabDepartments(defaultDepts);
+    setDeptDropdownOpen(false);
+    resetLabForm();
+    setLabDialog(true);
+  };
+
   const handleCreateLab = async () => {
-    if (!labForm.name || !labForm.lab_code) {
-      toast.error("Please fill in required fields.");
+    if (!labForm.name.trim()) {
+      toast.error("Please enter a lab name.");
       return;
     }
 
+    if (selectedLabDepartments.length === 0) {
+      toast.error("Please select at least one department.");
+      return;
+    }
+
+    const primaryDeptId = selectedLabDepartments[0];
+    const finalCode = (labForm.lab_code || "").trim() || generateLabCode(labForm.name);
+
     try {
-      // For Super Admin, we might want to let them pick departments,
-      // but for now let's auto-assign the currently selected department if applicable
       const labData = {
         ...labForm,
-        departments: selectedDepartment !== "all-departments" ? [selectedDepartment] : [],
+        lab_code: finalCode,
+        department_id: primaryDeptId,
+        departments: selectedLabDepartments,
+        allowed_classes: [],
+        year: null,
+        section: null,
         is_active: true
       };
 
@@ -236,7 +272,11 @@ const LabManagement = () => {
       loadLabs();
     } catch (error: any) {
       console.error("Error creating lab:", error);
-      toast.error(`Failed to create lab: ${error.message}`);
+      if (error.message?.includes("labs_name_key") || error.message?.includes("unique constraint")) {
+        toast.error(`A lab named "${labForm.name}" already exists. Please choose a different lab name.`);
+      } else {
+        toast.error(`Failed to create lab: ${error.message}`);
+      }
     }
   };
 
@@ -471,7 +511,7 @@ const LabManagement = () => {
                 </Select>
               </div>
               <Button
-                onClick={() => setLabDialog(true)}
+                onClick={openAddLabDialog}
                 className="h-10 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs px-4 shadow-sm shadow-indigo-500/25 border border-indigo-400/30 flex items-center gap-2"
               >
                 <Plus className="h-4 w-4" /> Add Lab
@@ -514,19 +554,121 @@ const LabManagement = () => {
                     <Input id="name" value={labForm.name} onChange={(e) => setLabForm({ ...labForm, name: e.target.value })} placeholder="e.g. Computer Lab 1" />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="code">Lab Code *</Label>
-                    <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CL1" />
+                    <Label htmlFor="code">Lab Code</Label>
+                    <Input id="code" value={labForm.lab_code} onChange={(e) => setLabForm({ ...labForm, lab_code: e.target.value })} placeholder="e.g. CL1 (or leave blank to auto-generate)" />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Multi-Select Department Dropdown */}
                   <div className="grid gap-2">
-                    <Label htmlFor="capacity">Capacity</Label>
-                    <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
+                    <Label htmlFor="lab-dept">Department *</Label>
+                    <Popover open={deptDropdownOpen} onOpenChange={setDeptDropdownOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="lab-dept"
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={deptDropdownOpen}
+                          className="w-full justify-between h-auto min-h-10 px-3 py-1.5 text-left font-normal bg-background hover:bg-background border-input rounded-md"
+                        >
+                          <div className="flex flex-wrap gap-1 items-center max-w-[calc(100%-20px)]">
+                            {selectedLabDepartments.length === 0 ? (
+                              <span className="text-sm text-muted-foreground">Select department(s)...</span>
+                            ) : (
+                              selectedLabDepartments.map((deptId) => {
+                                const dept = departments.find((d) => d.id === deptId);
+                                return (
+                                  <Badge
+                                    key={deptId}
+                                    variant="secondary"
+                                    className="text-xs font-semibold px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1"
+                                  >
+                                    <span>{dept?.name || "Unknown"}</span>
+                                    <span
+                                      role="button"
+                                      tabIndex={0}
+                                      className="hover:text-destructive cursor-pointer ml-0.5 text-xs font-bold leading-none"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedLabDepartments((prev) => prev.filter((id) => id !== deptId));
+                                      }}
+                                    >
+                                      ×
+                                    </span>
+                                  </Badge>
+                                );
+                              })
+                            )}
+                          </div>
+                          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-2" align="start">
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/60 px-1">
+                          <span className="text-xs font-bold text-muted-foreground">
+                            {selectedLabDepartments.length} of {departments.length} selected
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold p-0 hover:bg-transparent"
+                            onClick={() => {
+                              if (selectedLabDepartments.length === departments.length) {
+                                setSelectedLabDepartments([]);
+                              } else {
+                                setSelectedLabDepartments(departments.map((d) => d.id));
+                              }
+                            }}
+                          >
+                            {selectedLabDepartments.length === departments.length ? "Clear All" : "Select All"}
+                          </Button>
+                        </div>
+                        <div className="space-y-1 max-h-56 overflow-y-auto">
+                          {departments.map((dept) => {
+                            const isSelected = selectedLabDepartments.includes(dept.id);
+                            return (
+                              <div
+                                key={dept.id}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedLabDepartments((prev) => prev.filter((id) => id !== dept.id));
+                                  } else {
+                                    setSelectedLabDepartments((prev) => [...prev, dept.id]);
+                                  }
+                                }}
+                                className={`flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer text-xs font-medium transition-colors ${
+                                  isSelected
+                                    ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-semibold"
+                                    : "hover:bg-muted text-foreground"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                                      isSelected
+                                        ? "bg-indigo-600 border-indigo-600 text-white"
+                                        : "border-input bg-background"
+                                    }`}
+                                  >
+                                    {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
+                                  </div>
+                                  <span>{dept.name}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
+
                   <div className="grid gap-2">
                     <Label htmlFor="type">Type</Label>
                     <Select value={labForm.lab_type} onValueChange={(v) => setLabForm({ ...labForm, lab_type: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger id="type"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="computer">Computer</SelectItem>
                         <SelectItem value="electronics">Electronics</SelectItem>
@@ -536,24 +678,33 @@ const LabManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="capacity">Capacity</Label>
+                    <Input type="number" id="capacity" value={labForm.capacity} onChange={(e) => setLabForm({ ...labForm, capacity: +e.target.value })} />
+                  </div>
                   <div className="grid gap-2">
                     <Label htmlFor="room">Room Number</Label>
-                    <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} />
+                    <Input id="room" value={labForm.room_number} onChange={(e) => setLabForm({ ...labForm, room_number: e.target.value })} placeholder="e.g. 001" />
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="building">Building</Label>
-                    <Input id="building" value={labForm.building} onChange={(e) => setLabForm({ ...labForm, building: e.target.value })} />
+                    <Input id="building" value={labForm.building} onChange={(e) => setLabForm({ ...labForm, building: e.target.value })} placeholder="e.g. IT Block" />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="floor">Floor</Label>
-                    <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({ ...labForm, floor: e.target.value })} />
+                    <Input id="floor" value={labForm.floor} onChange={(e) => setLabForm({ ...labForm, floor: e.target.value })} placeholder="e.g. 01" />
                   </div>
                 </div>
+
                 <div className="grid gap-2">
                   <Label htmlFor="desc">Description</Label>
-                  <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({ ...labForm, description: e.target.value })} />
+                  <Input id="desc" value={labForm.description} onChange={(e) => setLabForm({ ...labForm, description: e.target.value })} placeholder="Optional description or notes" />
                 </div>
               </div>
               <DialogFooter>

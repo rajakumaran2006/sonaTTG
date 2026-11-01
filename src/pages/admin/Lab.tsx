@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Plus, Trash2, Edit, Calendar, Settings, Eye, LayoutGrid, List, Download, FlaskConical, ChevronLeft } from "lucide-react";
+import { Plus, Trash2, Edit, Calendar, Settings, Eye, LayoutGrid, List, Download, FlaskConical, ChevronLeft, AlertTriangle, Loader2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -86,23 +86,25 @@ const periods = [
 
 const parseScheduleInfo = (info: string) => {
   if (!info) return { raw: "Allocated" };
-  
-  // Pattern 1: {Dept} • Year {Y} Sec {S} - {Subject} OR [{Dept}] Year {Y} Sec {S} - {Subject}
-  const deptMatch = info.match(/^(?:\[(.*?)\]|(.*?))\s*•\s*Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)$/i);
-  if (deptMatch && (deptMatch[1] || deptMatch[2])) {
-    const dept = (deptMatch[1] || deptMatch[2]).trim();
-    if (dept) {
-      return {
-        dept,
-        year: `Year ${deptMatch[3]}`,
-        section: `Sec ${deptMatch[4]}`,
-        subject: deptMatch[5].trim()
-      };
-    }
+
+  // Clean off any leading semester tags like [EVEN] or [ODD]
+  let cleanInfo = info.replace(/^\[(ODD|EVEN)\]\s*/i, '').trim();
+
+  // Pattern 1: Department in brackets or before bullet: [AIDS] or [AIDS] • or AIDS •
+  // e.g. "[AIDS] Year II Sec A - Soft Skills - II (Integrated)"
+  const deptMatch = cleanInfo.match(/^(?:\[(.*?)\]\s*(?:•\s*)?|(.*?)\s*•\s*)?Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s*-\s*(.+)$/i);
+  if (deptMatch && deptMatch[3] && deptMatch[4]) {
+    const dept = (deptMatch[1] || deptMatch[2] || "").trim();
+    return {
+      dept: dept || undefined,
+      year: `Year ${deptMatch[3]}`,
+      section: `Sec ${deptMatch[4]}`,
+      subject: (deptMatch[5] || "").trim()
+    };
   }
 
   // Pattern 2: Year {Y} Sec {S} - {Subject}
-  const yearSecMatch = info.match(/^Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s+-\s+(.+)$/i);
+  const yearSecMatch = cleanInfo.match(/^Year\s+([a-zA-Z0-9]+)\s+Sec\s+([a-zA-Z0-9]+)\s*-\s*(.+)$/i);
   if (yearSecMatch) {
     return {
       year: `Year ${yearSecMatch[1]}`,
@@ -112,7 +114,7 @@ const parseScheduleInfo = (info: string) => {
   }
 
   // Pattern 3: Year {Y}, {Subject}
-  const yearMatch = info.match(/^Year\s+([a-zA-Z0-9]+),\s+(.+)$/i);
+  const yearMatch = cleanInfo.match(/^Year\s+([a-zA-Z0-9]+),\s*(.+)$/i);
   if (yearMatch) {
     return {
       year: `Year ${yearMatch[1]}`,
@@ -257,6 +259,11 @@ const Lab = () => {
   // Delete mode for schedule slots: 'single' | 'group'
   const [deletePopoverId, setDeletePopoverId] = useState<string | null>(null);
 
+  // Delete all lab allocations modal state
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [deleteAllScope, setDeleteAllScope] = useState<'current' | 'both'>('current');
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
   // Max 3 sections: A, B, C
   const ALL_SECTIONS = ['A', 'B', 'C'];
 
@@ -317,7 +324,11 @@ const Lab = () => {
       window.location.reload();
     } catch (error: any) {
       console.error("Error creating lab:", error);
-      toast.error(`Failed to create lab: ${error.message}`);
+      if (error.message?.includes("labs_name_key") || error.message?.includes("unique constraint")) {
+        toast.error(`A lab named "${labForm.name}" already exists. Please choose a different lab name.`);
+      } else {
+        toast.error(`Failed to create lab: ${error.message}`);
+      }
     }
   };
 
@@ -518,12 +529,13 @@ const Lab = () => {
     if (acad.includes('even') || sem.includes('[even]')) return currentSemType === 'even';
     if (acad.includes('odd') || sem.includes('[odd]')) return currentSemType === 'odd';
 
-    // Match subject in itAdsLabs
-    const subjName = (schedule.semester || '').split('-').pop()?.trim().toLowerCase();
+    // Match subject in itAdsLabs using robust parseScheduleInfo
+    const parsed = parseScheduleInfo(schedule.semester || '');
+    const subjName = (parsed.subject || parsed.raw || (schedule.semester || '').split('-').pop() || '').trim().toLowerCase();
     if (subjName) {
       const matched = itAdsLabs.find((s: any) =>
         s.name.toLowerCase().trim() === subjName ||
-        s.abbreviation?.toLowerCase().trim() === subjName
+        (s.abbreviation && s.abbreviation.toLowerCase().trim() === subjName)
       );
       if (matched) {
         const isEven = (matched.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
@@ -548,7 +560,7 @@ const Lab = () => {
       const { data: subjs, error: subjsError } = await (supabase as any)
         .from('subjects')
         .select('*, departments(name)')
-        .eq('type', 'lab')
+        .in('type', ['lab', 'project'])
         .order('year')
         .order('name');
 
@@ -802,6 +814,55 @@ const Lab = () => {
     }
   };
 
+  const currentSemAllocCount = labSchedules.filter(s => isScheduleInCurrentSemester(s, semesterType)).length;
+  const totalAllocCount = labSchedules.length;
+
+  const handleDeleteAllLabAllocations = async () => {
+    setIsDeletingAll(true);
+    try {
+      let idsToDelete: string[] = [];
+      if (deleteAllScope === 'current') {
+        idsToDelete = labSchedules
+          .filter(s => isScheduleInCurrentSemester(s, semesterType))
+          .map(s => s.id);
+      } else {
+        idsToDelete = labSchedules.map(s => s.id);
+      }
+
+      if (idsToDelete.length === 0) {
+        toast.info(`No lab allocations found to delete for ${deleteAllScope === 'current' ? `${semesterType.toUpperCase()} semester` : 'any semester'}.`);
+        setIsDeleteAllOpen(false);
+        return;
+      }
+
+      // Batch delete in chunks of 100 to avoid query size limits
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < idsToDelete.length; i += CHUNK_SIZE) {
+        const chunk = idsToDelete.slice(i, i + CHUNK_SIZE);
+        const { error } = await (supabase as any)
+          .from('lab_schedules')
+          .delete()
+          .in('id', chunk);
+
+        if (error) throw error;
+      }
+
+      toast.success(
+        deleteAllScope === 'current'
+          ? `Deleted all ${idsToDelete.length} lab allocation slot(s) for ${semesterType.toUpperCase()} semester across all labs.`
+          : `Deleted all ${idsToDelete.length} lab allocation slot(s) across both semesters for all labs.`
+      );
+
+      setIsDeleteAllOpen(false);
+      await loadLabSchedules();
+    } catch (error: any) {
+      console.error('Error deleting all lab allocations:', error);
+      toast.error(`Failed to delete lab allocations: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   // Save edited hours_per_week for a subject
   const handleSaveHours = async (subjId: string) => {
     const hours = editableHours[subjId];
@@ -837,6 +898,19 @@ const Lab = () => {
     }
 
     return "";
+  };
+
+  // Helper to normalize search query so phrases like "year 2", "year ii", "yr 3" match cleanly
+  const normalizeLabSubjectSearch = (str: string) => {
+    return (str || '').toLowerCase()
+      .replace(/\b(year|yr)\s*1\b/g, 'year-1')
+      .replace(/\b(year|yr)\s*2\b/g, 'year-2')
+      .replace(/\b(year|yr)\s*3\b/g, 'year-3')
+      .replace(/\b(year|yr)\s*4\b/g, 'year-4')
+      .replace(/\b(year|yr)\s*i\b/g, 'year-1')
+      .replace(/\b(year|yr)\s*ii\b/g, 'year-2')
+      .replace(/\b(year|yr)\s*iii\b/g, 'year-3')
+      .replace(/\b(year|yr)\s*iv\b/g, 'year-4');
   };
 
   // Helper to count booked hours for a specific section of a subject in lab_schedules
@@ -1460,6 +1534,20 @@ const Lab = () => {
                         <span>Export PDF</span>
                       </Button>
                     )}
+
+                    {/* DELETE ALL ALLOCATIONS BUTTON */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setDeleteAllScope('current');
+                        setIsDeleteAllOpen(true);
+                      }}
+                      className="h-10 px-4 rounded-xl border border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-300 hover:border-rose-400 transition-all font-semibold flex items-center gap-2 shrink-0 shadow-sm"
+                    >
+                      <Trash2 className="h-4 w-4 text-rose-500" />
+                      <span>Delete All</span>
+                    </Button>
                   </div>
                 </div>
 
@@ -1638,23 +1726,33 @@ const Lab = () => {
                                             <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
                                           </Button>
                                         </PopoverTrigger>
-                                        <PopoverContent side="bottom" align="start" sideOffset={6} collisionPadding={16} className="w-[310px] max-w-[92vw] p-0 overflow-hidden shadow-2xl border-2 z-50 bg-popover text-popover-foreground rounded-xl">
-                                          <Command>
-                                            <CommandInput placeholder="Search subject..." className="h-9 border-b" />
-                                            <CommandList className="max-h-[260px] md:max-h-[300px] overflow-y-auto scrollbar-thin">
-                                              <CommandEmpty>No subject found for this department.</CommandEmpty>
+                                        <PopoverContent side="bottom" align="start" sideOffset={6} collisionPadding={16} className="w-[360px] sm:w-[430px] max-w-[95vw] p-0 overflow-hidden shadow-2xl border-2 z-50 bg-popover text-popover-foreground rounded-xl">
+                                          <Command
+                                            filter={(value, search) => {
+                                              const v = value.toLowerCase();
+                                              const s = normalizeLabSubjectSearch(search).trim();
+                                              if (!s) return 1;
+                                              const terms = s.split(/\s+/).filter(Boolean);
+                                              return terms.every(term => v.includes(term)) ? 1 : 0;
+                                            }}
+                                          >
+                                            <CommandInput placeholder="Search by name, code (e.g. U23IT504), abbr (e.g. DBMS LAB), or year..." className="h-9 border-b" />
+                                            <CommandList className="max-h-[280px] md:max-h-[340px] overflow-y-auto scrollbar-thin">
+                                              <CommandEmpty>No matching lab subject found.</CommandEmpty>
                                               <CommandGroup>
                                                 {(() => {
                                                   const allSections = ALL_SECTIONS;
 
                                                   // Determine department IDs allocated for the current lab
-                                                  const labDeptIds: string[] = (selectedLabForSchedule?.departments && selectedLabForSchedule.departments.length > 0)
-                                                    ? selectedLabForSchedule.departments
-                                                    : (selectedLabForSchedule?.department_id ? [selectedLabForSchedule.department_id] : (allAdminDeptIds.length > 0 ? allAdminDeptIds : []));
+                                                  const allowedDeptIds = new Set<string>([
+                                                    ...(selectedLabForSchedule?.departments && selectedLabForSchedule.departments.length > 0 ? selectedLabForSchedule.departments : []),
+                                                    ...(selectedLabForSchedule?.department_id ? [selectedLabForSchedule.department_id] : []),
+                                                    ...allAdminDeptIds
+                                                  ]);
 
-                                                  // Filter subjects so it ONLY shows subjects for the allocated department(s) and selected semester type
+                                                  // Filter subjects so it shows subjects for the allocated department(s) and selected semester type
                                                   const displaySubjects = itAdsLabs.filter(subj => {
-                                                    if (labDeptIds.length > 0 && !labDeptIds.includes(subj.department_id)) return false;
+                                                    if (allowedDeptIds.size > 0 && subj.department_id && !allowedDeptIds.has(subj.department_id)) return false;
                                                     const isEven = (subj.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
                                                     return semesterType === 'even' ? isEven : !isEven;
                                                   });
@@ -1672,46 +1770,84 @@ const Lab = () => {
                                                     const currentHours = editableHours[subj.id] !== undefined ? editableHours[subj.id] : (subj.hours_per_week || 1);
                                                     const isEditingHours = editableHours[subj.id] !== undefined;
 
+                                                    const romanToNum: Record<string, string> = { 'I': '1', 'II': '2', 'III': '3', 'IV': '4' };
+                                                    const numYr = romanToNum[subj.year] || subj.year || '';
+                                                    const deptName = subj.departments?.name || '';
+                                                    const searchValue = [
+                                                      subj.name,
+                                                      subj.code,
+                                                      subj.abbreviation,
+                                                      `year-${numYr}`,
+                                                      `year-${(subj.year || '').toLowerCase()}`,
+                                                      `yr-${numYr}`,
+                                                      `yr-${(subj.year || '').toLowerCase()}`,
+                                                      `year ${subj.year}`,
+                                                      `year ${numYr}`,
+                                                      deptName,
+                                                      deptName === 'AIDS' ? 'AI' : '',
+                                                      deptName === 'AIDS' ? 'AI&DS' : '',
+                                                      deptName === 'IT' ? 'Information Technology' : ''
+                                                    ].filter(Boolean).join(' ').toLowerCase();
+
                                                     return (
                                                     <CommandItem
                                                       key={subj.id}
-                                                      value={`${subj.name} ${subj.year} ${subj.departments?.name || ''}`}
+                                                      value={searchValue}
                                                       onSelect={() => {}}
-                                                      className="px-4 py-3 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors"
+                                                      className="px-3.5 py-2.5 cursor-pointer rounded-lg m-1 hover:bg-muted/80 transition-colors border border-transparent hover:border-border/60"
                                                     >
-                                                      <div className="flex flex-col text-left w-full group/item">
-                                                        <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-[13px] font-bold text-foreground">{subj.name}</span>
-                                                          <div className="flex items-center gap-1.5">
-                                                            {/* Editable hours */}
-                                                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                                                              <input
-                                                                type="number"
-                                                                min={1}
-                                                                max={7}
-                                                                value={currentHours}
-                                                                onChange={e => setEditableHours(prev => ({ ...prev, [subj.id]: parseInt(e.target.value) || 1 }))}
-                                                                className="w-10 text-center text-[11px] border rounded px-1 py-0.5 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 font-bold focus:outline-none"
-                                                                title="Edit hours per week for this subject"
-                                                              />
-                                                              <span className="text-[9px] text-muted-foreground">hr</span>
-                                                              {isEditingHours && (
-                                                                <button
-                                                                  onClick={e => { e.stopPropagation(); handleSaveHours(subj.id); }}
-                                                                  className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold hover:bg-indigo-700"
-                                                                >Save</button>
-                                                              )}
-                                                            </div>
-                                                            <span className="text-[11px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Year {subj.year}</span>
+                                                      <div className="flex flex-col text-left w-full group/item gap-1.5">
+                                                        <div className="flex justify-between items-start gap-2">
+                                                          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                                                            {subj.code && (
+                                                              <span className="text-[11px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                                {subj.code}
+                                                              </span>
+                                                            )}
+                                                            {subj.abbreviation && (
+                                                              <span className="text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                                                {subj.abbreviation}
+                                                              </span>
+                                                            )}
+                                                            {deptName && (
+                                                              <span className="text-[10px] font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                                                                {deptName}
+                                                              </span>
+                                                            )}
+                                                            <span className="text-[10px] font-semibold bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                                              Year {subj.year}
+                                                            </span>
+                                                          </div>
+
+                                                          {/* Editable hours */}
+                                                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                                                            <input
+                                                              type="number"
+                                                              min={1}
+                                                              max={7}
+                                                              value={currentHours}
+                                                              onChange={e => setEditableHours(prev => ({ ...prev, [subj.id]: parseInt(e.target.value) || 1 }))}
+                                                              className="w-10 text-center text-[11px] border rounded px-1 py-0.5 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700 font-bold focus:outline-none"
+                                                              title="Edit hours per week for this subject"
+                                                            />
+                                                            <span className="text-[9px] text-muted-foreground">hr</span>
+                                                            {isEditingHours && (
+                                                              <button
+                                                                onClick={e => { e.stopPropagation(); handleSaveHours(subj.id); }}
+                                                                className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold hover:bg-indigo-700 shadow-sm"
+                                                              >
+                                                                Save
+                                                              </button>
+                                                            )}
                                                           </div>
                                                         </div>
-                                                        {/* Show department name */}
-                                                        {subj.departments?.name && (
-                                                          <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 mb-1 truncate bg-violet-50 dark:bg-violet-900/30 px-1.5 py-0.5 rounded w-fit">
-                                                            Dept: {subj.departments.name}
-                                                          </span>
-                                                        )}
-                                                        <div className="flex flex-wrap gap-1 mt-1 border-t pt-2 border-border/50">
+
+                                                        {/* Full Subject Name */}
+                                                        <span className="text-[12px] font-semibold text-foreground leading-snug">
+                                                          {subj.name}
+                                                        </span>
+
+                                                        <div className="flex flex-wrap gap-1 mt-0.5 border-t pt-1.5 border-border/50">
                                                           {allSections.map((section) => {
                                                             const isLabAllowed = !hasRestriction ||
                                                               allowedSectionsForYear.includes(section) ||
@@ -1908,6 +2044,136 @@ const Lab = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setExtraClassDialog(false)}>Cancel</Button>
             <Button onClick={handleManualAddSchedule} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Add Class</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* DELETE ALL LAB ALLOCATIONS DIALOG */}
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
+        <DialogContent className="max-w-lg p-6 rounded-2xl bg-card border border-border shadow-2xl">
+          <DialogHeader className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 shrink-0">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-bold text-foreground">
+                  Delete All Lab Allocations
+                </DialogTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Clear allocated lab hours across all laboratories
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Choose the deletion scope below. This will delete all scheduled lab hours across all laboratories in the database.
+            </p>
+
+            <div className="space-y-2.5">
+              <label
+                onClick={() => setDeleteAllScope('current')}
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  deleteAllScope === 'current'
+                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 shadow-sm ring-1 ring-indigo-500/30'
+                    : 'border-border hover:bg-muted/30'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="delete_scope"
+                  checked={deleteAllScope === 'current'}
+                  onChange={() => setDeleteAllScope('current')}
+                  className="mt-1 h-4 w-4 text-indigo-600 focus:ring-indigo-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-foreground">
+                      Current Semester ({semesterType.toUpperCase()})
+                    </span>
+                    <Badge variant="outline" className="text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800">
+                      {currentSemAllocCount} slot{currentSemAllocCount === 1 ? '' : 's'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Deletes all allocated lab hours for the <strong>{semesterType === 'even' ? 'Even' : 'Odd'} Semester</strong> across all labs. The other semester remains completely untouched.
+                  </p>
+                </div>
+              </label>
+
+              <label
+                onClick={() => setDeleteAllScope('both')}
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  deleteAllScope === 'both'
+                    ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/20 shadow-sm ring-1 ring-rose-500/30'
+                    : 'border-border hover:bg-muted/30'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="delete_scope"
+                  checked={deleteAllScope === 'both'}
+                  onChange={() => setDeleteAllScope('both')}
+                  className="mt-1 h-4 w-4 text-rose-600 focus:ring-rose-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-foreground">
+                      Both Semesters (Odd & Even)
+                    </span>
+                    <Badge variant="outline" className="text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800">
+                      {totalAllocCount} slot{totalAllocCount === 1 ? '' : 's'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Deletes all allocated lab hours across all labs for <strong>both Odd and Even</strong> semesters. Complete reset.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>
+                <strong>Warning:</strong> This action cannot be undone. All manual lab schedule allocations will be cleared, and timetable generation will no longer prioritize these manual lab slots.
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingAll}
+              onClick={() => setIsDeleteAllOpen(false)}
+              className="w-full sm:w-auto rounded-xl font-semibold text-xs h-10 px-4"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingAll || (deleteAllScope === 'current' ? currentSemAllocCount === 0 : totalAllocCount === 0)}
+              onClick={handleDeleteAllLabAllocations}
+              className="w-full sm:w-auto rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs h-10 px-5 shadow-md shadow-rose-500/25 flex items-center justify-center gap-2 transition-all"
+            >
+              {isDeletingAll ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Deleting Allocations...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  <span>
+                    {deleteAllScope === 'current'
+                      ? `Delete All (${semesterType.toUpperCase()} Sem)`
+                      : 'Delete All (Both Semesters)'}
+                  </span>
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

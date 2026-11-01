@@ -187,7 +187,7 @@ const Departments = () => {
     await (supabase as any).from('subjects').delete().eq('department_id', deptId);
     await (supabase as any).from('lab_preferences').delete().eq('department_id', deptId);
     await (supabase as any).from('special_hours_config').delete().eq('department_id', deptId);
-    await (supabase as any).from('open_elective_settings').delete().eq('department_id', deptId);
+    await (supabase as any).from('open_elective_hours').delete().eq('department_id', deptId);
     await (supabase as any).from('class_counselors').delete().eq('department_id', deptId);
     await (supabase as any).from('admin_departments').delete().eq('department_id', deptId);
     await (supabase as any).from('faculty_members').delete().eq('department_id', deptId);

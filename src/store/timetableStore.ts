@@ -13,6 +13,7 @@ export interface Subject {
   abbreviation?: string; // e.g., CN
   staff?: string; // e.g., Mr. D. Jayaprakash
   maxFacultyCount?: number; // Maximum faculty members for lab subjects
+  max_faculty_count?: number;
   credits?: number; // Academic credits (1-6)
   elective_group_name?: string; // Custom group label for grouped electives
 }

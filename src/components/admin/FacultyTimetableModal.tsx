@@ -654,7 +654,7 @@ export const FacultyTimetableModal = ({
             ) : (
               <>
                 {/* Summary Stats Row */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
                   <div className={`p-4 rounded-xl border ${isDark ? "bg-white/[0.03] border-indigo-500/20" : "bg-indigo-50/50 border-indigo-200"}`}>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Total Load</span>
                     <div className={`text-2xl font-black mt-1 ${isDark ? "text-indigo-300" : "text-indigo-600"}`}>
@@ -665,13 +665,31 @@ export const FacultyTimetableModal = ({
                     </span>
                   </div>
 
-                  <div className={`p-4 rounded-xl border ${isDark ? "bg-white/[0.03] border-amber-500/20" : "bg-amber-50/50 border-amber-200"}`}>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Special Hours</span>
-                    <div className={`text-2xl font-black mt-1 ${isDark ? "text-amber-300" : "text-amber-600"}`}>
-                      {schedule.specialHours} <span className="text-xs font-semibold text-muted-foreground">hrs/wk</span>
+                  <div className={`p-4 rounded-xl border ${isDark ? "bg-white/[0.03] border-emerald-500/20" : "bg-emerald-50/50 border-emerald-200"}`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">Daily Rest & Free</span>
+                    <div className={`text-2xl font-black mt-1 ${isDark ? "text-emerald-300" : "text-emerald-700"}`}>
+                      3+ <span className="text-xs font-semibold text-muted-foreground">hrs/day</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground mt-0.5 block">
-                      {schedule.counselorClasses.length > 0 ? 'CC: Library/Seminar/SC' : 'No CC hours'}
+                      Min free: {Math.min(...(schedule.dailyFreeHours || [3]))} hrs/day
+                    </span>
+                  </div>
+
+                  <div className={`p-4 rounded-xl border ${
+                    schedule.hasConflicts 
+                      ? isDark ? "bg-red-500/10 border-red-500/30" : "bg-red-50 border-red-200"
+                      : isDark ? "bg-white/[0.03] border-indigo-500/20" : "bg-indigo-50/50 border-indigo-200"
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Conflicts</span>
+                    <div className={`text-2xl font-black mt-1 ${
+                      schedule.hasConflicts 
+                        ? isDark ? "text-red-300" : "text-red-600"
+                        : isDark ? "text-emerald-300" : "text-emerald-600"
+                    }`}>
+                      {schedule.hasConflicts ? `${schedule.conflicts.length}` : "0"}
+                    </div>
+                    <span className={`text-[10px] mt-0.5 block ${schedule.hasConflicts ? "text-red-500 font-semibold" : "text-muted-foreground"}`}>
+                      {schedule.hasConflicts ? "Collisions detected" : "Class TT Synced"}
                     </span>
                   </div>
 
@@ -695,6 +713,23 @@ export const FacultyTimetableModal = ({
                     </span>
                   </div>
                 </div>
+
+                {/* Conflict Alert Banner if any */}
+                {schedule.hasConflicts && (
+                  <div className={`p-3.5 rounded-xl border flex flex-col gap-1.5 text-xs ${
+                    isDark ? "bg-red-500/10 border-red-500/30 text-red-200" : "bg-red-50 border-red-300 text-red-900"
+                  }`}>
+                    <div className="flex items-center gap-2 font-bold text-red-600 dark:text-red-400">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>Timetable Conflict Alert ({schedule.conflicts.length} overlapping period{schedule.conflicts.length > 1 ? 's' : ''}):</span>
+                    </div>
+                    <ul className="list-disc list-inside space-y-0.5 pl-2 text-[11px] opacity-90">
+                      {schedule.conflicts.map((c, i) => (
+                        <li key={i}>{c.description}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* Class Counselor Notice */}
                 {schedule.counselorClasses.length > 0 && (
@@ -816,9 +851,18 @@ export const FacultyTimetableModal = ({
                                         </div>
                                       </div>
                                     ) : (
-                                      <span className="text-[10px] font-semibold opacity-40 group-hover:opacity-100 group-hover:text-emerald-500 transition-opacity">
-                                        + Assign
-                                      </span>
+                                      <div className="flex flex-col items-center justify-center gap-0.5">
+                                        <span className={`px-2 py-0.5 rounded-md text-[9px] font-black tracking-wider uppercase transition-all ${
+                                          isDark 
+                                            ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/25 group-hover:bg-emerald-500/20" 
+                                            : "bg-emerald-50 text-emerald-800 border border-emerald-200 group-hover:bg-emerald-100"
+                                        }`}>
+                                          FREE / REST
+                                        </span>
+                                        <span className="text-[8px] font-medium opacity-0 group-hover:opacity-80 text-muted-foreground transition-opacity">
+                                          + Cross-Dept
+                                        </span>
+                                      </div>
                                     )}
                                   </div>
                                 </td>
@@ -844,6 +888,10 @@ export const FacultyTimetableModal = ({
                       <div className="flex items-center gap-1.5">
                         <span className="h-3 w-3 rounded-sm bg-amber-500/20 border border-amber-500/40" />
                         <span>Special (SC/SEM/LIB)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 rounded-sm bg-emerald-500/10 border border-emerald-500/30" />
+                        <span className="text-emerald-500 font-bold">Free / Rest (3+ hrs/day)</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className="h-3 w-3 rounded-sm bg-emerald-500/25 border-2 border-emerald-500/40" />

@@ -144,6 +144,27 @@ const inferSubjectType = (rawType: string, name: string): string => {
   return "theory";
 };
 
+// Safe credits parser supporting decimals (e.g. 1.5, 0.5) and non-credit courses (0)
+const parseCredits = (val: any, fallback = 3): number => {
+  if (val === undefined || val === null) return fallback;
+  const s = String(val).trim();
+  if (s === "") return fallback;
+  const parsed = parseFloat(s);
+  return isNaN(parsed) ? fallback : Math.max(0, Math.min(parsed, 20));
+};
+
+const getSubjectDecodedCredits = (sub: { credits?: number | null; tags?: string[] | null }): number => {
+  const tag = (sub.tags || []).find((t: string) => /^credits:([0-9.]+)$/i.test(t));
+  if (tag) {
+    const val = parseFloat(tag.split(':')[1]);
+    if (!isNaN(val)) return val;
+  }
+  if (sub.credits !== undefined && sub.credits !== null) {
+    return Number(sub.credits);
+  }
+  return 3;
+};
+
 // Auto abbreviation generator
 const generateAbbreviation = (name: string): string => {
   if (!name) return "";
@@ -162,8 +183,19 @@ const resolveDepartmentId = (deptInput: string, deptList: any[]): string | null 
   if (exact) return exact.id;
 
   // 2. Acronyms & aliases
-  if (clean === "aids" || clean === "ai & ds" || clean === "ai&ds" || clean.includes("artificial intelligence")) {
-    const match = deptList.find((d) => /ai.*ds|artificial intelligence/i.test(d.name));
+  if (
+    clean === "aids" ||
+    clean === "ads" ||
+    clean === "ad&s" ||
+    clean === "ai & ds" ||
+    clean === "ai&ds" ||
+    clean === "ai-ds" ||
+    clean === "ai/ds" ||
+    clean === "ad" ||
+    clean.includes("artificial intelligence") ||
+    clean.includes("data science")
+  ) {
+    const match = deptList.find((d) => /ai.*ds|artificial intelligence|\baids\b|\bads\b/i.test(d.name));
     if (match) return match.id;
   }
   if (clean === "it" || clean.includes("information tech")) {
@@ -277,7 +309,18 @@ export default function UploadCSV() {
     }
     const nameToDeptId = new Map<string, string>();
     (departments || []).forEach((d: any) => {
-      nameToDeptId.set(String(d.name).trim().toLowerCase(), d.id);
+      const cleanName = String(d.name).trim().toLowerCase();
+      nameToDeptId.set(cleanName, d.id);
+      if (/ai.*ds|artificial intelligence/i.test(d.name)) {
+        ["aids", "ads", "ad&s", "ai & ds", "ai&ds", "ai-ds", "ai/ds", "ad", "data science"].forEach(alias => {
+          nameToDeptId.set(alias, d.id);
+        });
+      }
+      if (/information technology|\bit\b/i.test(d.name)) {
+        ["it", "information technology", "info tech"].forEach(alias => {
+          nameToDeptId.set(alias, d.id);
+        });
+      }
     });
     return nameToDeptId;
   };
@@ -569,7 +612,7 @@ export default function UploadCSV() {
       // 1. Fetch departments, faculty, subjects, and existing counselors
       const [deptRes, facRes, subjRes, mapRes, ccRes] = await Promise.all([
         supabase.from("departments").select("id, name"),
-        supabase.from("faculty_members").select("id, name, email, department_id, designation"),
+        supabase.from("faculty_members").select("id, name, email, department_id, designation, takes_electives"),
         supabase.from("subjects").select("id, name, code, abbreviation, hours_per_week, credits, type, department_id, year, tags, staff"),
         supabase.from("faculty_subject_assignments").select("faculty_id, subject_id, department_id, year, section"),
         (supabase as any).from("class_counselors").select("id, department_id, faculty_id, year, section, is_active"),
@@ -633,7 +676,51 @@ export default function UploadCSV() {
         return;
       }
 
-      // Step A: Process Faculty across all rows (handling semicolon co-teachers & difference overwrite)
+      // Helper to match faculty specifically within target department for Odd semester (takes_electives !== 'even')
+      const matchOddFaculty = (rawName: string, rawEmail: string, targetDeptId: string) => {
+        if (isUnassignedFaculty(rawName)) return null;
+        const normEmail = (rawEmail || "").toLowerCase().trim();
+        const cleanEmailDomain = normEmail.replace("@sonatech.in", "@sonatech.ac.in");
+        const normName = normalizePersonName(rawName);
+
+        const deptOddFaculty = facultyList.filter(
+          (f) => f.department_id === targetDeptId && f.takes_electives !== "even"
+        );
+
+        if (normEmail) {
+          const match = deptOddFaculty.find((f) => {
+            const fe = (f.email || "").toLowerCase().trim();
+            return fe === normEmail || fe === cleanEmailDomain;
+          });
+          if (match) return match;
+        }
+
+        const exact = deptOddFaculty.find(
+          (f) => f.name.toLowerCase().trim() === rawName.toLowerCase().trim()
+        );
+        if (exact) return exact;
+
+        const norm = deptOddFaculty.find(
+          (f) => normalizePersonName(f.name) === normName
+        );
+        if (norm) return norm;
+
+        if (normName.length >= 4) {
+          const sub = deptOddFaculty.find((f) => {
+            const fn = normalizePersonName(f.name);
+            return (
+              fn.includes(normName) ||
+              normName.includes(fn) ||
+              fn.replace(/h/g, "") === normName.replace(/h/g, "")
+            );
+          });
+          if (sub) return sub;
+        }
+
+        return null;
+      };
+
+      // Step A: Process Faculty across all rows (department-scoped & odd-semester-separated)
       const facultyToUpdateMap = new Map<string, { id: string; payload: Record<string, any>; facObj: any }>();
       const facultyToInsertMap = new Map<string, any>();
       const existingFacultyEmails = new Set(
@@ -664,17 +751,7 @@ export default function UploadCSV() {
           const rawDesig = (facDesigs[fIdx] || facDesigs[0] || "").trim();
           const normName = normalizePersonName(rawName);
 
-          const existingFac =
-            (rawEmail ? facultyList.find((f) => f.email && f.email.toLowerCase().trim() === rawEmail.toLowerCase().trim()) : null) ||
-            facultyList.find((f) => f.name.toLowerCase().trim() === rawName.toLowerCase()) ||
-            facultyList.find((f) => normalizePersonName(f.name) === normName && f.department_id === deptId) ||
-            facultyList.find((f) => normalizePersonName(f.name) === normName) ||
-            facultyList.find((f) => {
-              const fn = normalizePersonName(f.name);
-              return (normName.length >= 5 && fn.includes(normName)) ||
-                     (fn.length >= 5 && normName.includes(fn)) ||
-                     fn.replace(/h/g, "") === normName.replace(/h/g, "");
-            });
+          const existingFac = matchOddFaculty(rawName, rawEmail, deptId);
 
           if (existingFac) {
             matchedFacultyCount++;
@@ -697,11 +774,12 @@ export default function UploadCSV() {
               });
             }
           } else {
-            const facKey = rawEmail.toLowerCase() || `${normName}-${deptId}`;
+            const facKey = `${deptId}-${normName || rawEmail.toLowerCase()}`;
             if (!facultyToInsertMap.has(facKey)) {
               let autoEmail = rawEmail.toLowerCase().replace("@sonatech.in", "@sonatech.ac.in");
-              if (!autoEmail || existingFacultyEmails.has(autoEmail)) {
-                autoEmail = `${normName || "faculty"}_${Math.floor(100 + Math.random() * 900)}@sonatech.ac.in`;
+              if (!autoEmail) {
+                const deptCode = deptList.find((d) => d.id === deptId)?.name?.toLowerCase() || "dept";
+                autoEmail = `${normName || "faculty"}_${deptCode}_${Math.floor(100 + Math.random() * 900)}@sonatech.ac.in`;
               }
               const autoDesig = rawDesig || (rawName.startsWith("Dr.") ? "Associate Professor" : "Assistant Professor");
               facultyToInsertMap.set(facKey, {
@@ -709,6 +787,7 @@ export default function UploadCSV() {
                 email: autoEmail,
                 designation: autoDesig,
                 department_id: deptId,
+                takes_electives: "odd",
               });
               existingFacultyEmails.add(autoEmail);
             }
@@ -733,7 +812,7 @@ export default function UploadCSV() {
         const { data: insertedFac, error: facErr } = await supabase
           .from("faculty_members")
           .insert(toInsert)
-          .select("id, name, email, department_id, designation");
+          .select("id, name, email, department_id, designation, takes_electives");
 
         if (facErr) {
           toast.error("Error creating new faculty: " + facErr.message);
@@ -760,41 +839,41 @@ export default function UploadCSV() {
         const cleanCode = rawCode.replace(/[^A-Z0-9]/g, "");
         const cleanSubName = normalizeSubjectName(rawSubName);
 
-        // Check existing odd semester subject
-        const existingSub =
-          subjectsList.find(
-            (s) =>
-              s.department_id === deptId &&
-              s.year === resolvedYr &&
-              !isEvenSub(s) &&
-              (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
-               normalizeSubjectName(s.name) === cleanSubName)
-          ) ||
-          (rawCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  !isEvenSub(s) &&
-                  s.code &&
-                  s.code.toUpperCase().trim() === rawCode
-              )
-            : null) ||
-          (cleanCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  !isEvenSub(s) &&
-                  s.code &&
-                  s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
-              )
-            : null);
+        // Check existing odd semester subject: match strictly by name when name is provided
+        const existingSub = rawSubName
+          ? subjectsList.find(
+              (s) =>
+                s.department_id === deptId &&
+                s.year === resolvedYr &&
+                !isEvenSub(s) &&
+                (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
+                 normalizeSubjectName(s.name) === cleanSubName)
+            )
+          : (rawCode
+              ? subjectsList.find(
+                  (s) =>
+                    s.department_id === deptId &&
+                    s.year === resolvedYr &&
+                    !isEvenSub(s) &&
+                    s.code &&
+                    s.code.toUpperCase().trim() === rawCode
+                ) ||
+                (cleanCode
+                  ? subjectsList.find(
+                      (s) =>
+                        s.department_id === deptId &&
+                        s.year === resolvedYr &&
+                        !isEvenSub(s) &&
+                        s.code &&
+                        s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
+                    )
+                  : null)
+              : null);
 
         if (existingSub) {
           matchedSubjectsCount++;
           const hours = Math.min(Math.max(parseInt(row.hours, 10) || existingSub.hours_per_week || 4, 1), 42);
-          const credits = Math.min(Math.max(parseInt(row.credits, 10) || existingSub.credits || 3, 1), 20);
+          const credits = parseCredits(row.credits, getSubjectDecodedCredits(existingSub));
           const finalType = inferSubjectType(row.type, rawSubName);
           const abbr = (row.abbreviation || generateAbbreviation(rawSubName)).toUpperCase().trim();
 
@@ -807,13 +886,13 @@ export default function UploadCSV() {
             subUpdatePayload.abbreviation = abbr;
           }
           let updatedTags = Array.from(existingSub.tags || []);
-          updatedTags = updatedTags.filter((t: string) => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t));
+          updatedTags = updatedTags.filter((t: string) => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:[\d.]+$/i.test(t));
           if (hours > 10) updatedTags.push(`hpw:${hours}`);
-          if (credits > 6) updatedTags.push(`credits:${credits}`);
+          if (credits < 1 || credits > 6 || !Number.isInteger(credits)) updatedTags.push(`credits:${credits}`);
           subUpdatePayload.tags = updatedTags;
 
           subUpdatePayload.hours_per_week = Math.min(hours, 10);
-          subUpdatePayload.credits = Math.min(credits, 6);
+          subUpdatePayload.credits = Math.max(1, Math.min(Math.round(credits), 6));
 
           if (finalType && finalType !== existingSub.type) {
             subUpdatePayload.type = finalType;
@@ -833,13 +912,13 @@ export default function UploadCSV() {
           const subKey = `${deptId}-${resolvedYr}-${cleanSubName}`;
           if (!subjectsToInsertMap.has(subKey)) {
             const hours = Math.min(Math.max(parseInt(row.hours, 10) || 4, 1), 42);
-            const credits = Math.min(Math.max(parseInt(row.credits, 10) || 3, 1), 20);
+            const credits = parseCredits(row.credits, 3);
             const finalType = inferSubjectType(row.type, rawSubName);
             const abbr = (row.abbreviation || generateAbbreviation(rawSubName)).toUpperCase().trim();
 
             const insertTags: string[] = [];
             if (hours > 10) insertTags.push(`hpw:${hours}`);
-            if (credits > 6) insertTags.push(`credits:${credits}`);
+            if (credits < 1 || credits > 6 || !Number.isInteger(credits)) insertTags.push(`credits:${credits}`);
 
             subjectsToInsertMap.set(subKey, {
               code: rawCode || null,
@@ -847,7 +926,7 @@ export default function UploadCSV() {
               abbreviation: abbr || null,
               type: finalType,
               hours_per_week: Math.min(hours, 10),
-              credits: Math.min(credits, 6),
+              credits: Math.max(1, Math.min(Math.round(credits), 6)),
               department_id: deptId,
               year: resolvedYr,
               tags: insertTags.length > 0 ? insertTags : null,
@@ -904,35 +983,35 @@ export default function UploadCSV() {
         const cleanCode = rawCode.replace(/[^A-Z0-9]/g, "");
         const cleanSubName = normalizeSubjectName(rawSubName);
 
-        const subjectObj =
-          subjectsList.find(
-            (s) =>
-              s.department_id === deptId &&
-              s.year === resolvedYr &&
-              !isEvenSub(s) &&
-              (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
-               normalizeSubjectName(s.name) === cleanSubName)
-          ) ||
-          (rawCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  !isEvenSub(s) &&
-                  s.code &&
-                  s.code.toUpperCase().trim() === rawCode
-              )
-            : null) ||
-          (cleanCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  !isEvenSub(s) &&
-                  s.code &&
-                  s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
-              )
-            : null);
+        const subjectObj = rawSubName
+          ? subjectsList.find(
+              (s) =>
+                s.department_id === deptId &&
+                s.year === resolvedYr &&
+                !isEvenSub(s) &&
+                (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
+                 normalizeSubjectName(s.name) === cleanSubName)
+            )
+          : (rawCode
+              ? subjectsList.find(
+                  (s) =>
+                    s.department_id === deptId &&
+                    s.year === resolvedYr &&
+                    !isEvenSub(s) &&
+                    s.code &&
+                    s.code.toUpperCase().trim() === rawCode
+                ) ||
+                (cleanCode
+                  ? subjectsList.find(
+                      (s) =>
+                        s.department_id === deptId &&
+                        s.year === resolvedYr &&
+                        !isEvenSub(s) &&
+                        s.code &&
+                        s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
+                    )
+                  : null)
+              : null);
 
         if (!subjectObj) continue;
 
@@ -954,18 +1033,7 @@ export default function UploadCSV() {
           const rawEmail = (facEmails[fIdx] || "").trim();
           const normName = normalizePersonName(rawName);
 
-          const facultyObj =
-            (rawEmail ? facultyList.find((f) => f.email && f.email.toLowerCase().trim() === rawEmail.toLowerCase().trim()) : null) ||
-            facultyList.find((f) => f.name.toLowerCase().trim() === rawName.toLowerCase()) ||
-            facultyList.find((f) => normalizePersonName(f.name) === normName && f.department_id === deptId) ||
-            facultyList.find((f) => normalizePersonName(f.name) === normName) ||
-            facultyList.find((f) => {
-              const fn = normalizePersonName(f.name);
-              return (normName.length >= 5 && fn.includes(normName)) ||
-                     (fn.length >= 5 && normName.includes(fn)) ||
-                     fn.replace(/h/g, "") === normName.replace(/h/g, "");
-            });
-
+          const facultyObj = matchOddFaculty(rawName, rawEmail, deptId);
           if (!facultyObj) continue;
 
           for (const sec of rawSections) {
@@ -1273,7 +1341,7 @@ export default function UploadCSV() {
       // Dynamically query Faculty to attach as reference sheet
       try {
         const [facRes, deptRes] = await Promise.all([
-          supabase.from("faculty_members").select("id, name, email, designation, department_id").order("name"),
+          supabase.from("faculty_members").select("id, name, email, designation, department_id, takes_electives").eq("takes_electives", "even").order("name"),
           supabase.from("departments").select("id, name"),
         ]);
         const deptMap = new Map<string, string>();
@@ -1288,7 +1356,7 @@ export default function UploadCSV() {
           }));
           const wsFaculty = XLSX.utils.json_to_sheet(facultyRefRows);
           wsFaculty["!cols"] = [{ wch: 24 }, { wch: 28 }, { wch: 32 }, { wch: 22 }];
-          XLSX.utils.book_append_sheet(wb, wsFaculty, "Existing Faculty Reference");
+          XLSX.utils.book_append_sheet(wb, wsFaculty, "Even Sem Faculty Reference");
         }
       } catch (e) {
         console.warn("Could not query faculty reference for Even template:", e);
@@ -1345,7 +1413,7 @@ export default function UploadCSV() {
       // 1. Fetch departments, faculty, subjects, assignments, and class counselors
       const [deptRes, facRes, subjRes, mapRes, ccRes] = await Promise.all([
         supabase.from("departments").select("id, name"),
-        supabase.from("faculty_members").select("id, name, email, department_id, designation"),
+        supabase.from("faculty_members").select("id, name, email, department_id, designation, takes_electives"),
         supabase.from("subjects").select("id, name, code, abbreviation, hours_per_week, credits, type, department_id, year, tags, staff"),
         supabase.from("faculty_subject_assignments").select("faculty_id, subject_id, department_id, year, section"),
         (supabase as any).from("class_counselors").select("id, department_id, faculty_id, year, section, is_active"),
@@ -1406,64 +1474,55 @@ export default function UploadCSV() {
         return;
       }
 
-      // Robust faculty matching helper (email, domain-tolerant @sonatech.in vs @sonatech.ac.in, name, normalized name)
+      // Robust faculty matching helper strictly scoped to department & Even semester (takes_electives === 'even')
       const matchFaculty = (rawName: string, rawEmail: string, targetDeptId: string) => {
         if (isUnassignedFaculty(rawName)) return null;
         const normEmail = (rawEmail || "").toLowerCase().trim();
         const cleanEmailDomain = normEmail.replace("@sonatech.in", "@sonatech.ac.in");
         const normName = normalizePersonName(rawName);
 
-        // 1. Email match (exact or domain-tolerant)
+        const deptEvenFaculty = facultyList.filter(
+          (f) => f.department_id === targetDeptId && f.takes_electives === "even"
+        );
+
+        // 1. Email match in department and even semester
         if (normEmail) {
-          const match = facultyList.find((f) => {
+          const match = deptEvenFaculty.find((f) => {
             const fe = (f.email || "").toLowerCase().trim();
             return fe === normEmail || fe === cleanEmailDomain;
           });
           if (match) return match;
         }
 
-        // 2. Exact name match in department
-        const exactDept = facultyList.find(
-          (f) => f.name.toLowerCase().trim() === rawName.toLowerCase().trim() && f.department_id === targetDeptId
+        // 2. Exact name match in department and even semester
+        const exactDept = deptEvenFaculty.find(
+          (f) => f.name.toLowerCase().trim() === rawName.toLowerCase().trim()
         );
         if (exactDept) return exactDept;
 
-        // 3. Exact name match across all departments
-        const exactAny = facultyList.find((f) => f.name.toLowerCase().trim() === rawName.toLowerCase().trim());
-        if (exactAny) return exactAny;
-
-        // 4. Normalized name in department
-        const normDept = facultyList.find(
-          (f) => normalizePersonName(f.name) === normName && f.department_id === targetDeptId
+        // 3. Normalized name in department and even semester
+        const normDept = deptEvenFaculty.find(
+          (f) => normalizePersonName(f.name) === normName
         );
         if (normDept) return normDept;
 
-        // 5. Normalized name across all departments
-        const normAny = facultyList.find((f) => normalizePersonName(f.name) === normName);
-        if (normAny) return normAny;
-
-        // 6. Substring or phonetic match
+        // 4. Substring or phonetic match in department and even semester
         if (normName.length >= 4) {
-          const subDept = facultyList.find(
-            (f) =>
-              f.department_id === targetDeptId &&
-              (normalizePersonName(f.name).includes(normName) || normName.includes(normalizePersonName(f.name)))
-          );
+          const subDept = deptEvenFaculty.find((f) => {
+            const fn = normalizePersonName(f.name);
+            return (
+              fn.includes(normName) ||
+              normName.includes(fn) ||
+              fn.replace(/h/g, "") === normName.replace(/h/g, "")
+            );
+          });
           if (subDept) return subDept;
-
-          const subAny = facultyList.find(
-            (f) =>
-              normalizePersonName(f.name).includes(normName) ||
-              normName.includes(normalizePersonName(f.name)) ||
-              normalizePersonName(f.name).replace(/h/g, "") === normName.replace(/h/g, "")
-          );
-          if (subAny) return subAny;
         }
 
         return null;
       };
 
-      // Step A: Process Faculty across all rows (difference overwrite & new inserts)
+      // Step A: Process Faculty across all rows (department-scoped & even-semester-separated)
       const facultyToUpdateMap = new Map<string, { id: string; payload: Record<string, any>; facObj: any }>();
       const facultyToInsertMap = new Map<string, any>();
       const existingFacultyEmails = new Set(
@@ -1519,11 +1578,12 @@ export default function UploadCSV() {
               });
             }
           } else {
-            const facKey = rawEmail.toLowerCase() || `${normName}-${deptId}`;
+            const facKey = `${deptId}-${normName || rawEmail.toLowerCase()}`;
             if (!facultyToInsertMap.has(facKey)) {
               let autoEmail = rawEmail.toLowerCase().replace("@sonatech.in", "@sonatech.ac.in");
-              if (!autoEmail || existingFacultyEmails.has(autoEmail)) {
-                autoEmail = `${normName || "faculty"}_${Math.floor(100 + Math.random() * 900)}@sonatech.ac.in`;
+              if (!autoEmail) {
+                const deptCode = deptList.find((d) => d.id === deptId)?.name?.toLowerCase() || "dept";
+                autoEmail = `${normName || "faculty"}_${deptCode}_${Math.floor(100 + Math.random() * 900)}@sonatech.ac.in`;
               }
               const autoDesig =
                 rawDesig || (rawName.startsWith("Dr.") ? "Associate Professor" : "Assistant Professor");
@@ -1533,6 +1593,7 @@ export default function UploadCSV() {
                 email: autoEmail,
                 designation: autoDesig,
                 department_id: deptId,
+                takes_electives: "even",
               });
               existingFacultyEmails.add(autoEmail);
             }
@@ -1557,7 +1618,7 @@ export default function UploadCSV() {
         const { data: insertedFac, error: facErr } = await supabase
           .from("faculty_members")
           .insert(toInsert)
-          .select("id, name, email, department_id, designation");
+          .select("id, name, email, department_id, designation, takes_electives");
 
         if (facErr) {
           toast.error("Error creating new faculty: " + facErr.message);
@@ -1584,38 +1645,38 @@ export default function UploadCSV() {
         const cleanCode = rawCode.replace(/[^A-Z0-9]/g, "");
         const cleanSubName = normalizeSubjectName(rawSubName);
 
-        // Find existing subject (by exact name, normalized name, or code)
-        const existingSub =
-          subjectsList.find(
-            (s) =>
-              s.department_id === deptId &&
-              s.year === resolvedYr &&
-              (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
-               normalizeSubjectName(s.name) === cleanSubName)
-          ) ||
-          (rawCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  s.code &&
-                  s.code.toUpperCase().trim() === rawCode
-              )
-            : null) ||
-          (cleanCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  s.code &&
-                  s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
-              )
-            : null);
+        // Find existing subject: when subject name is provided, match strictly by name so multiple distinct subjects sharing a course code (e.g. U23GE401 for Soft Skills / Aptitude / Verbal, U23IT401 for Theory / Lab) are never collapsed
+        const existingSub = rawSubName
+          ? subjectsList.find(
+              (s) =>
+                s.department_id === deptId &&
+                s.year === resolvedYr &&
+                (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
+                 normalizeSubjectName(s.name) === cleanSubName)
+            )
+          : (rawCode
+              ? subjectsList.find(
+                  (s) =>
+                    s.department_id === deptId &&
+                    s.year === resolvedYr &&
+                    s.code &&
+                    s.code.toUpperCase().trim() === rawCode
+                ) ||
+                (cleanCode
+                  ? subjectsList.find(
+                      (s) =>
+                        s.department_id === deptId &&
+                        s.year === resolvedYr &&
+                        s.code &&
+                        s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
+                    )
+                  : null)
+              : null);
 
         if (existingSub) {
           matchedSubjectsCount++;
           const hours = Math.min(Math.max(parseInt(row.hours, 10) || existingSub.hours_per_week || 4, 1), 42);
-          const credits = Math.min(Math.max(parseInt(row.credits, 10) || existingSub.credits || 3, 1), 20);
+          const credits = parseCredits(row.credits, getSubjectDecodedCredits(existingSub));
           const finalType = inferSubjectType(row.type, rawSubName);
           const abbr = (row.abbreviation || generateAbbreviation(rawSubName)).toUpperCase().trim();
 
@@ -1631,13 +1692,13 @@ export default function UploadCSV() {
           if (!updatedTags.some((t: string) => /even_sem|even\b/i.test(t))) {
             updatedTags.push("even_sem");
           }
-          updatedTags = updatedTags.filter((t: string) => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t));
+          updatedTags = updatedTags.filter((t: string) => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:[\d.]+$/i.test(t));
           if (hours > 10) updatedTags.push(`hpw:${hours}`);
-          if (credits > 6) updatedTags.push(`credits:${credits}`);
+          if (credits < 1 || credits > 6 || !Number.isInteger(credits)) updatedTags.push(`credits:${credits}`);
           subUpdatePayload.tags = updatedTags;
 
           subUpdatePayload.hours_per_week = Math.min(hours, 10);
-          subUpdatePayload.credits = Math.min(credits, 6);
+          subUpdatePayload.credits = Math.max(1, Math.min(Math.round(credits), 6));
 
           if (finalType && finalType !== existingSub.type) {
             subUpdatePayload.type = finalType;
@@ -1658,13 +1719,13 @@ export default function UploadCSV() {
           const subKey = `${deptId}-${resolvedYr}-${cleanSubName}`;
           if (!subjectsToInsertMap.has(subKey)) {
             const hours = Math.min(Math.max(parseInt(row.hours, 10) || 4, 1), 42);
-            const credits = Math.min(Math.max(parseInt(row.credits, 10) || (inferSubjectType(row.type, rawSubName) === "lab" ? 2 : 3), 1), 20);
+            const credits = parseCredits(row.credits, inferSubjectType(row.type, rawSubName) === "lab" ? 2 : 3);
             const finalType = inferSubjectType(row.type, rawSubName);
             const abbr = (row.abbreviation || generateAbbreviation(rawSubName)).toUpperCase().trim();
 
             const insertTags = ["even_sem"];
             if (hours > 10) insertTags.push(`hpw:${hours}`);
-            if (credits > 6) insertTags.push(`credits:${credits}`);
+            if (credits < 1 || credits > 6 || !Number.isInteger(credits)) insertTags.push(`credits:${credits}`);
 
             subjectsToInsertMap.set(subKey, {
               code: rawCode || null,
@@ -1672,7 +1733,7 @@ export default function UploadCSV() {
               abbreviation: abbr || null,
               type: finalType,
               hours_per_week: Math.min(hours, 10),
-              credits: Math.min(credits, 6),
+              credits: Math.max(1, Math.min(Math.round(credits), 6)),
               department_id: deptId,
               year: resolvedYr,
               tags: insertTags,
@@ -1757,32 +1818,33 @@ export default function UploadCSV() {
         const cleanCode = rawCode.replace(/[^A-Z0-9]/g, "");
         const cleanSubName = normalizeSubjectName(rawSubName);
 
-        const subjectObj =
-          subjectsList.find(
-            (s) =>
-              s.department_id === deptId &&
-              s.year === resolvedYr &&
-              (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
-               normalizeSubjectName(s.name) === cleanSubName)
-          ) ||
-          (rawCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  s.code &&
-                  s.code.toUpperCase().trim() === rawCode
-              )
-            : null) ||
-          (cleanCode
-            ? subjectsList.find(
-                (s) =>
-                  s.department_id === deptId &&
-                  s.year === resolvedYr &&
-                  s.code &&
-                  s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
-              )
-            : null);
+        // Find subject: when subject name is given, match strictly by name to correctly resolve multiple subjects sharing a course code
+        const subjectObj = rawSubName
+          ? subjectsList.find(
+              (s) =>
+                s.department_id === deptId &&
+                s.year === resolvedYr &&
+                (s.name.toLowerCase().trim() === rawSubName.toLowerCase() ||
+                 normalizeSubjectName(s.name) === cleanSubName)
+            )
+          : (rawCode
+              ? subjectsList.find(
+                  (s) =>
+                    s.department_id === deptId &&
+                    s.year === resolvedYr &&
+                    s.code &&
+                    s.code.toUpperCase().trim() === rawCode
+                ) ||
+                (cleanCode
+                  ? subjectsList.find(
+                      (s) =>
+                        s.department_id === deptId &&
+                        s.year === resolvedYr &&
+                        s.code &&
+                        s.code.toUpperCase().replace(/[^A-Z0-9]/g, "") === cleanCode
+                    )
+                  : null)
+              : null);
 
         if (!subjectObj) continue;
 
@@ -1959,17 +2021,17 @@ export default function UploadCSV() {
 
       const { data: existing, error: fetchError } = await supabase
         .from("faculty_members")
-        .select("email");
+        .select("email, department_id, takes_electives");
 
       if (fetchError) {
         toast.error("Failed to fetch existing faculty members");
         return;
       }
 
-      const existingEmails = new Set(
+      const existingDeptEmailKeys = new Set(
         (existing || [])
-          .map((r: any) => (r?.email || "").toString().trim().toLowerCase())
-          .filter(Boolean)
+          .map((r: any) => `${r.department_id}-${(r?.email || "").toString().trim().toLowerCase()}`)
+          .filter(k => !k.endsWith("-"))
       );
 
       const prepared = data
@@ -1984,16 +2046,17 @@ export default function UploadCSV() {
             email: normalizedEmail ? normalizedEmail : null,
             designation: (rec.designation || "").toString().trim() || null,
             department_id: resolvedDeptId,
+            takes_electives: subjectSemesterType,
           };
         })
         .filter((r) => r.name && r.department_id);
 
       const invalidCount = data.length - prepared.length;
       const uniqueRecords = prepared.filter(
-        (rec) => rec.email ? !existingEmails.has(rec.email) : true
+        (rec) => rec.email ? !existingDeptEmailKeys.has(`${rec.department_id}-${rec.email}`) : true
       );
       const duplicateRecords = prepared.filter((rec) =>
-        rec.email ? existingEmails.has(rec.email) : false
+        rec.email ? existingDeptEmailKeys.has(`${rec.department_id}-${rec.email}`) : false
       );
 
       let insertedCount = 0;
@@ -2084,7 +2147,7 @@ export default function UploadCSV() {
             const hasEvenTag = (r.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
             return isEven ? hasEvenTag : !hasEvenTag;
           })
-          .map((r: any) => `${(r.code || "").toString().trim().toLowerCase()}-${r.department_id}`)
+          .map((r: any) => `${(r.name || "").toString().trim().toLowerCase()}-${(r.year || "").toString().trim().toUpperCase()}-${r.department_id}`)
           .filter(Boolean)
       );
 
@@ -2095,30 +2158,35 @@ export default function UploadCSV() {
             ? rawDept
             : (nameToDeptId.get(rawDept.toLowerCase()) || manualMap.get(rawDept.toLowerCase()) || "");
 
-          const hours = parseInt(rec.hours_per_week) || 3;
-          const credits = parseInt(rec.credits) || 3;
+          const rawHours = parseFloat(rec.hours_per_week);
+          const hours = isNaN(rawHours) ? 3 : Math.max(1, Math.min(rawHours, 42));
+          const credits = parseCredits(rec.credits, 3);
           const finalType = inferSubjectType(rec.type, rec.name);
+
+          const tags: string[] = isEven ? ["even_sem"] : [];
+          if (hours > 10) tags.push(`hpw:${hours}`);
+          if (credits < 1 || credits > 6 || !Number.isInteger(credits)) tags.push(`credits:${credits}`);
 
           return {
             code: (rec.code || "").toString().trim().toUpperCase() || null,
             name: (rec.name || "").toString().trim(),
             abbreviation: (rec.abbreviation || "").toString().trim().toUpperCase() || null,
             type: finalType,
-            hours_per_week: hours,
-            credits: credits,
+            hours_per_week: Math.min(hours, 10),
+            credits: Math.max(1, Math.min(Math.round(credits), 6)),
             department_id: resolvedDeptId,
             year: (rec.year || "").toString().trim() || "II",
-            tags: isEven ? ["even_sem"] : null,
+            tags: tags.length > 0 ? tags : null,
           };
         })
         .filter((r) => r.name && r.department_id);
 
       const invalidCount = data.length - prepared.length;
       const uniqueRecords = prepared.filter(
-        (rec) => rec.code ? !existingSubjectKeys.has(`${rec.code.toLowerCase()}-${rec.department_id}`) : true
+        (rec) => !existingSubjectKeys.has(`${rec.name.toLowerCase().trim()}-${rec.year.toUpperCase()}-${rec.department_id}`)
       );
       const duplicateRecords = prepared.filter((rec) =>
-        rec.code ? existingSubjectKeys.has(`${rec.code.toLowerCase()}-${rec.department_id}`) : false
+        existingSubjectKeys.has(`${rec.name.toLowerCase().trim()}-${rec.year.toUpperCase()}-${rec.department_id}`)
       );
 
       let insertedCount = 0;
@@ -2138,7 +2206,7 @@ export default function UploadCSV() {
 
       if (duplicateRecords.length > 0) {
         const proceed = window.confirm(
-          `${duplicateRecords.length} duplicate subject codes found. Add them anyway?\n\nNote: This may create duplicate subjects in the same department.`
+          `${duplicateRecords.length} duplicate subjects (same name & department) found. Add them anyway?\n\nNote: Multiple subjects sharing the same subject code (e.g. integrated modules) are allowed.`
         );
         if (proceed) {
           const { error: dupInsertError } = await supabase
@@ -2191,8 +2259,16 @@ export default function UploadCSV() {
       const facultyByEmailMap = new Map<string, any>();
       const facultyByNameMap = new Map<string, any>();
       facultyList.forEach((f) => {
-        if (f.email) facultyByEmailMap.set(f.email.trim().toLowerCase(), f);
-        facultyByNameMap.set(f.name.trim().toLowerCase(), f);
+        if (f.email) {
+          facultyByEmailMap.set(`${f.department_id}-${f.email.trim().toLowerCase()}`, f);
+          if (!facultyByEmailMap.has(f.email.trim().toLowerCase())) {
+            facultyByEmailMap.set(f.email.trim().toLowerCase(), f);
+          }
+        }
+        facultyByNameMap.set(`${f.department_id}-${f.name.trim().toLowerCase()}`, f);
+        if (!facultyByNameMap.has(f.name.trim().toLowerCase())) {
+          facultyByNameMap.set(f.name.trim().toLowerCase(), f);
+        }
       });
 
       const subjectByCodeMap = new Map<string, any>();
@@ -2218,12 +2294,12 @@ export default function UploadCSV() {
 
         let resolvedFaculty: any = null;
         const rawEmail = (rec.faculty_email || "").toString().trim().toLowerCase();
-        if (rawEmail && facultyByEmailMap.has(rawEmail)) {
-          resolvedFaculty = facultyByEmailMap.get(rawEmail);
+        if (rawEmail && (facultyByEmailMap.has(`${resolvedDeptId}-${rawEmail}`) || facultyByEmailMap.has(rawEmail))) {
+          resolvedFaculty = facultyByEmailMap.get(`${resolvedDeptId}-${rawEmail}`) || facultyByEmailMap.get(rawEmail);
         } else if (rec.faculty_name) {
           const rawName = rec.faculty_name.toString().trim().toLowerCase();
-          if (facultyByNameMap.has(rawName)) {
-            resolvedFaculty = facultyByNameMap.get(rawName);
+          if (facultyByNameMap.has(`${resolvedDeptId}-${rawName}`) || facultyByNameMap.has(rawName)) {
+            resolvedFaculty = facultyByNameMap.get(`${resolvedDeptId}-${rawName}`) || facultyByNameMap.get(rawName);
           }
         }
 
@@ -2233,14 +2309,15 @@ export default function UploadCSV() {
         }
 
         let resolvedSubject: any = null;
-        const rawCode = (rec.subject_code || "").toString().trim().toUpperCase();
-        if (rawCode && subjectByCodeMap.has(rawCode)) {
-          resolvedSubject = subjectByCodeMap.get(rawCode);
-        } else if (rec.subject_name) {
+        if (rec.subject_name) {
           const rawSubName = rec.subject_name.toString().trim().toLowerCase();
           if (subjectByNameMap.has(rawSubName)) {
             resolvedSubject = subjectByNameMap.get(rawSubName);
           }
+        }
+        const rawCode = (rec.subject_code || "").toString().trim().toUpperCase();
+        if (!resolvedSubject && rawCode && subjectByCodeMap.has(rawCode)) {
+          resolvedSubject = subjectByCodeMap.get(rawCode);
         }
 
         if (!resolvedSubject) {
@@ -2615,14 +2692,14 @@ export default function UploadCSV() {
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-lg font-extrabold text-foreground flex items-center gap-2">
                       <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                      Even Semester Master Import (Subjects & Assignments)
+                      Even Semester Master Import (Subjects, Faculty & Assignments)
                     </CardTitle>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                      Reuses Odd Sem Faculty
+                      Separate Even Sem Faculty
                     </span>
                   </div>
                   <CardDescription className="text-xs text-muted-foreground mt-1">
-                    One single Excel or CSV template for Even Semester. Automatically creates even subjects and assigns them to existing faculty fetched from your Odd Semester database.
+                    One single Excel or CSV template for Even Semester. Creates even subjects and manages separate Even Semester faculty per department, completely independent of Odd Semester.
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -2673,17 +2750,19 @@ export default function UploadCSV() {
                 <div className="p-4 rounded-xl border border-border/50 bg-muted/20 space-y-2">
                   <div className="flex items-center gap-2 font-bold text-xs text-teal-600 dark:text-teal-400">
                     <Users className="h-4 w-4" />
-                    <span>Faculty Assignment Columns (Reusing Odd Sem)</span>
+                    <span>Faculty & Section Assignment Columns (Even Semester)</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Matches existing faculty from Odd Semester by Name or Email and links them directly to the section.
+                    Matches or automatically creates separate Even Semester faculty within each department and links them directly to the section.
                   </p>
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     <code className="px-1.5 py-0.5 rounded bg-background border border-border text-[11px] font-mono font-bold">Faculty Name</code>
                     <code className="px-1.5 py-0.5 rounded bg-background border border-border text-[11px] font-mono font-bold">Faculty Email</code>
+                    <code className="px-1.5 py-0.5 rounded bg-background border border-border text-[11px] font-mono font-bold">Designation</code>
+                    <code className="px-1.5 py-0.5 rounded bg-background border border-border text-[11px] font-mono font-bold">Class Counsellor</code>
                   </div>
                   <p className="text-[10px] text-muted-foreground pt-1 italic">
-                    * The Excel download contains an <strong>"Odd Sem Faculty Reference"</strong> sheet listing all faculty already in the system. If unassigned, enter <code>(Not Assigned)</code> or leave blank.
+                    * Faculty are kept completely separate for Even Semester. If unassigned, enter <code>(Not Assigned)</code> or leave blank.
                   </p>
                 </div>
               </div>

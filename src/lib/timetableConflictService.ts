@@ -204,9 +204,9 @@ export function getFacultyForSubject(
     return Array.from(faculties);
   }
 
-  // Check if it's Counselling/Library with class counselor
+  // Check if it's Counselling/Library/Seminar with class counselor
   const counselorKey = `${deptName}_${year}_${section}`;
-  if (/counsell|library/i.test(trimmed) && classCounselorMap?.[counselorKey]) {
+  if (/counsell|library|seminar/i.test(trimmed) && classCounselorMap?.[counselorKey]) {
     faculties.add(classCounselorMap[counselorKey]);
     return Array.from(faculties);
   }
@@ -477,3 +477,164 @@ export async function checkSwapFacultyConflict(
     targetFaculties,
   };
 }
+
+export interface BatchConflictReport {
+  hasConflicts: boolean;
+  conflictCount: number;
+  conflicts: Array<{
+    day: number;
+    period: number;
+    facultyName: string;
+    class1: string;
+    subject1: string;
+    class2: string;
+    subject2: string;
+    reason: string;
+  }>;
+}
+
+/**
+ * Audits a batch of generated timetables (and existing active timetables)
+ * across all faculties to guarantee zero collisions/double-bookings.
+ */
+export async function auditBatchTimetableConflicts(
+  generatedResults: TimetableResultLike[],
+  semesterType: 'odd' | 'even' = 'odd',
+  subjectsData?: Record<string, any[]>,
+  specialHoursData?: Record<string, any[]>,
+  classCounselorMap?: Record<string, string>
+): Promise<BatchConflictReport> {
+  const dbContext = await loadGlobalConflictData(true);
+
+  // Compile full set of timetables: generatedResults overrides dbTimetables for same (dept, year, sec)
+  const allTimetablesToCheck: Array<{
+    departmentName: string;
+    year: string;
+    section: string;
+    grid: string[][];
+  }> = [];
+
+  const seenKeys = new Set<string>();
+
+  for (const r of generatedResults) {
+    if (!r.grid || !Array.isArray(r.grid)) continue;
+    const key = `${r.departmentName}_${r.year}_${r.section}`.toUpperCase();
+    seenKeys.add(key);
+    allTimetablesToCheck.push({
+      departmentName: r.departmentName,
+      year: r.year,
+      section: r.section,
+      grid: r.grid,
+    });
+  }
+
+  for (const dbT of dbContext.dbTimetables) {
+    const deptName = dbT.departments?.name || dbContext.departments.get(dbT.department_id) || '';
+    const key = `${deptName}_${dbT.year}_${dbT.section}`.toUpperCase();
+    if (!seenKeys.has(key) && Array.isArray(dbT.grid_data)) {
+      seenKeys.add(key);
+      allTimetablesToCheck.push({
+        departmentName: deptName,
+        year: dbT.year,
+        section: dbT.section,
+        grid: dbT.grid_data,
+      });
+    }
+  }
+
+  // Map: facultyName -> Map<slotKey, Array<{ dept, year, section, subject }>>
+  const facultySlotBookings = new Map<string, Map<string, Array<{ departmentName: string; year: string; section: string; subject: string }>>>();
+
+  for (const tt of allTimetablesToCheck) {
+    for (let d = 0; d < 6; d++) {
+      for (let p = 0; p < 7; p++) {
+        const cell = tt.grid?.[d]?.[p];
+        if (!cell || cell === '-' || cell === 'FREE' || cell === 'BREAK' || cell === 'LUNCH' || /library/i.test(cell)) continue;
+
+        const faculties = getFacultyForSubject(
+          cell,
+          tt.departmentName,
+          tt.year,
+          tt.section,
+          subjectsData,
+          specialHoursData,
+          classCounselorMap
+        );
+
+        const slotKey = `${d}:${p}`;
+
+        for (const fac of faculties) {
+          const normFac = cleanFacultyName(fac);
+          if (!normFac) continue;
+
+          if (!facultySlotBookings.has(normFac)) {
+            facultySlotBookings.set(normFac, new Map());
+          }
+          const facSlots = facultySlotBookings.get(normFac)!;
+          if (!facSlots.has(slotKey)) {
+            facSlots.set(slotKey, []);
+          }
+          facSlots.get(slotKey)!.push({
+            departmentName: tt.departmentName,
+            year: tt.year,
+            section: tt.section,
+            subject: cell,
+          });
+        }
+      }
+    }
+  }
+
+  const conflicts: Array<{
+    day: number;
+    period: number;
+    facultyName: string;
+    class1: string;
+    subject1: string;
+    class2: string;
+    subject2: string;
+    reason: string;
+  }> = [];
+
+  facultySlotBookings.forEach((slots, facName) => {
+    slots.forEach((bookings, slotKey) => {
+      if (bookings.length <= 1) return;
+
+      const [dStr, pStr] = slotKey.split(':');
+      const d = parseInt(dStr, 10);
+      const p = parseInt(pStr, 10);
+
+      for (let i = 0; i < bookings.length; i++) {
+        for (let j = i + 1; j < bookings.length; j++) {
+          const b1 = bookings[i];
+          const b2 = bookings[j];
+
+          const isSameSubj = isSameSubject(b1.subject, b2.subject);
+          const isSameDept = b1.departmentName.toLowerCase() === b2.departmentName.toLowerCase();
+
+          // If different subjects OR different departments, this is a true collision!
+          if (!isSameSubj || !isSameDept) {
+            const slotInfo = formatSlotLabel(d, p);
+            conflicts.push({
+              day: d,
+              period: p,
+              facultyName: facName,
+              class1: `${b1.departmentName} Yr ${b1.year} Sec ${b1.section}`,
+              subject1: b1.subject,
+              class2: `${b2.departmentName} Yr ${b2.year} Sec ${b2.section}`,
+              subject2: b2.subject,
+              reason: `Slot collision on ${slotInfo.dayName} ${slotInfo.periodLabel}: "${b1.subject}" (${b1.departmentName} Yr ${b1.year} Sec ${b1.section}) vs "${b2.subject}" (${b2.departmentName} Yr ${b2.year} Sec ${b2.section})`,
+            });
+          }
+        }
+      }
+    });
+  });
+
+  return {
+    hasConflicts: conflicts.length > 0,
+    conflictCount: conflicts.length,
+    conflicts,
+  };
+}
+

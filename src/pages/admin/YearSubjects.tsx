@@ -6,7 +6,7 @@ import { useTimetableStore } from "@/store/timetableStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CustomTable } from "@/components/ui/CustomTable";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ import Navbar from "@/components/navbar/Navbar";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import FacultyNavbar from "@/components/navbar/facultyadmin";
 import SelectionHeader from "@/components/admin/SelectionHeader";
-import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock, Sparkles, BookMarked } from "lucide-react";
+import { Trash2, Download, LayoutGrid, List, Plus, Layers, Settings, Clock, Sparkles, AlertTriangle, ShieldCheck, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useDarkMode } from "@/context/DarkModeContext";
 
@@ -70,8 +70,9 @@ const YearSubjects = () => {
   // Special Hours states
   const [specialHours, setSpecialHours] = useState<any[]>([]);
   const [specialTypeName, setSpecialTypeName] = useState("");
-  const [specialDay, setSpecialDay] = useState("");
-  const [specialPeriod, setSpecialPeriod] = useState("");
+  const [specialDay, setSpecialDay] = useState("5");
+  const [specialPeriod, setSpecialPeriod] = useState("1");
+  const [specialHoursCount, setSpecialHoursCount] = useState<number>(1);
 
   // form state for add/edit
   const [name, setName] = useState("");
@@ -86,6 +87,11 @@ const YearSubjects = () => {
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [schedulingMode, setSchedulingMode] = useState<'same' | 'different'>('different');
   const [parallelSubjectId, setParallelSubjectId] = useState<string>('');
+
+  // Delete all year subjects modal state
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [deleteAllScope, setDeleteAllScope] = useState<'current' | 'both'>('current');
+  const [isDeletingAllSubjects, setIsDeletingAllSubjects] = useState(false);
   
   useEffect(() => {
     if (type !== 'elective' && type !== 'open elective') {
@@ -116,7 +122,6 @@ const YearSubjects = () => {
   const [groupName, setGroupName] = useState('');
   const [groupHoursInput, setGroupHoursInput] = useState<number>(3);
   const [groupingSaving, setGroupingSaving] = useState(false);
-  const [addingLib, setAddingLib] = useState(false);
 
   const filteredSubjects = useMemo(() => {
     return subjects.filter((s) => {
@@ -341,19 +346,23 @@ const YearSubjects = () => {
                 setSemesterType('odd');
               }
             }
-            return (arr || []).map((s: any) => ({
-              id: s.id,
-              name: s.name,
-              type: s.type,
-              hours_per_week: s.hoursPerWeek,
-              year: year,
-              code: s.code || null,
-              max_faculty_count: s.maxFacultyCount || 1,
-              tags: s.tags || [],
-              abbreviation: s.abbreviation || null,
-              credits: s.credits || 3,
-              elective_group_name: s.elective_group_name || null,
-            }));
+            return (arr || []).map((s: any) => {
+              const credTag = (s.tags || []).find((t: string) => /^credits:([0-9.]+)$/i.test(t));
+              const decodedCredits = credTag ? parseFloat(credTag.split(':')[1]) : (s.credits !== undefined && s.credits !== null ? Number(s.credits) : 3);
+              return {
+                id: s.id,
+                name: s.name,
+                type: s.type,
+                hours_per_week: s.hoursPerWeek,
+                year: year,
+                code: s.code || null,
+                max_faculty_count: s.maxFacultyCount || 1,
+                tags: s.tags || [],
+                abbreviation: s.abbreviation || null,
+                credits: decodedCredits,
+                elective_group_name: s.elective_group_name || null,
+              };
+            });
           } catch {
             return [] as SubjectRow[];
           }
@@ -404,8 +413,9 @@ const YearSubjects = () => {
     setSchedulingMode("different");
     setParallelSubjectId("");
     setSpecialTypeName("");
-    setSpecialDay("");
-    setSpecialPeriod("");
+    setSpecialDay("5");
+    setSpecialPeriod("1");
+    setSpecialHoursCount(1);
   };
 
   const loadSpecialHours = async () => {
@@ -421,111 +431,53 @@ const YearSubjects = () => {
     setSpecialHours(shData || []);
   };
 
-  const handleAddLib = async () => {
-    if (!activeDeptId || !year || grandTotalHours >= 42 || grandTotalHours <= 0) return;
-    const deficit = Math.max(0, 42 - grandTotalHours);
-    setAddingLib(true);
-
-    try {
-      // 1. Search for existing Library subject for this department, year, and active semester
-      const { data: existingLibSubs } = await (supabase as any)
-        .from('subjects')
-        .select('*')
-        .eq('department_id', activeDeptId)
-        .eq('year', year)
-        .ilike('name', '%library%');
-
-      const semLib = (existingLibSubs || []).find((s: any) => {
-        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
-        return semesterType === 'even' ? isEven : !isEven;
-      });
-
-      if (semLib) {
-        const newHpw = (semLib.hours_per_week || 0) + deficit;
-        const { error } = await (supabase as any)
-          .from('subjects')
-          .update({
-            type: 'theory',
-            hours_per_week: newHpw,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', semLib.id);
-
-        if (error) throw error;
-
-        setSubjects((prev) =>
-          prev.map((s) => (s.id === semLib.id ? { ...s, type: 'theory', hours_per_week: newHpw } : s))
-        );
-      } else {
-        const tagList = semesterType === 'even' ? ['even_sem'] : ['odd_sem'];
-        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
-
-        let targetName = semesterType === 'even' ? 'Library (Even)' : 'Library';
-        if (existingNames.has(targetName.toLowerCase())) {
-          targetName = semesterType === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
-        }
-
-        const { data: newSub, error } = await (supabase as any)
-          .from('subjects')
-          .insert({
-            department_id: activeDeptId,
-            year: year,
-            name: targetName,
-            code: 'LIB',
-            abbreviation: 'LIB',
-            type: 'theory',
-            hours_per_week: deficit,
-            credits: 1,
-            tags: tagList,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        setSubjects((prev) => {
-          const newList: SubjectRow[] = [...prev, {
-            id: newSub.id,
-            name: newSub.name,
-            type: 'theory' as const,
-            hours_per_week: deficit,
-            year: year,
-            code: newSub.code || null,
-            max_faculty_count: 1,
-            tags: newSub.tags || [],
-            abbreviation: newSub.abbreviation || null,
-            credits: 1,
-            elective_group_name: null,
-          }];
-          return newList.sort((a, b) => a.name.localeCompare(b.name));
-        });
-      }
-
-      toast.success(`Added ${deficit}h Library for ${semesterType === 'even' ? 'Even' : 'Odd'} Semester. Weekly load is now exactly 42h!`);
-    } catch (err: any) {
-      console.error("Failed to add library hours:", err);
-      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
-    } finally {
-      setAddingLib(false);
+  useEffect(() => {
+    if (activeTab === 'special' && activeDeptId && year) {
+      loadSpecialHours();
     }
-  };
+  }, [activeTab, activeDeptId, year]);
+
+  const DAYS_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   const handleAddSpecialHourSlot = async (overrideName?: string) => {
-    const finalName = (overrideName || specialTypeName).trim();
-    if (!finalName || !specialDay || !specialPeriod) {
-      toast.error("Special hour name, day, and period are required");
+    const finalName = (overrideName || specialTypeName || name).trim();
+    if (!finalName) {
+      toast.error("Special hour name is required");
       return;
     }
     const targetDeptId = activeDeptId;
     if (!targetDeptId || !year) return;
 
-    const dayIdx = parseInt(specialDay, 10);
-    const prIdx = parseInt(specialPeriod, 10);
-    const slotCode = dayIdx * 10 + prIdx;
+    const dayIdx = parseInt(specialDay || "5", 10);
+    const startPr = parseInt(specialPeriod || "1", 10);
+    const count = Math.max(1, Math.min(specialHoursCount || 1, 7 - startPr + 1));
+    const isSat = dayIdx === 5;
+
+    const periodsToAdd: number[] = [];
+    for (let i = 0; i < count; i++) {
+      periodsToAdd.push(startPr + i);
+    }
 
     try {
+      // 1. Check for slot collision against other active special hours in this year
+      for (const p of periodsToAdd) {
+        const slotCode = isSat ? p : (dayIdx * 10 + p);
+        const conflictingOther = specialHours.find((sh) => {
+          if (sh.special_type.toLowerCase() === finalName.toLowerCase()) return false;
+          if (isSat) {
+            const shSat = Array.isArray(sh.saturday_periods) ? sh.saturday_periods : [];
+            return shSat.includes(p) || shSat.includes(50 + p);
+          } else {
+            const shWk = Array.isArray(sh.weekdays_periods) ? sh.weekdays_periods : [];
+            return shWk.includes(slotCode) || shWk.includes(p);
+          }
+        });
+        if (conflictingOther) {
+          toast.error(`${DAYS_NAMES[dayIdx]} Period ${p} is already occupied by ${conflictingOther.special_type}. Please choose an open period.`);
+          return;
+        }
+      }
+
       let existing = specialHours.find(
         (sh) => sh.special_type.toLowerCase() === finalName.toLowerCase()
       );
@@ -543,48 +495,67 @@ const YearSubjects = () => {
       }
 
       if (existing) {
-        const satPeriods = existing.saturday_periods || [];
-        const wkPeriods = existing.weekdays_periods || [];
-        if (satPeriods.includes(slotCode) || wkPeriods.includes(slotCode)) {
-          toast.error("This special hour slot is already added");
+        // If the record was previously inactive (deactivated/deleted), start fresh with new periods
+        const isCurrentlyActive = Boolean(existing.is_active);
+        const satPeriods: number[] = (isCurrentlyActive && Array.isArray(existing.saturday_periods)) ? [...existing.saturday_periods] : [];
+        const wkPeriods: number[] = (isCurrentlyActive && Array.isArray(existing.weekdays_periods)) ? [...existing.weekdays_periods] : [];
+
+        let addedCount = 0;
+        periodsToAdd.forEach((p) => {
+          const slotCode = isSat ? p : (dayIdx * 10 + p);
+          if (isSat) {
+            if (!satPeriods.includes(p) && !satPeriods.includes(50 + p)) {
+              satPeriods.push(p);
+              addedCount++;
+            }
+          } else {
+            if (!wkPeriods.includes(slotCode) && !wkPeriods.includes(p)) {
+              wkPeriods.push(slotCode);
+              addedCount++;
+            }
+          }
+        });
+
+        if (addedCount === 0) {
+          toast.info(`${finalName} is already assigned on ${DAYS_NAMES[dayIdx]} Period ${startPr}${count > 1 ? ` - Period ${startPr + count - 1}` : ''}.`);
           return;
         }
 
-        const isSat = dayIdx === 5;
-        const newSatPeriods = isSat ? [...satPeriods, slotCode] : satPeriods;
-        const newSatHours = isSat ? (existing.saturday_hours || 0) + 1 : (existing.saturday_hours || 0);
-        
-        const newWkPeriods = !isSat ? [...wkPeriods, slotCode] : wkPeriods;
-        const newWkHours = !isSat ? (existing.weekdays_hours || 0) + 1 : (existing.weekdays_hours || 0);
-
+        const newSatHours = satPeriods.length;
+        const newWkHours = wkPeriods.length;
         const newTotal = newSatHours + newWkHours;
 
         const { error } = await (supabase as any)
           .from('special_hours_config')
           .update({
-            saturday_periods: newSatPeriods,
+            saturday_periods: satPeriods,
             saturday_hours: newSatHours,
-            weekdays_periods: newWkPeriods,
+            weekdays_periods: wkPeriods,
             weekdays_hours: newWkHours,
             total_hours: newTotal,
             is_active: true,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', existing.id);
 
         if (error) throw error;
-        toast.success("Special hour slot added to config");
+        toast.success(`Added ${addedCount}h ${finalName} on ${DAYS_NAMES[dayIdx]}`);
       } else {
-        const isSat = dayIdx === 5;
+        const satPeriods = isSat ? periodsToAdd : [];
+        const wkPeriods = !isSat ? periodsToAdd.map(p => dayIdx * 10 + p) : [];
+
         const newConfig = {
           department_id: targetDeptId,
           year,
           special_type: finalName,
-          total_hours: 1,
-          saturday_hours: isSat ? 1 : 0,
-          saturday_periods: isSat ? [slotCode] : [],
-          weekdays_hours: isSat ? 0 : 1,
-          weekdays_periods: isSat ? [] : [slotCode],
+          total_hours: count,
+          saturday_hours: isSat ? count : 0,
+          saturday_periods: satPeriods,
+          weekdays_hours: isSat ? 0 : count,
+          weekdays_periods: wkPeriods,
           is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         };
 
         const { error } = await (supabase as any)
@@ -592,13 +563,13 @@ const YearSubjects = () => {
           .insert(newConfig);
 
         if (error) throw error;
-        toast.success("Special hour configuration created");
+        toast.success(`Created special hour ${finalName} (${count}h on ${DAYS_NAMES[dayIdx]})`);
       }
 
+      setName("");
       setSpecialTypeName("");
-      setSpecialDay("");
-      setSpecialPeriod("");
-      loadSpecialHours();
+      setSpecialHoursCount(1);
+      await loadSpecialHours();
     } catch (err: any) {
       console.error(err);
       toast.error(`Failed to save special hour slot: ${err.message || 'Unknown error'}`);
@@ -613,21 +584,21 @@ const YearSubjects = () => {
     try {
       const isSat = dayIndex === 5;
       const newSatPeriods = isSat
-        ? (config.saturday_periods || []).filter((p: number) => p !== slotCode)
+        ? (config.saturday_periods || []).filter((p: number) => p !== period && p !== slotCode && p !== (50 + period))
         : (config.saturday_periods || []);
-      const newSatHours = isSat ? Math.max(0, config.saturday_hours - 1) : config.saturday_hours;
+      const newSatHours = isSat ? Math.max(0, (config.saturday_hours || 0) - 1) : (config.saturday_hours || 0);
 
       const newWkPeriods = !isSat
-        ? (config.weekdays_periods || []).filter((p: number) => p !== slotCode)
+        ? (config.weekdays_periods || []).filter((p: number) => p !== slotCode && p !== period)
         : (config.weekdays_periods || []);
-      const newWkHours = !isSat ? Math.max(0, config.weekdays_hours - 1) : config.weekdays_hours;
+      const newWkHours = !isSat ? Math.max(0, (config.weekdays_hours || 0) - 1) : (config.weekdays_hours || 0);
 
       const newTotal = newSatHours + newWkHours;
 
       if (newTotal === 0) {
         const { error } = await (supabase as any)
           .from('special_hours_config')
-          .update({ is_active: false })
+          .update({ is_active: false, total_hours: 0, saturday_hours: 0, weekdays_hours: 0, saturday_periods: [], weekdays_periods: [] })
           .eq('id', configId);
 
         if (error) throw error;
@@ -641,6 +612,7 @@ const YearSubjects = () => {
             weekdays_periods: newWkPeriods,
             weekdays_hours: newWkHours,
             total_hours: newTotal,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', configId);
 
@@ -648,14 +620,12 @@ const YearSubjects = () => {
         toast.success("Special hour slot deleted");
       }
 
-      loadSpecialHours();
+      await loadSpecialHours();
     } catch (err: any) {
       console.error(err);
       toast.error(`Failed to delete special hour slot: ${err.message || 'Unknown error'}`);
     }
   };
-
-  const DAYS_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   
   const specialHoursList = useMemo(() => {
     const list: {
@@ -767,13 +737,13 @@ const YearSubjects = () => {
       if (hours > 10) {
         effectiveTags.push(`hpw:${hours}`);
       }
-      effectiveTags = effectiveTags.filter(t => !/^credits:\d+$/i.test(t));
-      if (credits > 6) {
+      effectiveTags = effectiveTags.filter(t => !/^credits:[\d.]+$/i.test(t));
+      if (credits < 1 || credits > 6 || !Number.isInteger(credits)) {
         effectiveTags.push(`credits:${credits}`);
       }
 
       const safeHours = Math.max(1, Math.min(Number(hours) || 1, 10));
-      const safeCredits = Math.max(1, Math.min(Number(credits) || 1, 6));
+      const safeCredits = Math.max(1, Math.min(Math.round(credits), 6));
       const allowedTypes = ['theory', 'lab', 'elective', 'open elective', 'special', 'project'];
       const safeType = allowedTypes.includes(type) ? type : 'special';
 
@@ -845,7 +815,7 @@ const YearSubjects = () => {
       Abbreviation: s.abbreviation || "",
       Type: s.type,
       "Hours/Week": s.hours_per_week,
-      Credits: s.credits || 3,
+      Credits: s.credits !== undefined && s.credits !== null ? s.credits : 3,
       Code: s.code || "",
       Tags: s.tags ? s.tags.join(", ") : "",
       "Max Faculty": s.type === 'lab' ? s.max_faculty_count : 1
@@ -933,8 +903,10 @@ const YearSubjects = () => {
     setHours(s.hours_per_week);
     setCode(s.code || "");
     setMaxFacultyCount(s.max_faculty_count || 1);
-    setCredits(s.credits || 3);
-    setTags((s.tags || []).filter(t => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t)).join(", "));
+    const credTag = (s.tags || []).find((t: string) => /^credits:([0-9.]+)$/i.test(t));
+    const decodedCredits = credTag ? parseFloat(credTag.split(':')[1]) : (s.credits ?? 3);
+    setCredits(decodedCredits);
+    setTags((s.tags || []).filter(t => !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:[\d.]+$/i.test(t)).join(", "));
     setAbbreviation(s.abbreviation || "");
 
     // Infer parallel mode and subject ID from tags
@@ -975,13 +947,13 @@ const YearSubjects = () => {
       if (hours > 10) {
         effectiveTags.push(`hpw:${hours}`);
       }
-      effectiveTags = effectiveTags.filter(t => !/^credits:\d+$/i.test(t));
-      if (credits > 6) {
+      effectiveTags = effectiveTags.filter(t => !/^credits:[\d.]+$/i.test(t));
+      if (credits < 1 || credits > 6 || !Number.isInteger(credits)) {
         effectiveTags.push(`credits:${credits}`);
       }
 
       const safeHours = Math.max(1, Math.min(Number(hours) || 1, 10));
-      const safeCredits = Math.max(1, Math.min(Number(credits) || 1, 6));
+      const safeCredits = Math.max(1, Math.min(Math.round(credits), 6));
       const allowedTypes = ['theory', 'lab', 'elective', 'open elective', 'special', 'project'];
       const safeType = allowedTypes.includes(type) ? type : 'special';
 
@@ -1272,7 +1244,7 @@ const YearSubjects = () => {
         key: "credits",
         header: "Credits",
         sortable: true,
-        render: (s: SubjectRow) => <span className="text-slate-700 dark:text-slate-300">{s.credits || 3}</span>
+        render: (s: SubjectRow) => <span className="text-slate-700 dark:text-slate-300">{s.credits ?? 3}</span>
       },
       {
         key: "code",
@@ -1288,7 +1260,7 @@ const YearSubjects = () => {
         header: "Tags",
         render: (s: SubjectRow) => {
           if (s.groupedSubjects) return <span className="text-slate-400 dark:text-slate-500 text-xs">—</span>;
-          const otherTags = (s.tags || []).filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t) && !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:\d+$/i.test(t));
+          const otherTags = (s.tags || []).filter(t => !/^(PE_Group_|OE_Group_)\d+$/i.test(t) && !/^(?:hpw|hours):\d+$/i.test(t) && !/^credits:[\d.]+$/i.test(t));
           return (
             <div className="flex flex-wrap gap-1">
               {otherTags.map(t => (
@@ -1368,6 +1340,78 @@ const YearSubjects = () => {
         console.error(e);
         toast.error(e?.message || "Failed to delete subjects");
       }
+    }
+  };
+
+  const theoryElectiveCount = useMemo(() => subjects.filter(s => s.type === 'theory' || s.type === 'elective').length, [subjects]);
+  const labSubjectCount = useMemo(() => subjects.filter(s => s.type === 'lab').length, [subjects]);
+  const oeSubjectCount = useMemo(() => subjects.filter(s => s.type === 'open elective').length, [subjects]);
+  const totalCurriculumCount = theoryElectiveCount + labSubjectCount + oeSubjectCount;
+
+  const handleDeleteAllYearSubjects = async () => {
+    if (!activeDeptId || !year) return;
+    setIsDeletingAllSubjects(true);
+    try {
+      let subjectsToDelete: { id: string; name: string }[] = [];
+
+      if (deleteAllScope === 'current') {
+        // Current semester subjects in state (only curriculum subjects, NEVER special hours)
+        subjectsToDelete = subjects.filter(s => s.type !== 'special');
+      } else {
+        // Both semesters for this department and year
+        const { data: allYearSubjs, error: fetchErr } = await (supabase as any)
+          .from('subjects')
+          .select('id, name, type, department_id, year')
+          .eq('department_id', activeDeptId)
+          .eq('year', year);
+
+        if (fetchErr) throw fetchErr;
+        subjectsToDelete = (allYearSubjs || []).filter((s: any) => s.type !== 'special');
+      }
+
+      const idsToDelete = subjectsToDelete.map(s => s.id);
+
+      if (idsToDelete.length === 0) {
+        toast.info(`No curriculum subjects found to delete for Year ${year}.`);
+        setIsDeleteAllModalOpen(false);
+        return;
+      }
+
+      // Batch delete associated table records in chunks of 100
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < idsToDelete.length; i += CHUNK_SIZE) {
+        const chunk = idsToDelete.slice(i, i + CHUNK_SIZE);
+        await Promise.allSettled([
+          (supabase as any).from('faculty_subject_assignments').delete().in('subject_id', chunk),
+          (supabase as any).from('faculty_elective_assignments').delete().in('subject_id', chunk),
+          (supabase as any).from('section_subjects').delete().in('subject_id', chunk),
+          (supabase as any).from('lab_preferences').delete().in('subject_id', chunk),
+          (supabase as any).from('subject_type_subjects').delete().in('subject_id', chunk),
+        ]);
+
+        const { error: delErr } = await (supabase as any)
+          .from('subjects')
+          .delete()
+          .in('id', chunk);
+
+        if (delErr) throw delErr;
+      }
+
+      // Update state: remove deleted subjects
+      setSubjects(prev => prev.filter(s => !idsToDelete.includes(s.id)));
+
+      toast.success(
+        deleteAllScope === 'current'
+          ? `Deleted all ${idsToDelete.length} subject(s) (theory, lab, OE) for Year ${year} (${semesterType.toUpperCase()} Sem). Special hours were preserved.`
+          : `Deleted all ${idsToDelete.length} subject(s) across both semesters for Year ${year}. Special hours were preserved.`
+      );
+
+      setIsDeleteAllModalOpen(false);
+    } catch (err: any) {
+      console.error('Delete all year subjects error:', err);
+      toast.error(`Failed to delete subjects: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsDeletingAllSubjects(false);
     }
   };
 
@@ -1467,6 +1511,22 @@ const YearSubjects = () => {
                   Even Sem
                 </button>
               </div>
+
+              {/* DELETE ALL YEAR SUBJECTS BUTTON */}
+              {userType !== 'faculty' && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDeleteAllScope('current');
+                    setIsDeleteAllModalOpen(true);
+                  }}
+                  className="rounded-xl border border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-300 hover:border-rose-400 font-semibold text-xs h-10 px-3.5 flex items-center gap-2 shadow-sm transition-all shrink-0"
+                  title={`Delete all curriculum subjects for Year ${year}`}
+                >
+                  <Trash2 className="h-4 w-4 text-rose-500" />
+                  <span>Delete All Subjects</span>
+                </Button>
+              )}
               <Button 
                 variant="outline" 
                 className={`rounded-xl border font-semibold ${
@@ -1518,22 +1578,9 @@ const YearSubjects = () => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {grandTotalHours < 42 && grandTotalHours > 0 && subjects.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-3 py-1 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                  Limited ({grandTotalHours}/42h)
-                </span>
-                {userType !== 'faculty' && (
-                  <Button
-                    size="sm"
-                    onClick={handleAddLib}
-                    disabled={addingLib}
-                    className="h-8 px-3 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
-                  >
-                    <BookMarked className="h-3.5 w-3.5" />
-                    <span>{addingLib ? "Adding..." : "Add Lib"}</span>
-                  </Button>
-                )}
-              </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                Limited ({grandTotalHours}/42h)
+              </span>
             )}
             {totalSpecialHours > 0 && (
               <div className="px-3.5 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs">
@@ -1553,69 +1600,176 @@ const YearSubjects = () => {
               <CardTitle className="text-lg font-semibold tracking-tight">Add new subject</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3">
-                <div className="grid gap-3 md:grid-cols-5">
-                  <Input placeholder={type === 'special' ? "Special Hour Name (e.g. Library, Counselling)" : "Name"} value={name} onChange={(e) => setName(e.target.value)} />
-                  <Select value={type} onValueChange={(v: any) => { resetForm(); setType(v); }}>
-                    <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="theory">Theory</SelectItem>
-                      <SelectItem value="lab">Lab</SelectItem>
-                      <SelectItem value="elective">Professional Elective</SelectItem>
-                      <SelectItem value="open elective">Open Elective</SelectItem>
-                      <SelectItem value="special">Special Hours</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
-                  <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
-                  <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
-                </div>
-                
-                {type !== 'special' && (type === 'elective' || type === 'open elective') && (
-                  <div className="grid gap-3 md:grid-cols-2 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
+              {type === 'special' ? (
+                <div className="grid gap-3 p-4 rounded-2xl bg-amber-500/[0.04] border border-amber-500/20">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Scheduling Mode</label>
-                      <Select value={schedulingMode} onValueChange={(v: 'same' | 'different') => setSchedulingMode(v)}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        Add Special Hour Slot (Manual Assignment)
+                      </h4>
+                      <p className="text-[11px] text-muted-foreground">
+                        Assign day, starting period, and duration (hrs). Automatically managed with the section's Class Counselor.
+                      </p>
+                    </div>
+                    <Select value={type} onValueChange={(v: any) => { resetForm(); setType(v); }}>
+                      <SelectTrigger className="w-36 h-8 text-xs font-semibold bg-background"><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="theory">Theory</SelectItem>
+                        <SelectItem value="lab">Lab</SelectItem>
+                        <SelectItem value="elective">Professional Elective</SelectItem>
+                        <SelectItem value="open elective">Open Elective</SelectItem>
+                        <SelectItem value="special">Special Hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-4 items-end">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Special Hour Name</label>
+                      <Input 
+                        placeholder="e.g. Seminar, Library, Counselling" 
+                        value={name} 
+                        onChange={(e) => { setName(e.target.value); setSpecialTypeName(e.target.value); }} 
+                      />
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {['Seminar', 'Library', 'Counselling', 'Mentoring'].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => { setName(preset); setSpecialTypeName(preset); }}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                              name === preset 
+                                ? 'bg-indigo-600 text-white border-indigo-600 font-bold' 
+                                : 'bg-muted/50 hover:bg-muted text-muted-foreground border-border'
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Day</label>
+                      <Select value={specialDay} onValueChange={setSpecialDay}>
                         <SelectTrigger className="bg-background">
-                          <SelectValue />
+                          <SelectValue placeholder="Select Day" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="different">Different Hour (Separate)</SelectItem>
-                          <SelectItem value="same">Same Hour (Parallel)</SelectItem>
+                          <SelectItem value="0">Monday</SelectItem>
+                          <SelectItem value="1">Tuesday</SelectItem>
+                          <SelectItem value="2">Wednesday</SelectItem>
+                          <SelectItem value="3">Thursday</SelectItem>
+                          <SelectItem value="4">Friday</SelectItem>
+                          <SelectItem value="5">Saturday</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    {schedulingMode === 'same' && (
+
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Starting Period</label>
+                      <Select value={specialPeriod} onValueChange={setSpecialPeriod}>
+                        <SelectTrigger className="bg-background">
+                          <SelectValue placeholder="Select Period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4, 5, 6, 7].map((p) => (
+                            <SelectItem key={p} value={String(p)}>Period {p}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground mb-1 block">Hours / Duration</label>
+                      <div className="flex items-center gap-2">
+                        <Input 
+                          type="number" 
+                          min={1} 
+                          max={7} 
+                          value={specialHoursCount} 
+                          onChange={(e) => setSpecialHoursCount(Math.max(1, parseInt(e.target.value || '1', 10)))} 
+                          className="w-24"
+                        />
+                        <Button 
+                          onClick={() => handleAddSpecialHourSlot(name)} 
+                          disabled={!name.trim()}
+                          className="flex-1 font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
+                        >
+                          Add Slot
+                        </Button>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground mt-1 block">
+                        Allocates {specialHoursCount} period{specialHoursCount > 1 ? 's' : ''} (P{specialPeriod}{specialHoursCount > 1 ? ` - P${Math.min(7, parseInt(specialPeriod || '1', 10) + specialHoursCount - 1)}` : ''})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <div className="grid gap-3 md:grid-cols-5">
+                    <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                    <Select value={type} onValueChange={(v: any) => { resetForm(); setType(v); }}>
+                      <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="theory">Theory</SelectItem>
+                        <SelectItem value="lab">Lab</SelectItem>
+                        <SelectItem value="elective">Professional Elective</SelectItem>
+                        <SelectItem value="open elective">Open Elective</SelectItem>
+                        <SelectItem value="special">Special Hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
+                    <Input type="number" min={0} max={20} step="0.5" value={credits} onChange={(e) => setCredits(parseFloat(e.target.value) || 0)} placeholder="Credits" />
+                    <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
+                  </div>
+                  
+                  {type !== 'special' && (type === 'elective' || type === 'open elective') && (
+                    <div className="grid gap-3 md:grid-cols-2 p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                       <div>
-                        <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Select Parallel Subject</label>
-                        <Select value={parallelSubjectId} onValueChange={setParallelSubjectId}>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Scheduling Mode</label>
+                        <Select value={schedulingMode} onValueChange={(v: 'same' | 'different') => setSchedulingMode(v)}>
                           <SelectTrigger className="bg-background">
-                            <SelectValue placeholder="Choose parallel elective..." />
+                            <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {electiveSiblings.map(s => (
-                              <SelectItem key={s.id} value={s.id}>{s.name} ({s.code || 'no code'})</SelectItem>
-                            ))}
-                            {electiveSiblings.length === 0 && (
-                              <SelectItem value="none" disabled>No other electives added yet</SelectItem>
-                            )}
+                            <SelectItem value="different">Different Hour (Separate)</SelectItem>
+                            <SelectItem value="same">Same Hour (Parallel)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
-                    )}
-                  </div>
-                )}
+                      {schedulingMode === 'same' && (
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 mb-1 block font-mono uppercase tracking-wider">Select Parallel Subject</label>
+                          <Select value={parallelSubjectId} onValueChange={setParallelSubjectId}>
+                            <SelectTrigger className="bg-background">
+                              <SelectValue placeholder="Choose parallel elective..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {electiveSiblings.map(s => (
+                                <SelectItem key={s.id} value={s.id}>{s.name} ({s.code || 'no code'})</SelectItem>
+                              ))}
+                              {electiveSiblings.length === 0 && (
+                                <SelectItem value="none" disabled>No other electives added yet</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                <div className="grid gap-3 md:grid-cols-5 items-center">
-                  <div className="md:col-span-2">
-                    <Input placeholder="Abbreviation (optional)" value={abbreviation} onChange={(e) => setAbbreviation(e.target.value)} />
+                  <div className="grid gap-3 md:grid-cols-5 items-center">
+                    <div className="md:col-span-2">
+                      <Input placeholder="Abbreviation (optional)" value={abbreviation} onChange={(e) => setAbbreviation(e.target.value)} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Input placeholder="Tags (comma separated, e.g., PE4, SSA)" value={tags} onChange={(e) => setTags(e.target.value)} />
+                    </div>
+                    <Button onClick={handleAdd} disabled={!name.trim()} className="w-full font-bold">Add</Button>
                   </div>
-                  <div className="md:col-span-2">
-                    <Input placeholder="Tags (comma separated, e.g., PE4, SSA)" value={tags} onChange={(e) => setTags(e.target.value)} />
-                  </div>
-                  <Button onClick={handleAdd} disabled={!name.trim()} className="w-full font-bold">Add</Button>
                 </div>
-              </div>
+              )}
               
               {/* Max Faculty Count for Lab Subjects */}
               {type === 'lab' && (
@@ -1672,17 +1826,6 @@ const YearSubjects = () => {
                 </div>
                 <div className="flex items-baseline justify-between mt-1">
                   <div className="text-2xl font-bold text-foreground">{grandTotalHours}h</div>
-                  {grandTotalHours < 42 && grandTotalHours > 0 && subjects.length > 0 && userType !== 'faculty' && (
-                    <Button
-                      size="sm"
-                      onClick={handleAddLib}
-                      disabled={addingLib}
-                      className="h-7 px-2.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
-                    >
-                      <BookMarked className="h-3.5 w-3.5" />
-                      <span>{addingLib ? "Adding..." : "Add Lib"}</span>
-                    </Button>
-                  )}
                 </div>
                 <div className="text-[10px] text-muted-foreground mt-0.5">
                   {subjects.length === 0
@@ -1711,47 +1854,68 @@ const YearSubjects = () => {
         </Card>
 
         {/* Tab Navbar for Theory, Lab, Open Electives, Special Hours */}
-        <div className="flex flex-wrap p-1.5 rounded-2xl bg-card/50 border border-border/60 backdrop-blur-xl gap-2 mb-6 shadow-sm">
-          <button
-            onClick={() => setActiveTab('theory')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'theory'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-            }`}
-          >
-            Theory / Electives
-          </button>
-          <button
-            onClick={() => setActiveTab('lab')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'lab'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-            }`}
-          >
-            Labs
-          </button>
-          <button
-            onClick={() => setActiveTab('open elective')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'open elective'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-            }`}
-          >
-            Open Electives
-          </button>
-          <button
-            onClick={() => setActiveTab('special')}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'special'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
-            }`}
-          >
-            Special Hours
-          </button>
+        <div className="flex flex-wrap items-center justify-between p-1.5 rounded-2xl bg-card/50 border border-border/60 backdrop-blur-xl gap-2 mb-6 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setActiveTab('theory')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === 'theory'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+              }`}
+            >
+              Theory / Electives
+            </button>
+            <button
+              onClick={() => setActiveTab('lab')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === 'lab'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+              }`}
+            >
+              Labs
+            </button>
+            <button
+              onClick={() => setActiveTab('open elective')}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === 'open elective'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+              }`}
+            >
+              Open Electives
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('special');
+                setType('special');
+              }}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                activeTab === 'special'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+              }`}
+            >
+              Special Hours
+            </button>
+          </div>
+
+          {userType !== 'faculty' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDeleteAllScope('current');
+                setIsDeleteAllModalOpen(true);
+              }}
+              className="border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/40 hover:text-rose-700 font-semibold text-xs h-9 px-3 rounded-xl flex items-center gap-1.5 shadow-xs"
+              title={`Delete all curriculum subjects for Year ${year}`}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+              <span>Delete All (Year {year})</span>
+            </Button>
+          )}
         </div>
 
         {activeTab === 'open elective' && (
@@ -1991,23 +2155,61 @@ const YearSubjects = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Elective Grouping Button — only shown on theory tab and for admins */}
+        {/* Elective Grouping & Quick Actions — only shown on theory tab and for admins */}
         {activeTab === 'theory' && userType !== 'faculty' && (
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setGroupSelectedIds([]);
+                  setGroupName('');
+                  setGroupingOpen(true);
+                }}
+                className="flex items-center gap-2 border-violet-300 text-violet-700 dark:text-violet-400 dark:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/30 font-semibold shadow-xs"
+              >
+                <Layers className="h-4 w-4" />
+                Elective Grouping
+              </Button>
+              <span className="text-xs text-muted-foreground">Group electives that share the same time slot with a custom display name</span>
+            </div>
+
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                setGroupSelectedIds([]);
-                setGroupName('');
-                setGroupingOpen(true);
+                setDeleteAllScope('current');
+                setIsDeleteAllModalOpen(true);
               }}
-              className="flex items-center gap-2 border-violet-300 text-violet-700 dark:text-violet-400 dark:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/30 font-semibold"
+              className="flex items-center gap-2 border-rose-300 dark:border-rose-900/60 text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/40 hover:text-rose-700 font-semibold text-xs rounded-xl shadow-xs"
+              title={`Delete all curriculum subjects for Year ${year}`}
             >
-              <Layers className="h-4 w-4" />
-              Elective Grouping
+              <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+              <span>Delete All (Year {year})</span>
             </Button>
-            <span className="text-xs text-muted-foreground">Group electives that share the same time slot with a custom display name</span>
+          </div>
+        )}
+
+        {/* Special Hours Info Banner — shown on special tab for admins */}
+        {activeTab === 'special' && userType !== 'faculty' && (
+          <div className="mb-4 p-4 rounded-2xl bg-amber-500/[0.05] border border-amber-500/25 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                  Special Hours Config ({specialHoursList.length} configured slots · {totalSpecialHours}h)
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Special hours are locked to specific days and periods and automatically supervised by the section's Class Counselor. You can also add Seminar and Library as regular Theory subjects above to allocate additional classroom teaching hours.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-background border border-border text-foreground">
+                Total: <strong className="text-amber-600 dark:text-amber-400">{totalSpecialHours}h / wk</strong>
+              </span>
+            </div>
           </div>
         )}
 
@@ -2129,7 +2331,7 @@ const YearSubjects = () => {
                   )}
                 </div>
                 <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>{s.hours_per_week}h/week • {s.credits || 3} credits {s.type === 'lab' ? `• Max Fac: ${s.max_faculty_count || 1}` : ''}</span>
+                  <span>{s.hours_per_week}h/week • {s.credits ?? 3} credits {s.type === 'lab' ? `• Max Fac: ${s.max_faculty_count || 1}` : ''}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     {s.elective_group_name && userType !== 'faculty' && (() => {
                       const groupTag = (s.tags || []).find(t => /^PE_Group_\d+$/i.test(t));
@@ -2189,7 +2391,7 @@ const YearSubjects = () => {
                 </SelectContent>
               </Select>
               <Input type="number" min={0} max={42} value={hours} onChange={(e) => setHours(parseInt(e.target.value || '0', 10))} placeholder="Hours/week" />
-              <Input type="number" min={1} max={6} value={credits} onChange={(e) => setCredits(parseInt(e.target.value || '3', 10))} placeholder="Credits" />
+              <Input type="number" min={0} max={20} step="0.5" value={credits} onChange={(e) => setCredits(parseFloat(e.target.value) || 0)} placeholder="Credits" />
               <Input placeholder="Code (optional)" value={code} onChange={(e) => setCode(e.target.value)} />
             </div>
 
@@ -2382,6 +2584,145 @@ const YearSubjects = () => {
               {groupingSaving ? 'Saving...' : 'Save Group'}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Year Subjects Confirmation Dialog */}
+      <Dialog open={isDeleteAllModalOpen} onOpenChange={setIsDeleteAllModalOpen}>
+        <DialogContent className="max-w-lg rounded-2xl border-rose-200 dark:border-rose-900/40 shadow-2xl p-6">
+          <DialogHeader className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-bold text-foreground">
+                  Delete All Subjects — Year {year}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Department: <strong className="text-foreground">{deptName}</strong> · Target: <strong className="text-rose-600 dark:text-rose-400">Year {year} only</strong>
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            {/* Special Hours 100% Protected Banner */}
+            <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-950/20 flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5 text-left">
+                <span className="font-bold text-emerald-800 dark:text-emerald-300">Special Hours are 100% Protected</span>
+                <p className="text-emerald-700/90 dark:text-emerald-400/90 text-[11px] leading-relaxed">
+                  Seminar, Library, Counselling, and other institutional special hours will <strong>never</strong> be deleted by this action.
+                </p>
+              </div>
+            </div>
+
+            {/* Scope selection: Current Sem vs Both Sems for this Year */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Select Deletion Scope for Year {year}
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteAllScope('current')}
+                  className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                    deleteAllScope === 'current'
+                      ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/30 ring-1 ring-rose-500'
+                      : 'border-border/70 hover:bg-muted/40'
+                  }`}
+                >
+                  <div className="font-bold text-foreground flex items-center justify-between">
+                    <span>Current Semester</span>
+                    <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-muted font-bold text-foreground">
+                      {semesterType}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Deletes only Year {year} curriculum subjects configured for the active {semesterType.toUpperCase()} semester ({totalCurriculumCount} subject{totalCurriculumCount === 1 ? '' : 's'}).
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDeleteAllScope('both')}
+                  className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                    deleteAllScope === 'both'
+                      ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/30 ring-1 ring-rose-500'
+                      : 'border-border/70 hover:bg-muted/40'
+                  }`}
+                >
+                  <div className="font-bold text-foreground flex items-center justify-between">
+                    <span>Both Semesters</span>
+                    <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-muted font-bold text-foreground">
+                      ODD & EVEN
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    Deletes all curriculum subjects for Year {year} across both Odd & Even semesters.
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Subjects Breakdown to be deleted */}
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold text-muted-foreground">
+                Current Semester Breakdown (Year {year}):
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-2.5 rounded-xl bg-muted/40 border border-border/50 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">Theory / PE</div>
+                  <div className="text-base font-bold text-foreground mt-0.5">{theoryElectiveCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-muted/40 border border-border/50 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">Labs</div>
+                  <div className="text-base font-bold text-foreground mt-0.5">{labSubjectCount}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-muted/40 border border-border/50 text-center">
+                  <div className="text-[10px] font-semibold uppercase text-muted-foreground">Open Electives</div>
+                  <div className="text-base font-bold text-foreground mt-0.5">{oeSubjectCount}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Warning box */}
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <div className="text-[11px] leading-relaxed">
+                <strong>Separate Year Isolation:</strong> Only subjects belonging to <strong>Year {year}</strong> will be deleted. Year I, Year II, Year III, and Year IV data for other years remain untouched.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteAllModalOpen(false)}
+              disabled={isDeletingAllSubjects}
+              className="rounded-xl font-medium"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteAllYearSubjects}
+              disabled={isDeletingAllSubjects || (deleteAllScope === 'current' && totalCurriculumCount === 0)}
+              className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center gap-2 shadow-md shadow-rose-600/20"
+            >
+              {isDeletingAllSubjects ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Deleting Year {year} Subjects...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  <span>Confirm Delete (Year {year})</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       </main>

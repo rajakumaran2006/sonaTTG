@@ -211,8 +211,12 @@ export function resolveSubjectAbbreviation(
     'applied probability and statistics -i': 'APAS I',
     'data structures': 'DS',
     'data structures laboratory': 'DS LAB',
-    'soft skills and aptitude - i': 'SSA I(AP)',
-    'soft skills and aptitude - iii': 'SSA 3 (AP)',
+    'soft skills and aptitude - i': 'SSA-I',
+    'soft skills and aptitude - ii': 'SSA-II',
+    'soft skills and aptitude - iii': 'SSA-III',
+    'soft skills and aptitude - iv': 'SSA-IV',
+    'soft skills and aptitude-i': 'SSA-I',
+    'soft skills and aptitude-iii': 'SSA-III',
   };
 
   if (knownMap[lower]) return knownMap[lower];

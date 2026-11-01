@@ -11,8 +11,10 @@ import {
   isSubjectTaughtByProfessor,
   getFacultyDayLoad,
   sortDaysByFacultyLoad,
+  sortPeriodsByFacultyRest,
   type FacultyAllocation
 } from "./facultyAllocation";
+import { generateOptimizedTimetableBatch } from "./optimizer/optimizerIntegration";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utilities
@@ -418,20 +420,44 @@ export function isCellMatchingSubject(cell: string | null | undefined, subject: 
     return true;
   }
 
-  // 3. Parallel / slash-separated slots (e.g. "Subject A / Subject B" or "PE1 / PE2")
-  if (c.includes(' / ')) {
-    const parts = c.split(' / ').map(p => p.trim());
-    if (parts.some(p => 
-      p === subject.name || 
-      (subject.code && p === subject.code) || 
-      (subject.abbreviation && p === subject.abbreviation) ||
-      cleanSubjectName(p) === cleanSubjectName(subject.name)
-    )) {
+  // 3. Parallel / slash-separated slots (e.g. "Elective: SQA / TQM" or "Subject A / Subject B" or "PE1 / PE2")
+  if (c.includes(' / ') || c.includes('/')) {
+    const stripElectivePrefix = (str: string) =>
+      str.replace(/^Elective\s*[:-]\s*/i, '').replace(/^PE\s*[:-]\s*/i, '').trim();
+
+    const cellWithoutPrefix = stripElectivePrefix(c);
+    const subjCleanName = stripElectivePrefix(subject.name);
+    const parts = cellWithoutPrefix.split('/').map(p => stripElectivePrefix(p.trim()));
+
+    if (parts.some(p => {
+      // Must not match theory cell to lab subject, or lab cell to theory subject
+      const pIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b|\b L$/i.test(p);
+      const subjIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(subject.name) || (subject.type === 'lab' && !/project/i.test(subject.name));
+      if (pIsLab !== subjIsLab) return false;
+
+      const pClean = cleanSubjectName(p);
+      const sClean = cleanSubjectName(subjCleanName);
+      const sFullNameClean = cleanSubjectName(subject.name);
+      return (
+        p.toLowerCase() === subjCleanName.toLowerCase() ||
+        p.toLowerCase() === subject.name.toLowerCase() ||
+        (subject.code && p.toLowerCase() === subject.code.toLowerCase()) ||
+        (subject.abbreviation && p.toLowerCase() === subject.abbreviation.toLowerCase()) ||
+        (pClean && sClean && (pClean === sClean || pClean.includes(sClean) || sClean.includes(pClean))) ||
+        (pClean && sFullNameClean && (pClean === sFullNameClean || sFullNameClean.includes(pClean)))
+      );
+    })) {
       return true;
     }
   }
 
   // 4. Normalized exact subject name match (e.g. "Mini Project" vs "Mini-Project" or punctuation/case differences)
+  const stripElectivePrefix = (str: string) =>
+    str.replace(/^Elective\s*[:-]\s*/i, '').replace(/^PE\s*[:-]\s*/i, '').trim();
+  const cNorm = stripElectivePrefix(c);
+  const sNorm = stripElectivePrefix(subject.name);
+  if (cleanSubjectName(cNorm) && cleanSubjectName(sNorm) && cleanSubjectName(cNorm) === cleanSubjectName(sNorm)) return true;
+
   const cClean = cleanSubjectName(c);
   const sClean = cleanSubjectName(subject.name);
   if (cClean && sClean && cClean === sClean) return true;
@@ -446,6 +472,349 @@ export function isCellMatchingSubject(cell: string | null | undefined, subject: 
   if (cClean && sClean && (cClean.includes(sClean) || sClean.includes(cClean))) return true;
 
   return false;
+}
+
+export function isCellMatchingSubjectName(cell: string | null | undefined, subjectName: string): boolean {
+  if (!cell || !subjectName) return false;
+  const c = cell.trim();
+  if (c === 'BREAK' || c === 'LUNCH' || c === 'FREE' || c === '-') return false;
+  if (c === subjectName) return true;
+  if (cleanSubjectName(c) === cleanSubjectName(subjectName)) return true;
+  return c.toLowerCase() === subjectName.toLowerCase();
+}
+
+export function countSubjectHoursOnDay(grid: Grid, d: number, subject: Subject | string): number {
+  if (!grid || !grid[d]) return 0;
+  return grid[d].filter(cell => {
+    if (!cell) return false;
+    if (typeof subject === 'object') {
+      return isCellMatchingSubject(cell, subject);
+    }
+    return isCellMatchingSubjectName(cell, subject);
+  }).length;
+}
+
+export function wouldCreateThreeConsecutiveTheory(
+  grid: Grid,
+  d: number,
+  p: number,
+  subject: Subject | string
+): boolean {
+  if (!grid || !grid[d] || p < 0 || p >= PERIODS) return false;
+  const row = grid[d];
+  const subjName = typeof subject === 'string' ? subject : subject.name;
+  const isLab = typeof subject === 'object' 
+    ? (subject.type === 'lab' || /\blab\b|\blaboratory\b/i.test(subject.name))
+    : /\blab\b|\blaboratory\b/i.test(subject);
+  if (isLab) return false; // Labs are explicitly allowed to have 3 to 4 continuous hours!
+
+  const isSame = (idx: number): boolean => {
+    if (idx < 0 || idx >= PERIODS) return false;
+    const cell = row[idx];
+    if (!cell) return false;
+    if (typeof subject === 'object') {
+      return isCellMatchingSubject(cell, subject);
+    }
+    return isCellMatchingSubjectName(cell, subjName);
+  };
+
+  // Case 1: placing at p when [p-2] and [p-1] are already this subject (e.g. p=6 when p=4,5 are ML)
+  if (isSame(p - 2) && isSame(p - 1)) return true;
+  // Case 2: placing at p between [p-1] and [p+1] (e.g. p=5 when p=4,6 are ML)
+  if (isSame(p - 1) && isSame(p + 1)) return true;
+  // Case 3: placing at p when [p+1] and [p+2] are already this subject (e.g. p=4 when p=5,6 are ML)
+  if (isSame(p + 1) && isSame(p + 2)) return true;
+
+  return false;
+}
+
+export function hasThreeConsecutiveTheory(grid: Grid, subjects: Subject[]): boolean {
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS - 2; p++) {
+      const c1 = grid[d]?.[p];
+      const c2 = grid[d]?.[p + 1];
+      const c3 = grid[d]?.[p + 2];
+      if (!c1 || !c2 || !c3) continue;
+      if (c1 === 'BREAK' || c1 === 'LUNCH' || c1 === 'FREE' || /library/i.test(c1)) continue;
+
+      const subjObj = subjects.find(s => isCellMatchingSubject(c1, s));
+      const isLab = subjObj
+        ? subjObj.type === 'lab' || /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(subjObj.name)
+        : /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(c1);
+      if (isLab) continue;
+
+      const sameSubj2 = subjObj ? isCellMatchingSubject(c2, subjObj) : isCellMatchingSubjectName(c2, c1);
+      const sameSubj3 = subjObj ? isCellMatchingSubject(c3, subjObj) : isCellMatchingSubjectName(c3, c1);
+      if (sameSubj2 && sameSubj3) return true;
+    }
+  }
+  return false;
+}
+
+export function sanitizeNoThreeConsecutiveTheory(
+  grid: Grid,
+  subjects: Subject[],
+  facultyMap?: Map<string, FacultyAllocation>,
+  year?: string,
+  section?: string
+): void {
+  const maxPasses = 15;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let anyFound = false;
+
+    for (let d = 0; d < 6; d++) {
+      for (let p = 0; p < PERIODS - 2; p++) {
+        const c1 = grid[d]?.[p];
+        const c2 = grid[d]?.[p + 1];
+        const c3 = grid[d]?.[p + 2];
+
+        if (!c1 || !c2 || !c3) continue;
+        if (c1 === 'BREAK' || c1 === 'LUNCH' || c1 === 'FREE' || /library/i.test(c1)) continue;
+
+        const subjObj = subjects.find(s => isCellMatchingSubject(c1, s));
+        const isLab = subjObj
+          ? (subjObj.type === 'lab' || /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(subjObj.name))
+          : /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(c1);
+        if (isLab) continue; // Labs are valid for 3+ consecutive hours
+
+        const sameSubj2 = subjObj ? isCellMatchingSubject(c2, subjObj) : isCellMatchingSubjectName(c2, c1);
+        const sameSubj3 = subjObj ? isCellMatchingSubject(c3, subjObj) : isCellMatchingSubjectName(c3, c1);
+
+        if (!sameSubj2 || !sameSubj3) continue;
+
+        anyFound = true;
+        // 3 consecutive theory hours found!
+        // We will try moving candidate slots in order: p+2 (3rd hr), p+1 (2nd hr), or p (1st hr).
+        const targetPeriods = [p + 2, p + 1, p];
+        let resolved = false;
+
+        for (const targetP of targetPeriods) {
+          if (resolved) break;
+
+          // Strategy 1: Swap (d, targetP) with a Library or empty slot on another weekday
+          for (let otherD = 0; otherD < 5; otherD++) {
+            if (resolved) break;
+            if (otherD === d) continue;
+            if (countSubjectHoursOnDay(grid, otherD, c1) >= 2) continue;
+
+            for (let otherP = 0; otherP < PERIODS; otherP++) {
+              const otherCell = grid[otherD][otherP];
+              if (!otherCell || otherCell === 'FREE' || /library/i.test(otherCell)) {
+                if (!wouldCreateThreeConsecutiveTheory(grid, otherD, otherP, c1)) {
+                  let facOk = true;
+                  let allocFacId: string | undefined = undefined;
+                  if (subjObj && facultyMap) {
+                    const fac = findAvailableFacultyForSlot(subjObj.id, otherD, otherP, facultyMap, false, year, section);
+                    if (!fac.success) facOk = false;
+                    else allocFacId = fac.facultyId;
+                  }
+                  if (facOk) {
+                    if (subjObj && facultyMap) {
+                      releaseFacultySlot(subjObj.id, d, targetP, facultyMap);
+                      if (allocFacId) {
+                        allocateFacultyToSlot(allocFacId, otherD, otherP, facultyMap, 'theory');
+                      }
+                    }
+                    grid[d][targetP] = "Library";
+                    grid[otherD][otherP] = c1;
+                    resolved = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Strategy 2: Swap with another theory subject on another weekday
+          if (!resolved) {
+            for (let otherD = 0; otherD < 5; otherD++) {
+              if (resolved) break;
+              if (otherD === d) continue;
+              if (countSubjectHoursOnDay(grid, otherD, c1) >= 2) continue;
+
+              for (let otherP = 0; otherP < PERIODS; otherP++) {
+                const otherCell = grid[otherD][otherP];
+                if (!otherCell || /break|lunch|seminar|counsel|library/i.test(otherCell)) continue;
+                const otherIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(otherCell);
+                if (otherIsLab) continue;
+                if (countSubjectHoursOnDay(grid, d, otherCell) >= 2) continue;
+
+                if (!wouldCreateThreeConsecutiveTheory(grid, otherD, otherP, c1) &&
+                    !wouldCreateThreeConsecutiveTheory(grid, d, targetP, otherCell)) {
+                  const otherSubjObj = subjects.find(s => isCellMatchingSubject(otherCell, s));
+                  let facOk = true;
+                  let allocC1FacId: string | undefined = undefined;
+                  let allocOtherFacId: string | undefined = undefined;
+                  if (facultyMap) {
+                    if (subjObj) {
+                      if (otherSubjObj) releaseFacultySlot(otherSubjObj.id, otherD, otherP, facultyMap);
+                      const facC1 = findAvailableFacultyForSlot(subjObj.id, otherD, otherP, facultyMap, false, year, section);
+                      if (!facC1.success) facOk = false;
+                      else allocC1FacId = facC1.facultyId;
+                      if (!facOk && otherSubjObj) allocateFacultyToSlot(otherSubjObj.id, otherD, otherP, facultyMap, 'theory');
+                    }
+                    if (facOk && otherSubjObj) {
+                      if (subjObj) releaseFacultySlot(subjObj.id, d, targetP, facultyMap);
+                      const facOther = findAvailableFacultyForSlot(otherSubjObj.id, d, targetP, facultyMap, false, year, section);
+                      if (!facOther.success) {
+                        facOk = false;
+                        if (subjObj) allocateFacultyToSlot(subjObj.id, d, targetP, facultyMap, 'theory');
+                        if (otherSubjObj) allocateFacultyToSlot(otherSubjObj.id, otherD, otherP, facultyMap, 'theory');
+                      } else {
+                        allocOtherFacId = facOther.facultyId;
+                      }
+                    }
+                  }
+                  if (facOk) {
+                    if (facultyMap) {
+                      if (allocC1FacId) allocateFacultyToSlot(allocC1FacId, otherD, otherP, facultyMap, 'theory');
+                      if (allocOtherFacId) allocateFacultyToSlot(allocOtherFacId, d, targetP, facultyMap, 'theory');
+                    }
+                    grid[d][targetP] = otherCell;
+                    grid[otherD][otherP] = c1;
+                    resolved = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Strategy 3: Swap within the SAME day with a non-consecutive slot (e.g. morning vs afternoon)
+          if (!resolved) {
+            for (let otherP = 0; otherP < PERIODS; otherP++) {
+              if (otherP === p || otherP === p + 1 || otherP === p + 2) continue;
+              const otherCell = grid[d][otherP];
+              if (!otherCell || /break|lunch|seminar|counsel|library/i.test(otherCell)) continue;
+              const otherIsLab = /\blab\b|\blaboratory\b|\bpracticals?\b/i.test(otherCell);
+              if (otherIsLab) continue;
+
+              if (!wouldCreateThreeConsecutiveTheory(grid, d, otherP, c1) &&
+                  !wouldCreateThreeConsecutiveTheory(grid, d, targetP, otherCell)) {
+                const otherSubjObj = subjects.find(s => isCellMatchingSubject(otherCell, s));
+                let facOk = true;
+                let allocC1FacId: string | undefined = undefined;
+                let allocOtherFacId: string | undefined = undefined;
+                if (facultyMap) {
+                  if (subjObj) {
+                    if (otherSubjObj) releaseFacultySlot(otherSubjObj.id, d, otherP, facultyMap);
+                    const facC1 = findAvailableFacultyForSlot(subjObj.id, d, otherP, facultyMap, false, year, section);
+                    if (!facC1.success) facOk = false;
+                    else allocC1FacId = facC1.facultyId;
+                    if (!facOk && otherSubjObj) allocateFacultyToSlot(otherSubjObj.id, d, otherP, facultyMap, 'theory');
+                  }
+                  if (facOk && otherSubjObj) {
+                    if (subjObj) releaseFacultySlot(subjObj.id, d, targetP, facultyMap);
+                    const facOther = findAvailableFacultyForSlot(otherSubjObj.id, d, targetP, facultyMap, false, year, section);
+                    if (!facOther.success) {
+                      facOk = false;
+                      if (subjObj) allocateFacultyToSlot(subjObj.id, d, targetP, facultyMap, 'theory');
+                      if (otherSubjObj) allocateFacultyToSlot(otherSubjObj.id, d, otherP, facultyMap, 'theory');
+                    } else {
+                      allocOtherFacId = facOther.facultyId;
+                    }
+                  }
+                }
+                if (facOk) {
+                  if (facultyMap) {
+                    if (allocC1FacId) allocateFacultyToSlot(allocC1FacId, d, otherP, facultyMap, 'theory');
+                    if (allocOtherFacId) allocateFacultyToSlot(allocOtherFacId, d, targetP, facultyMap, 'theory');
+                  }
+                  grid[d][targetP] = otherCell;
+                  grid[d][otherP] = c1;
+                  resolved = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Strategy 4: Fallback to swap with Saturday Library slot (p=4) if safe
+          if (!resolved && grid[5]?.[4] && /library/i.test(grid[5][4])) {
+            if (!wouldCreateThreeConsecutiveTheory(grid, 5, 4, c1) && !grid[5].some(c => c && isCellMatchingSubjectName(c, c1))) {
+              grid[d][targetP] = "Library";
+              grid[5][4] = c1;
+              resolved = true;
+              break;
+            }
+          }
+
+          // Strategy 5: Hour-Preserving Atomic Swap Guarantee
+          // Eliminate 3-continuous theory without reducing any subject's hours
+          if (!resolved) {
+            let swappedAtomically = false;
+            // 5a. Find a weekday filler / Library slot on another day
+            for (let otherD = 0; otherD < 5; otherD++) {
+              if (swappedAtomically) break;
+              if (otherD === d) continue;
+              if (countSubjectHoursOnDay(grid, otherD, c1) >= 2) continue;
+              for (let otherP = 0; otherP < PERIODS; otherP++) {
+                const otherCell = grid[otherD][otherP];
+                if (!otherCell || otherCell === 'FREE' || /library/i.test(otherCell)) {
+                  if (!wouldCreateThreeConsecutiveTheory(grid, otherD, otherP, c1)) {
+                    grid[d][targetP] = otherCell || "Library";
+                    grid[otherD][otherP] = c1;
+                    if (subjObj && facultyMap) {
+                      const fac = findAvailableFacultyForSlot(subjObj.id, otherD, otherP, facultyMap, false, year, section, { mode: 'force' });
+                      if (fac.success && fac.facultyId) {
+                        allocateFacultyToSlot(fac.facultyId, otherD, otherP, facultyMap, 'theory');
+                      }
+                    }
+                    swappedAtomically = true;
+                    resolved = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // 5b. Find another movable theory subject on another day to swap
+            if (!swappedAtomically) {
+              for (let otherD = 0; otherD < 5; otherD++) {
+                if (swappedAtomically) break;
+                if (otherD === d) continue;
+                for (let otherP = 0; otherP < PERIODS; otherP++) {
+                  const otherCell = grid[otherD][otherP];
+                  if (!otherCell || /break|lunch|seminar|counsel/i.test(otherCell)) continue;
+                  if (/\blab\b|\blaboratory\b|\bpracticals?\b/i.test(otherCell)) continue;
+                  if (!wouldCreateThreeConsecutiveTheory(grid, otherD, otherP, c1) &&
+                      !wouldCreateThreeConsecutiveTheory(grid, d, targetP, otherCell)) {
+                    grid[d][targetP] = otherCell;
+                    grid[otherD][otherP] = c1;
+                    swappedAtomically = true;
+                    resolved = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // 5c. Fallback swap with any weekday filler slot
+            if (!swappedAtomically) {
+              for (let otherD = 0; otherD < 5; otherD++) {
+                if (swappedAtomically) break;
+                for (let otherP = 0; otherP < PERIODS; otherP++) {
+                  if (otherD === d && otherP === targetP) continue;
+                  const otherCell = grid[otherD][otherP];
+                  if (!otherCell || otherCell === 'FREE' || /library/i.test(otherCell)) {
+                    grid[d][targetP] = otherCell || "Library";
+                    grid[otherD][otherP] = c1;
+                    swappedAtomically = true;
+                    resolved = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (swappedAtomically) break;
+          }
+        }
+      }
+    }
+
+    if (!anyFound) break; // All consecutive theory violations successfully resolved!
+  }
 }
 
 export function countSubjectHoursInGrid(
@@ -543,10 +912,14 @@ export function verifySubjectHours(
   let totalGenerated = 0;
 
   for (const subj of subjects) {
+    const isLibraryOrSelfStudy = /^(library|self[- ]?study)$/i.test(subj.name.trim()) || subj.code === 'LIB';
+    const isParallelElective = subj.type === 'elective';
     const genCount = countSubjectHoursInGrid(grid, subj);
     const diff = genCount - subj.hoursPerWeek;
-    const isMatch = diff === 0;
-    const status: 'match' | 'under' | 'over' = diff === 0 ? 'match' : diff < 0 ? 'under' : 'over';
+    // For library/self-study, filler periods to complete 42 slots may be present (genCount >= hoursPerWeek satisfies requirement)
+    // For parallel electives running alongside longer electives (e.g. 3h elective alongside 4h elective), genCount >= hoursPerWeek satisfies requirement
+    const isMatch = (isLibraryOrSelfStudy || isParallelElective) ? genCount >= subj.hoursPerWeek : diff === 0;
+    const status: 'match' | 'under' | 'over' = isMatch ? 'match' : diff < 0 ? 'under' : 'over';
 
     totalGiven += subj.hoursPerWeek;
     totalGenerated += genCount;
@@ -732,16 +1105,9 @@ export function fillRemainingEmptySlotsWithLibrary(
   classCounselorInfo?: { name: string | null; id: string | null } | null,
   facultyMap?: Map<string, FacultyAllocation>
 ): void {
-  for (let d = 0; d < 6; d++) {
-    for (let p = 0; p < PERIODS; p++) {
-      if (grid[d][p] === null || grid[d][p] === "" || grid[d][p] === "FREE") {
-        grid[d][p] = "Library";
-        if (classCounselorInfo?.id && facultyMap) {
-          allocateFacultyToSlot(classCounselorInfo.id, d, p, facultyMap);
-        }
-      }
-    }
-  }
+  // User requirement: All 42 hours are provided by curriculum and manual entry.
+  // Never inject extra/filler Library or Seminar into empty slots.
+  return;
 }
 
 export function rebalanceSubjectHours(
@@ -751,69 +1117,138 @@ export function rebalanceSubjectHours(
   year?: string,
   section?: string
 ): void {
-  const isSpecialOrProtectedSubject = (s: Subject) => {
-    return isSSA(s) ||
-      /soft\s*skills?|aptitude/i.test(s.name) ||
-      /\baudit\s*course\b|\baudit\s*:|^audit\b|\bAC\b|environment\s*and\s*climate/i.test(s.name) ||
-      s.type === 'open elective' ||
-      /open\s*elective/i.test(s.name) ||
-      /project/i.test(s.name) ||
-      /seminar|library|counsel/i.test(s.name);
-  };
-
-  const isProtectedSlot = (d: number, p: number, cellVal: string | null): boolean => {
-    if (!cellVal) return false;
-    // Saturday slots are statically allocated across all years: never remove or overwrite
-    if (d === 5) return true;
-    // Mon, Wed, Fri period 0 for OE
-    if ((d === 0 || d === 2 || d === 4) && p === 0 && (/open\s*elective|oe/i.test(cellVal))) return true;
-    // Special labels
-    if (/library|lib/i.test(cellVal) || /counsel/i.test(cellVal) || /seminar|sem/i.test(cellVal)) return true;
-    if (/^SSA/i.test(cellVal) || /soft\s*skills?|aptitude|verbal/i.test(cellVal)) return true;
-    if (/^AC$/i.test(cellVal) || /audit\s*course/i.test(cellVal)) return true;
-    if (/project/i.test(cellVal)) return true;
-    if (/\blab\b|\blaboratory\b|\bpracticals?\b/i.test(cellVal)) return true;
+  // Helper to determine if a slot contains pure filler (weekday empty, FREE, or Library)
+  const isFillerSlot = (d: number, p: number, cellVal: string | null): boolean => {
+    if (cellVal === null || cellVal === "" || cellVal === "FREE" || cellVal === "-") return true;
+    // Saturday slots are protected (institutional special hours or already placed Saturday slots)
+    if (d === 5) return false;
+    // On weekdays (d < 5), "Library" is filler UNLESS there is a curriculum subject named Library that is still underallocated
+    if (/library/i.test(cellVal)) {
+      const libSubj = subjects.find((s) => /library/i.test(s.name));
+      if (!libSubj) return true;
+      const libCount = countSubjectHoursInGrid(grid, libSubj);
+      if (libCount > libSubj.hoursPerWeek) return true;
+      return false;
+    }
     return false;
   };
 
-  const rebalanceable = subjects.filter(
-    (s) => (s.type === "theory" || s.type === "elective") && !isSpecialOrProtectedSubject(s)
-  );
-  if (rebalanceable.length < 2) return;
+  // Helper to determine if a slot contains a movable theory/elective subject
+  const isMovableSlot = (d: number, p: number): boolean => {
+    if (d === 5) return false; // Preserve Saturday institutional slots
+    const cell = grid[d]?.[p];
+    if (!cell) return false;
+    if (isFillerSlot(d, p, cell)) return false;
+    // Do not move Labs (labs must stay in continuous blocks)
+    if (/\blab\b|\blaboratory\b|\bpracticals?\b/i.test(cell)) return false;
+    const subj = subjects.find((s) => isCellMatchingSubject(cell, s));
+    if (subj && subj.type === "lab") return false;
+    // Do not move Open Elective fixed slots (Mon/Wed/Fri P0)
+    if ((d === 0 || d === 2 || d === 4) && p === 0 && /open\s*elective|oe/i.test(cell)) return false;
+    // Do not move Saturday special slots or Seminar/Counseling
+    if (/seminar|counsel/i.test(cell)) return false;
+    // Do not move static SSA-II(V) 5th hr
+    if (/^SSA-II\(V\)$/i.test(cell)) return false;
+    // Do not move static Audit Course if placed in last 2 periods
+    if (/^AC$/i.test(cell) && (p === 5 || p === 6)) return false;
+    return true;
+  };
 
-  const maxIterations = 25;
+  // Helper to test if a subject can take a candidate slot (d, p)
+  const canSubjectTakeSlot = (
+    s: Subject,
+    d: number,
+    p: number,
+    ignoreCurrentCellAt?: { d: number; p: number },
+    facultyMode: 'strict' | 'relaxed' | 'force' = 'relaxed',
+    allowSecondHourOnDay: boolean = true
+  ): boolean => {
+    if (d === 5) return false; // weekdays only
+
+    // Check daily count: max 2 hours per day on weekdays for theory/elective
+    let dayCount = countSubjectHoursOnDay(grid, d, s);
+    if (ignoreCurrentCellAt && ignoreCurrentCellAt.d === d) {
+      const currentCell = grid[ignoreCurrentCellAt.d]?.[ignoreCurrentCellAt.p];
+      if (currentCell && isCellMatchingSubject(currentCell, s)) {
+        dayCount--;
+      }
+    }
+    if (allowSecondHourOnDay ? dayCount >= 2 : dayCount >= 1) return false;
+
+    // Check 3 consecutive theory:
+    const origCell = grid[d][p];
+    grid[d][p] = s.name;
+    const creates3Consecutive = wouldCreateThreeConsecutiveTheory(grid, d, p, s);
+    grid[d][p] = origCell;
+    if (creates3Consecutive) return false;
+
+    // Professor afternoon constraint:
+    const isProf = facultyMap ? isSubjectTaughtByProfessor(s.id, facultyMap, year, section) : false;
+    if (isProf && p >= 4 && facultyMode === 'strict') return false;
+
+    // Faculty availability:
+    if (facultyMap) {
+      const fac = findAvailableFacultyForSlot(s.id, d, p, facultyMap, s.type === "lab", year, section, { mode: facultyMode });
+      if (!fac.success) return false;
+    }
+
+    return true;
+  };
+
+  const allocateSubjectAtSlot = (s: Subject, d: number, p: number, mode: 'strict' | 'relaxed' | 'force'): boolean => {
+    let allocFacId: string | undefined = undefined;
+    if (facultyMap) {
+      const fac = findAvailableFacultyForSlot(s.id, d, p, facultyMap, s.type === "lab", year, section, { mode });
+      if (!fac.success) return false;
+      allocFacId = fac.facultyId;
+    }
+    const currentCell = grid[d][p];
+    if (currentCell && facultyMap) {
+      const oldSubj = subjects.find(sub => isCellMatchingSubject(currentCell, sub));
+      if (oldSubj) {
+        releaseFacultySlot(oldSubj.id, d, p, facultyMap);
+      }
+    }
+    grid[d][p] = s.name;
+    if (facultyMap && allocFacId) {
+      allocateFacultyToSlot(allocFacId, d, p, facultyMap, s.type === "lab" ? "lab" : "theory");
+    }
+    return true;
+  };
+
+  // Main iterative rebalancing loop (Augmenting Path / DP-style Bipartite Matching)
+  const maxIterations = 35;
   for (let iter = 0; iter < maxIterations; iter++) {
     const counts = new Map<string, number>();
-    for (const s of rebalanceable) {
+    for (const s of subjects) {
       counts.set(s.id, countSubjectHoursInGrid(grid, s));
     }
 
-    const overAllocated = rebalanceable
-      .filter((s) => (counts.get(s.id) || 0) > s.hoursPerWeek)
-      .sort((a, b) => ((counts.get(b.id) || 0) - b.hoursPerWeek) - ((counts.get(a.id) || 0) - a.hoursPerWeek));
-
-    const underAllocated = rebalanceable
-      .filter((s) => (counts.get(s.id) || 0) < s.hoursPerWeek)
+    const underAllocated = subjects
+      .filter((s) => s.type !== "lab" && (counts.get(s.id) || 0) < s.hoursPerWeek)
       .sort((a, b) => (b.hoursPerWeek - (counts.get(b.id) || 0)) - (a.hoursPerWeek - (counts.get(a.id) || 0)));
 
-    if (overAllocated.length === 0) {
+    const overAllocated = subjects
+      .filter((s) => s.type !== "lab" && (counts.get(s.id) || 0) > s.hoursPerWeek)
+      .sort((a, b) => ((counts.get(b.id) || 0) - b.hoursPerWeek) - ((counts.get(a.id) || 0) - a.hoursPerWeek));
+
+    // If all subjects have reached their exact curriculum hours, we are done!
+    if (underAllocated.length === 0 && overAllocated.length === 0) {
       break;
     }
 
-    if (underAllocated.length === 0) {
-      // All subjects have at least their required hours, but some have surplus.
-      // Remove surplus instances so every subject matches its exact hoursPerWeek.
+    // If no under-allocated subjects remain, but some have surplus: trim surplus
+    if (underAllocated.length === 0 && overAllocated.length > 0) {
       for (const overSubj of overAllocated) {
-        let currentCount = countSubjectHoursInGrid(grid, overSubj);
-        for (let d = 5; d >= 0; d--) {
+        let currentCount = counts.get(overSubj.id) || 0;
+        for (let d = 4; d >= 0; d--) {
           if (currentCount <= overSubj.hoursPerWeek) break;
           for (let p = PERIODS - 1; p >= 0; p--) {
             if (currentCount <= overSubj.hoursPerWeek) break;
             const cell = grid[d][p];
-            if (isProtectedSlot(d, p, cell)) continue;
-            if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
-              if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
-              grid[d][p] = null;
+            if (cell && isCellMatchingSubject(cell, overSubj) && isMovableSlot(d, p)) {
+              if (facultyMap) releaseFacultySlot(overSubj.id, d, p, facultyMap);
+              grid[d][p] = "Library";
               currentCount--;
             }
           }
@@ -822,67 +1257,175 @@ export function rebalanceSubjectHours(
       break;
     }
 
-    const overSubj = overAllocated[0];
-    const underSubj = underAllocated[0];
-    const underSubjIsProf = facultyMap ? isSubjectTaughtByProfessor(underSubj.id, facultyMap, year, section) : false;
+    const u = underAllocated[0];
+    let placed = false;
 
-    let swapped = false;
-    // Attempt 1: conflict-free slot replacement
-    for (let d = 0; d < 6; d++) {
-      if (swapped) break;
-      for (let p = 0; p < PERIODS; p++) {
-        if (underSubjIsProf && p >= 4) continue; // Professor constraint: before afternoon only
-        const cell = grid[d][p];
-        if (isProtectedSlot(d, p, cell)) continue;
-        if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
-          if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
-          if (d === 5 && grid[5].some((c) => c && (c === underSubj.name || isCellMatchingSubject(c, underSubj)))) continue;
-
-          if (facultyMap) {
-            const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
-            if (fac.success) {
-              grid[d][p] = underSubj.name;
-              if (fac.facultyId) {
-                allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
-              }
-              swapped = true;
+    // STEP 1: Direct placement into weekday filler slots (empty / Library)
+    for (const mode of ['strict', 'relaxed', 'force'] as const) {
+      if (placed) break;
+      for (let d = 0; d < 5; d++) {
+        if (placed) break;
+        for (let p = 0; p < PERIODS; p++) {
+          if (!isFillerSlot(d, p, grid[d][p])) continue;
+          if (canSubjectTakeSlot(u, d, p, undefined, mode, true)) {
+            if (allocateSubjectAtSlot(u, d, p, mode)) {
+              placed = true;
               break;
             }
-          } else {
-            grid[d][p] = underSubj.name;
-            swapped = true;
-            break;
           }
         }
       }
     }
 
-    // Attempt 2: force slot replacement if no conflict-free slot exists
-    if (!swapped) {
-      for (let d = 0; d < 6; d++) {
-        if (swapped) break;
-        for (let p = 0; p < PERIODS; p++) {
-          if (underSubjIsProf && p >= 4) continue; // Professor constraint: before afternoon only
-          const cell = grid[d][p];
-          if (isProtectedSlot(d, p, cell)) continue;
-          if (cell && (cell === overSubj.name || isCellMatchingSubject(cell, overSubj))) {
-            if (d === 5 && isYear2APS(overSubj) && (p === 0 || p === 1)) continue;
-            if (d === 5 && grid[5].some((c) => c && (c === underSubj.name || isCellMatchingSubject(c, underSubj)))) continue;
-            grid[d][p] = underSubj.name;
-            if (facultyMap) {
-              const fac = findAvailableFacultyForSlot(underSubj.id, d, p, facultyMap, false, year, section);
-              if (fac.success && fac.facultyId) {
-                allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+    // STEP 2: Direct exchange with an over-allocated subject
+    if (!placed && overAllocated.length > 0) {
+      for (const w of overAllocated) {
+        if (placed) break;
+        for (let d = 0; d < 5; d++) {
+          if (placed) break;
+          for (let p = 0; p < PERIODS; p++) {
+            const cell = grid[d][p];
+            if (!cell || !isCellMatchingSubject(cell, w)) continue;
+            if (!isMovableSlot(d, p)) continue;
+            for (const mode of ['relaxed', 'force'] as const) {
+              if (canSubjectTakeSlot(u, d, p, undefined, mode, true)) {
+                if (allocateSubjectAtSlot(u, d, p, mode)) {
+                  placed = true;
+                  break;
+                }
               }
             }
-            swapped = true;
-            break;
           }
         }
       }
     }
 
-    if (!swapped) break;
+    // STEP 3: 1-Hop Augmenting Ripple Swap
+    // If u cannot take any filler slot directly:
+    // Move some placed subject v from (d_v, p_v) to a filler slot (d_fill, p_fill),
+    // and place u into (d_v, p_v)!
+    if (!placed) {
+      const fillerSlots: Array<{ d: number; p: number }> = [];
+      for (let d = 0; d < 5; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (isFillerSlot(d, p, grid[d][p])) {
+            fillerSlots.push({ d, p });
+          }
+        }
+      }
+
+      const movableSlots: Array<{ d: number; p: number; subj: Subject }> = [];
+      for (let d = 0; d < 5; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (!isMovableSlot(d, p)) continue;
+          const cell = grid[d][p];
+          const v = subjects.find((s) => isCellMatchingSubject(cell, s));
+          if (v && v.id !== u.id) {
+            movableSlots.push({ d, p, subj: v });
+          }
+        }
+      }
+
+      for (const mode of ['relaxed', 'force'] as const) {
+        if (placed) break;
+        for (const mov of movableSlots) {
+          if (placed) break;
+          // Can u take mov's slot?
+          if (!canSubjectTakeSlot(u, mov.d, mov.p, undefined, mode, true)) continue;
+
+          // Can mov's subject take any filler slot?
+          for (const fill of fillerSlots) {
+            if (canSubjectTakeSlot(mov.subj, fill.d, fill.p, { d: mov.d, p: mov.p }, mode, true)) {
+              // Execute ripple swap!
+              if (allocateSubjectAtSlot(mov.subj, fill.d, fill.p, mode)) {
+                if (allocateSubjectAtSlot(u, mov.d, mov.p, mode)) {
+                  placed = true;
+                  break;
+                } else {
+                  // Revert
+                  allocateSubjectAtSlot(mov.subj, mov.d, mov.p, mode);
+                  grid[fill.d][fill.p] = "Library";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // STEP 4: 2-Hop Augmenting Ripple Chain
+    // Chain: u -> mov1 -> mov2 -> fill
+    if (!placed) {
+      const fillerSlots: Array<{ d: number; p: number }> = [];
+      for (let d = 0; d < 5; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (isFillerSlot(d, p, grid[d][p])) fillerSlots.push({ d, p });
+        }
+      }
+      const movableSlots: Array<{ d: number; p: number; subj: Subject }> = [];
+      for (let d = 0; d < 5; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (!isMovableSlot(d, p)) continue;
+          const cell = grid[d][p];
+          const v = subjects.find((s) => isCellMatchingSubject(cell, s));
+          if (v && v.id !== u.id) movableSlots.push({ d, p, subj: v });
+        }
+      }
+
+      for (const mov1 of movableSlots) {
+        if (placed) break;
+        if (!canSubjectTakeSlot(u, mov1.d, mov1.p, undefined, 'force', true)) continue;
+
+        for (const mov2 of movableSlots) {
+          if (placed) break;
+          if (mov2.subj.id === mov1.subj.id || mov2.subj.id === u.id) continue;
+          if (!canSubjectTakeSlot(mov1.subj, mov2.d, mov2.p, { d: mov1.d, p: mov1.p }, 'force', true)) continue;
+
+          for (const fill of fillerSlots) {
+            if (canSubjectTakeSlot(mov2.subj, fill.d, fill.p, { d: mov2.d, p: mov2.p }, 'force', true)) {
+              if (allocateSubjectAtSlot(mov2.subj, fill.d, fill.p, 'force')) {
+                if (allocateSubjectAtSlot(mov1.subj, mov2.d, mov2.p, 'force')) {
+                  if (allocateSubjectAtSlot(u, mov1.d, mov1.p, 'force')) {
+                    placed = true;
+                    break;
+                  } else {
+                    allocateSubjectAtSlot(mov1.subj, mov1.d, mov1.p, 'force');
+                    allocateSubjectAtSlot(mov2.subj, mov2.d, mov2.p, 'force');
+                    grid[fill.d][fill.p] = "Library";
+                  }
+                } else {
+                  allocateSubjectAtSlot(mov2.subj, mov2.d, mov2.p, 'force');
+                  grid[fill.d][fill.p] = "Library";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // STEP 5: Fallback Optimal Placement Guarantee
+    // If strict constraints still prevented placement, find the weekday filler slot with the lowest penalty and place u
+    if (!placed) {
+      let bestSlot: { d: number; p: number; penalty: number } | null = null;
+      for (let d = 0; d < 5; d++) {
+        for (let p = 0; p < PERIODS; p++) {
+          if (!isFillerSlot(d, p, grid[d][p])) continue;
+          let penalty = countSubjectHoursOnDay(grid, d, u) * 100;
+          if (wouldCreateThreeConsecutiveTheory(grid, d, p, u)) penalty += 500;
+          if (bestSlot === null || penalty < bestSlot.penalty) {
+            bestSlot = { d, p, penalty };
+          }
+        }
+      }
+
+      if (bestSlot) {
+        allocateSubjectAtSlot(u, bestSlot.d, bestSlot.p, 'force');
+        placed = true;
+      }
+    }
+
+    if (!placed) break;
   }
 
   // Ensure all remaining empty slots are filled by Library for both odd and even semesters
@@ -1063,7 +1606,8 @@ function placeTheorySubjects(
     const hasFaculty = subjectIds.some(subId => 
       Array.from(facultyMap.values()).some(fac => fac.subjectIds.has(subId))
     );
-    const prioritizeMorning = facultyBeforeAfternoon && hasFaculty;
+    const isProf = isSubjectTaughtByProfessor(subj.id, facultyMap, year, section);
+    const prioritizeMorning = (facultyBeforeAfternoon && hasFaculty) || isProf;
 
     // Filter slot pool based on morning preference if prioritizeMorning is true
     const indicesToTry: number[] = [];
@@ -1089,13 +1633,14 @@ function placeTheorySubjects(
     }
 
     // Sort candidate slots so days where this faculty has fewer hours (especially 0 hours like Monday!) are tried first
+    // And preserve at least 3 free hours per day
     indicesToTry.sort((idxA, idxB) => {
       const slotA = slotPool[idxA];
       const slotB = slotPool[idxB];
       const loadA = getFacultyDayLoad(subj.id, slotA.d, facultyMap, year, section);
       const loadB = getFacultyDayLoad(subj.id, slotB.d, facultyMap, year, section);
-      const penaltyA = loadA >= 5 ? 100 : 0;
-      const penaltyB = loadB >= 5 ? 100 : 0;
+      const penaltyA = loadA >= 4 ? (loadA >= 5 ? 200 : 100) : 0;
+      const penaltyB = loadB >= 4 ? (loadB >= 5 ? 200 : 100) : 0;
       if (penaltyA !== penaltyB) return penaltyA - penaltyB;
       if (loadA !== loadB) return loadA - loadB;
       if (prioritizeMorning) {
@@ -1118,18 +1663,22 @@ function placeTheorySubjects(
       // Strict mode: no duplicate subject on the same day
       if (mode === "strict" && grid[d].some((c) => c === subj.name)) continue;
 
+      // Strictly prevent 3 consecutive hours of the same theory subject
+      if (subj.type !== 'lab' && wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) continue;
+      if (subj.type !== 'lab' && countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+
       // Saturday rule: Strictly no repeated theory subject on Saturday
       if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
 
       // Faculty availability check
       const facultyResult = findAvailableFacultyForSlot(
-        subj.id, d, p, facultyMap, false, year, section
+        subj.id, d, p, facultyMap, false, year, section, { mode }
       );
 
       if (facultyResult.success || mode === "force") {
         grid[d][p] = subj.name;
         if (facultyResult.success && facultyResult.facultyId) {
-          allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap);
+          allocateFacultyToSlot(facultyResult.facultyId, d, p, facultyMap, 'theory');
         }
         usedSlotIndices.add(i);
         remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
@@ -1145,16 +1694,18 @@ function placeTheorySubjects(
       const daysOrder = sortDaysByFacultyLoad([0, 1, 2, 3, 4, 5], subj.id, facultyMap, year, section);
       // Pass 1: Morning scan
       for (const d of daysOrder) {
+        if (subj.type !== 'lab' && countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
         for (let p = 0; p < PERIODS; p++) {
           if (grid[d][p] !== null) continue;
           if (isSSA(subj) && d > 4) continue;
           if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
           if (prioritizeMorning && p >= 4) continue;
+          if (subj.type !== 'lab' && wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) continue;
           
-          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section);
+          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section, { mode: 'force' });
           grid[d][p] = subj.name;
           if (fac.success && fac.facultyId) {
-            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap, 'theory');
           }
           remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
           return true;
@@ -1162,15 +1713,17 @@ function placeTheorySubjects(
       }
       // Pass 2: Afternoon scan (fallback)
       for (const d of daysOrder) {
+        if (subj.type !== 'lab' && countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
         for (let p = 0; p < PERIODS; p++) {
           if (grid[d][p] !== null) continue;
           if (isSSA(subj) && d > 4) continue;
           if (d === 5 && grid[5].some((c) => c === subj.name)) continue;
+          if (subj.type !== 'lab' && wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) continue;
           
-          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section);
+          const fac = findAvailableFacultyForSlot(subj.id, d, p, facultyMap, false, year, section, { mode: 'force' });
           grid[d][p] = subj.name;
           if (fac.success && fac.facultyId) {
-            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+            allocateFacultyToSlot(fac.facultyId, d, p, facultyMap, 'theory');
           }
           remaining.set(subj.id, (remaining.get(subj.id) || 1) - 1);
           return true;
@@ -1261,6 +1814,8 @@ function fillFreeHours(
         if ((remaining.get(subj.id) || 0) <= 0) continue;
         if (isSSA(subj) && day === 5) continue;
         if (day === 5 && grid[5].some((c) => c === subj.name)) continue;
+        if (subj.type !== 'lab' && wouldCreateThreeConsecutiveTheory(grid, day, period, subj)) continue;
+        if (subj.type !== 'lab' && countSubjectHoursOnDay(grid, day, subj) >= 2) continue;
 
         const fac = findAvailableFacultyForSlot(subj.id, day, period, facultyMap, false, year, section);
         if (fac.success) {
@@ -1283,18 +1838,25 @@ function fillFreeHours(
           (remaining.get(s.id) || 0) > 0 &&
           s.type !== "lab" &&
           s.type !== "open elective" &&
-          (d !== 5 || !grid[5].some((c) => c === s.name))
+          (d !== 5 || !grid[5].some((c) => c === s.name)) &&
+          !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+          countSubjectHoursOnDay(grid, d, s) < 2
       );
       if (underAllocated.length > 0) {
-        const cand = underAllocated.sort(
+        const sortedCands = underAllocated.sort(
           (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-        )[0];
-        grid[d][p] = cand.name;
-        const fac = findAvailableFacultyForSlot(cand.id, d, p, facultyMap, false, year, section);
-        if (fac.success && fac.facultyId) {
-          allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+        );
+        for (const cand of sortedCands) {
+          const fac = findAvailableFacultyForSlot(cand.id, d, p, facultyMap, false, year, section);
+          if (fac.success || !facultyMap) {
+            grid[d][p] = cand.name;
+            if (fac.facultyId) {
+              allocateFacultyToSlot(fac.facultyId, d, p, facultyMap);
+            }
+            remaining.set(cand.id, Math.max(0, (remaining.get(cand.id) || 1) - 1));
+            break;
+          }
         }
-        remaining.set(cand.id, Math.max(0, (remaining.get(cand.id) || 1) - 1));
       }
     }
   }
@@ -1510,6 +2072,123 @@ const isYear2SpecialSat = (s: Subject | string) => {
   return /seminar|counsel/i.test(name);
 };
 
+/**
+ * Unified Soft Skills and Aptitude Placement:
+ * Requirements:
+ * 1. Do NOT split soft skill hours into multiple labels (no (A), (S), (V) splits).
+ *    Give as only ONE single subject name (mainSsa.name).
+ * 2. Total 4 hours per week:
+ *    - Exactly 1 hour strictly in the 5th hour (p=4, Period 5, 1:55-2:50 PM) on a weekday (Mon-Fri) without conflict.
+ *    - Exactly 3 hours in random morning periods (p=0..3, Periods 1-4) on 3 other weekdays (Mon-Fri) without conflict.
+ *    - At most 1 hour per day (across 4 distinct weekdays).
+ *    - 0 hours on Saturday.
+ *    - Zero faculty collision across all classes.
+ */
+function placeUnifiedSoftSkills(
+  grid: Grid,
+  subjects: Subject[],
+  remaining: Map<string, number>,
+  ctx: LoadedContext,
+  year: string,
+  section: string,
+  placeSlotFn: (d: number, p: number, s: Subject, isLab?: boolean, customLabel?: string) => boolean,
+  isSoftSkillFn: (s: Subject | string) => boolean
+): void {
+  const ssaSubjects = subjects.filter(isSoftSkillFn);
+  const mainSsa = ssaSubjects[0];
+  if (!mainSsa) return;
+
+  const totalNeeded = ssaSubjects.reduce((acc, s) => acc + (remaining.get(s.id) || 0), 0);
+  if (totalNeeded <= 0) return;
+
+  // Single unified subject label - NO SPLIT
+  const ssaLabel = mainSsa.name;
+  remaining.set(mainSsa.id, totalNeeded);
+  const ssaDaysUsed = new Set<number>();
+
+  const isSlotAllowedForSsa = (d: number, p: number, mode: 'strict' | 'relaxed' | 'force' = 'strict') => {
+    if (grid[d][p] !== null) return false;
+    if (ssaDaysUsed.has(d)) return false;
+    if (wouldCreateThreeConsecutiveTheory(grid, d, p, mainSsa)) return false;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(mainSsa.id, d, p, ctx.facultyMap, false, year, section, { mode });
+      if (!fac.success) return false;
+    }
+    return true;
+  };
+
+  // Step 1: Place exactly 1 hr in the 5th hour (p=4) on a weekday (Mon-Fri) without conflict
+  const weekdays5th = shuffle([0, 1, 2, 3, 4].filter((d) => grid[d][4] === null));
+  let chosen5thDay = -1;
+
+  for (const mode of ['strict', 'relaxed', 'force'] as const) {
+    if (chosen5thDay !== -1) break;
+    for (const d of weekdays5th) {
+      if (isSlotAllowedForSsa(d, 4, mode)) {
+        chosen5thDay = d;
+        break;
+      }
+    }
+  }
+
+  if (chosen5thDay !== -1) {
+    if (placeSlotFn(chosen5thDay, 4, mainSsa, false, ssaLabel)) {
+      ssaDaysUsed.add(chosen5thDay);
+    }
+  }
+
+  // Step 2: Place exactly 3 hrs in random morning periods (p=0..3) across 3 other weekdays
+  let morningHoursNeeded = Math.min(3, remaining.get(mainSsa.id) || 0);
+  const candidateMorningDays = shuffle(
+    [0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d) && [0, 1, 2, 3].some((p) => grid[d][p] === null))
+  );
+
+  for (const d of candidateMorningDays) {
+    if (morningHoursNeeded <= 0) break;
+    const morningPeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
+    let chosenP = -1;
+
+    for (const mode of ['strict', 'relaxed', 'force'] as const) {
+      if (chosenP !== -1) break;
+      for (const p of morningPeriods) {
+        if (isSlotAllowedForSsa(d, p, mode)) {
+          chosenP = p;
+          break;
+        }
+      }
+    }
+
+    if (chosenP !== -1) {
+      if (placeSlotFn(d, chosenP, mainSsa, false, ssaLabel)) {
+        ssaDaysUsed.add(d);
+        morningHoursNeeded--;
+      }
+    }
+  }
+
+  // Fallback if morning periods were restricted (e.g. labs occupied mornings)
+  if (morningHoursNeeded > 0) {
+    for (const d of shuffle([0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d)))) {
+      if (morningHoursNeeded <= 0) break;
+      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null))) {
+        if (isSlotAllowedForSsa(d, p, 'force')) {
+          if (placeSlotFn(d, p, mainSsa, false, ssaLabel)) {
+            ssaDaysUsed.add(d);
+            morningHoursNeeded--;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Clear remaining hours on all ssa subjects
+  ssaSubjects.forEach((s) => {
+    remaining.set(s.id, 0);
+  });
+}
+
+
 async function generateYear2Timetable({
   subjects,
   rawSubjects,
@@ -1545,14 +2224,23 @@ async function generateYear2Timetable({
     customLabel?: string
   ): boolean => {
     if (grid[d][p] !== null) return false;
+    // CRITICAL: Strictly prevent 3 consecutive hours of the same theory subject
+    if (!isLab && subject.type !== 'lab') {
+      if (wouldCreateThreeConsecutiveTheory(grid, d, p, subject)) return false;
+      if (countSubjectHoursOnDay(grid, d, subject) >= 2) return false;
+    }
+    let allocatedFacId: string | undefined = undefined;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section, { mode: 'force' });
+      if (!fac.success) {
+        return false;
+      }
+      allocatedFacId = fac.facultyId;
+    }
     const label = /library/i.test(subject.name) ? "Library" : (customLabel || subject.name);
     grid[d][p] = label;
-    console.log(`[PLACE ${section || '?'}] Day ${DAYS[d]} P${p + 1}: "${label}" (subjId: ${subject.id})`);
-    if (ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section);
-      if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
-      }
+    if (ctx.facultyMap && allocatedFacId) {
+      allocateFacultyToSlot(allocatedFacId, d, p, ctx.facultyMap, isLab ? 'lab' : 'theory');
     }
     remaining.set(subject.id, Math.max(0, (remaining.get(subject.id) || 1) - 1));
     return true;
@@ -1854,131 +2542,9 @@ async function generateYear2Timetable({
   }
 
   // 4. SOFT SKILLS AND APTITUDE
-  // Exactly 4 hours total split as:
-  // - A: 2 hours strictly before afternoon (p=0..3) on 2 different weekdays
-  // - S: 1 hour strictly before afternoon (p=0..3) on a weekday
-  // - V: 1 hour strictly as 5th hour (p=4) of a weekday
-  const ssaSubjects = subjects.filter(isYear2SoftSkillOrAptitude);
-  const mainSsa = ssaSubjects[0];
-  if (mainSsa) {
-    const ssaA = ssaSubjects.find((s) => /\(A\)/i.test(s.name) || /\bSSA.*A\b/i.test(s.name)) || mainSsa;
-    const ssaV = ssaSubjects.find((s) => /\(V\)/i.test(s.name) || /\bSSA.*V\b/i.test(s.name)) || mainSsa;
-    const ssaS = ssaSubjects.find((s) => /\([SS]{1,2}\)/i.test(s.name) || /\bSSA.*S\b/i.test(s.name)) || mainSsa;
-
-    const ssaLabelBase = /II\b|2/i.test(mainSsa.name || '') || /II\b|2/i.test(mainSsa.abbreviation || '') ? "SSA-II" : "SSA-I";
-    const aLabel = ssaA?.name && /\(A\)/i.test(ssaA.name) ? ssaA.name : `${ssaLabelBase}(A)`;
-    const sLabel = ssaS?.name && /\([SS]{1,2}\)/i.test(ssaS.name) ? ssaS.name : `${ssaLabelBase}(S)`;
-    const vLabel = ssaV?.name && /\(V\)/i.test(ssaV.name) ? ssaV.name : `${ssaLabelBase}(V)`;
-
-    const ssaDaysUsed = new Set<number>();
-
-    // 4a. Place Verbal: 1 hr strictly 5th hr (p=4) on a weekday
-    const freeVWeekdays = shuffle([0, 1, 2, 3, 4].filter((d) => grid[d][4] === null));
-    let chosenVDay = -1;
-    for (const d of freeVWeekdays) {
-      if (ctx.facultyMap) {
-        const fac = findAvailableFacultyForSlot(ssaV.id, d, 4, ctx.facultyMap, false, year, section);
-        if (fac.success) {
-          chosenVDay = d;
-          break;
-        }
-      } else {
-        chosenVDay = d;
-        break;
-      }
-    }
-    if (chosenVDay === -1 && freeVWeekdays.length > 0) chosenVDay = freeVWeekdays[0];
-    if (chosenVDay !== -1) {
-      placeSlot(chosenVDay, 4, ssaV, false, vLabel);
-      ssaDaysUsed.add(chosenVDay);
-    } else {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        const freeP = [1, 2, 3, 4].find((p) => grid[d][p] === null);
-        if (freeP !== undefined) {
-          placeSlot(d, freeP, ssaV, false, vLabel);
-          ssaDaysUsed.add(d);
-          break;
-        }
-      }
-    }
-
-    // 4b. Place Aptitude: 2 hrs before afternoon (p=0..3) on 2 different weekdays
-    let placedAHours = 0;
-    const aCandidateDays = shuffle([0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d) && [0, 1, 2, 3].some((p) => grid[d][p] === null)));
-    for (const d of aCandidateDays) {
-      if (placedAHours >= 2) break;
-      const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-      let chosenP = -1;
-      for (const p of freePeriods) {
-        if (ctx.facultyMap) {
-          const fac = findAvailableFacultyForSlot(ssaA.id, d, p, ctx.facultyMap, false, year, section);
-          if (fac.success) {
-            chosenP = p;
-            break;
-          }
-        } else {
-          chosenP = p;
-          break;
-        }
-      }
-      if (chosenP === -1 && freePeriods.length > 0) chosenP = freePeriods[0];
-      if (chosenP !== -1) {
-        placeSlot(d, chosenP, ssaA, false, aLabel);
-        ssaDaysUsed.add(d);
-        placedAHours++;
-      }
-    }
-    if (placedAHours < 2) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        if (placedAHours >= 2) break;
-        const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-        if (freePeriods.length > 0) {
-          placeSlot(d, freePeriods[0], ssaA, false, aLabel);
-          placedAHours++;
-        }
-      }
-    }
-
-    // 4c. Place Soft Skills: 1 hr before afternoon (p=0..3) on a weekday
-    const sCandidateDays = shuffle([0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d) && [0, 1, 2, 3].some((p) => grid[d][p] === null)));
-    let placedS = false;
-    for (const d of sCandidateDays) {
-      const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-      let chosenP = -1;
-      for (const p of freePeriods) {
-        if (ctx.facultyMap) {
-          const fac = findAvailableFacultyForSlot(ssaS.id, d, p, ctx.facultyMap, false, year, section);
-          if (fac.success) {
-            chosenP = p;
-            break;
-          }
-        } else {
-          chosenP = p;
-          break;
-        }
-      }
-      if (chosenP === -1 && freePeriods.length > 0) chosenP = freePeriods[0];
-      if (chosenP !== -1) {
-        placeSlot(d, chosenP, ssaS, false, sLabel);
-        ssaDaysUsed.add(d);
-        placedS = true;
-        break;
-      }
-    }
-    if (!placedS) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        const freeP = [0, 1, 2, 3].find((p) => grid[d][p] === null);
-        if (freeP !== undefined) {
-          placeSlot(d, freeP, ssaS, false, sLabel);
-          break;
-        }
-      }
-    }
-
-    for (const s of ssaSubjects) {
-      remaining.set(s.id, 0);
-    }
-  }
+  // Exactly 4 hours total: 1 hr in 5th hr (p=4) on a weekday + 3 hrs in morning (p=0..3) across 3 other weekdays
+  // Single unified name (no (A), (S), (V) splits)
+  placeUnifiedSoftSkills(grid, subjects, remaining, ctx, year || 'II', section || 'A', placeSlot, isYear2SoftSkillOrAptitude);
 
   // 5. NPTEL
   // 1 hr on 1 day and 1 hr on another day (preferred) OR 2 hrs continuous.
@@ -2017,7 +2583,8 @@ async function generateYear2Timetable({
     }
 
     // Split placement: 1 hr per day on distinct weekdays in allowed periods
-    while (needed > 0) {
+    let nptelGuard = 20;
+    while (needed > 0 && nptelGuard-- > 0) {
       let placedSingle = false;
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (grid[d].some((c) => c === nptelSubj.name)) continue;
@@ -2069,75 +2636,143 @@ async function generateYear2Timetable({
     )
   );
 
+  // 6a. Lab Hours Placement Preference:
+  // "next if for lab hr faculties can take 3 to 4 hrs continuously but it not issue bcoz morning 2 hrs assign any theory subject if last 3 hrs are lab
+  // next assign 1st hr any theory for any class then yo assign last 4 hrs as lab"
+  for (let d = 0; d < 5; d++) {
+    const has4HrLab = grid[d][3] !== null && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][3]));
+    const has3HrLab = !has4HrLab && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][4]));
+
+    const targetMorningPeriods = has4HrLab ? [0] : has3HrLab ? [0, 1] : [];
+    for (const p of targetMorningPeriods) {
+      if (grid[d][p] === null) {
+        const cand = otherTheory.find((s) => (remaining.get(s.id) || 0) > 0 &&
+          (!ctx.facultyMap || findAvailableFacultyForSlot(s.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success)
+        );
+        if (cand) {
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
   // Multi-pass placement into empty cells on weekdays
-  // Pass 1: Strict (max 1 hr per day, faculty must be free)
+  // Pass 1: Strict (max 1 hr per day, professors before afternoon, faculty must be free and well-spaced)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].some((c) => c === subj.name)) continue;
 
-      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-        if (grid[d][p] === null) {
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free)
+  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free, max 2 consecutive hours)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].filter((c) => c === subj.name).length >= 2) continue;
 
-      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-        if (grid[d][p] === null) {
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'relaxed' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
+  // Pass 3: Force (place remaining subject hours while strictly avoiding cross-class double-booking)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4, 5], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
-      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-        if (grid[d][p] === null) {
-          placeSlot(d, p, subj);
-          rem = remaining.get(subj.id) || 0;
-          if (rem <= 0) break;
+      if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = true;
+          if (ctx.facultyMap) {
+            facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+          }
+          if (facOk) {
+            if (placeSlot(d, p, subj)) {
+              rem = remaining.get(subj.id) || 0;
+              break;
+            }
+          }
         }
       }
     }
@@ -2149,13 +2784,21 @@ async function generateYear2Timetable({
     for (let p = 0; p < PERIODS; p++) {
       if (grid[d][p] === null) {
         const underAllocated = subjects.filter(
-          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+          (s) => (remaining.get(s.id) || 0) > 0 &&
+                 s.type !== "lab" &&
+                 s.type !== "open elective" &&
+                 !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+                 countSubjectHoursOnDay(grid, d, s) < 2
         );
         if (underAllocated.length > 0) {
-          const cand = underAllocated.sort(
+          const sortedCands = underAllocated.sort(
             (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-          )[0];
-          placeSlot(d, p, cand);
+          );
+          for (const cand of sortedCands) {
+            if (placeSlot(d, p, cand)) {
+              break;
+            }
+          }
         }
       }
     }
@@ -2171,6 +2814,8 @@ async function generateYear2Timetable({
   }
 
   // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
@@ -2235,13 +2880,23 @@ async function generateYear2EvenTimetable({
     customLabel?: string
   ): boolean => {
     if (grid[d][p] !== null) return false;
+    // CRITICAL: Strictly prevent 3 consecutive hours of the same theory subject
+    if (!isLab && subject.type !== 'lab') {
+      if (wouldCreateThreeConsecutiveTheory(grid, d, p, subject)) return false;
+      if (countSubjectHoursOnDay(grid, d, subject) >= 2) return false;
+    }
+    let allocatedFacId: string | undefined = undefined;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section, { mode: 'force' });
+      if (!fac.success) {
+        return false;
+      }
+      allocatedFacId = fac.facultyId;
+    }
     const label = /library/i.test(subject.name) ? "Library" : (customLabel || subject.name);
     grid[d][p] = label;
-    if (ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section);
-      if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
-      }
+    if (ctx.facultyMap && allocatedFacId) {
+      allocateFacultyToSlot(allocatedFacId, d, p, ctx.facultyMap, isLab ? 'lab' : 'theory');
     }
     remaining.set(subject.id, Math.max(0, (remaining.get(subject.id) || 1) - 1));
     return true;
@@ -2481,162 +3136,15 @@ async function generateYear2EvenTimetable({
   }
 
   // ── 4. SOFTSKILL AND APTITUDE II (SSA II) ──────────────────────────────────
-  // 4 hrs total split as:
-  // - SSA-II(V): 1 hr strictly 5th hr (p=4) of any weekday
-  // - SSA-II(A): 2 hrs strictly before afternoon (p=0..3) on 2 different weekdays
-  // - SSA-II(S): 1 hr strictly before afternoon (p=0..3) on a weekday
-  const ssaSubjects = subjects.filter(isYear2SoftSkillOrAptitude);
-  const mainSsa = ssaSubjects[0];
-  const ssaA = ssaSubjects.find((s) => /\(A\)/i.test(s.name) || /\bSSA.*A\b/i.test(s.name)) || mainSsa;
-  const ssaV = ssaSubjects.find((s) => /\(V\)/i.test(s.name) || /\bSSA.*V\b/i.test(s.name)) || mainSsa;
-  const ssaS = ssaSubjects.find((s) => /\([SS]{1,2}\)/i.test(s.name) || /\bSSA.*S\b/i.test(s.name)) || mainSsa;
-
-  if (mainSsa) {
-    const ssaDaysUsed = new Set<number>();
-
-    // 4a. Place SSA-II(V) as 5th hr (p=4) on a weekday
-    const vLabel = ssaV?.name && /\(V\)/i.test(ssaV.name) ? ssaV.name : "SSA-II(V)";
-    const freeVWeekdays = shuffle([0, 1, 2, 3, 4].filter((d) => grid[d][4] === null));
-    let chosenVDay = -1;
-    for (const d of freeVWeekdays) {
-      if (ctx.facultyMap) {
-        const fac = findAvailableFacultyForSlot(ssaV.id, d, 4, ctx.facultyMap, false, year, section);
-        if (fac.success) {
-          chosenVDay = d;
-          break;
-        }
-      } else {
-        chosenVDay = d;
-        break;
-      }
-    }
-    if (chosenVDay === -1 && freeVWeekdays.length > 0) chosenVDay = freeVWeekdays[0];
-    if (chosenVDay !== -1) {
-      placeSlot(chosenVDay, 4, ssaV, false, vLabel);
-      ssaDaysUsed.add(chosenVDay);
-    } else {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        const freeP = [4, 1, 2, 3, 0].find((p) => grid[d][p] === null);
-        if (freeP !== undefined) {
-          placeSlot(d, freeP, ssaV, false, vLabel);
-          ssaDaysUsed.add(d);
-          break;
-        }
-      }
-    }
-
-    // 4b. Place SSA-II(A) for 2 hrs before afternoon (p=0..3) on 2 different weekdays
-    const aLabel = ssaA?.name && /\(A\)/i.test(ssaA.name) ? ssaA.name : "SSA-II(A)";
-    let placedAHours = 0;
-    const aCandidateDays = shuffle([0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d) && [0, 1, 2, 3].some((p) => grid[d][p] === null)));
-    for (const d of aCandidateDays) {
-      if (placedAHours >= 2) break;
-
-      const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-      let chosenP = -1;
-      for (const p of freePeriods) {
-        if (ctx.facultyMap) {
-          const fac = findAvailableFacultyForSlot(ssaA.id, d, p, ctx.facultyMap, false, year, section);
-          if (fac.success) {
-            chosenP = p;
-            break;
-          }
-        } else {
-          chosenP = p;
-          break;
-        }
-      }
-      if (chosenP === -1 && freePeriods.length > 0) chosenP = freePeriods[0];
-      if (chosenP !== -1) {
-        placeSlot(d, chosenP, ssaA, false, aLabel);
-        ssaDaysUsed.add(d);
-        placedAHours++;
-      }
-    }
-    if (placedAHours < 2) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        if (placedAHours >= 2) break;
-        if (ssaDaysUsed.has(d)) continue;
-        const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-        if (freePeriods.length > 0) {
-          placeSlot(d, freePeriods[0], ssaA, false, aLabel);
-          ssaDaysUsed.add(d);
-          placedAHours++;
-        }
-      }
-    }
-    if (placedAHours < 2) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        if (placedAHours >= 2) break;
-        const freePeriods = shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
-        if (freePeriods.length > 0) {
-          placeSlot(d, freePeriods[0], ssaA, false, aLabel);
-          placedAHours++;
-        }
-      }
-    }
-
-    // 4c. Place SSA-II(S) for 1 hr before afternoon (p=0..3) on a weekday
-    const sLabel = ssaS?.name && /\([SS]{1,2}\)/i.test(ssaS.name) ? ssaS.name : "SSA-II(S)";
-    const sCandidateDays = shuffle([0, 1, 2, 3, 4].filter((d) => !ssaDaysUsed.has(d) && [0, 1, 2, 3].some((p) => grid[d][p] === null)));
-    let placedS = false;
-    for (const d of sCandidateDays) {
-      const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-      let chosenP = -1;
-      for (const p of freePeriods) {
-        if (ctx.facultyMap) {
-          const fac = findAvailableFacultyForSlot(ssaS.id, d, p, ctx.facultyMap, false, year, section);
-          if (fac.success) {
-            chosenP = p;
-            break;
-          }
-        } else {
-          chosenP = p;
-          break;
-        }
-      }
-      if (chosenP === -1 && freePeriods.length > 0) chosenP = freePeriods[0];
-      if (chosenP !== -1) {
-        placeSlot(d, chosenP, ssaS, false, sLabel);
-        ssaDaysUsed.add(d);
-        placedS = true;
-        break;
-      }
-    }
-    if (!placedS) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        if (ssaDaysUsed.has(d)) continue;
-        const freePeriods = shuffle([0, 1, 2, 3].filter((p) => grid[d][p] === null));
-        if (freePeriods.length > 0) {
-          placeSlot(d, freePeriods[0], ssaS, false, sLabel);
-          ssaDaysUsed.add(d);
-          placedS = true;
-          break;
-        }
-      }
-    }
-    if (!placedS) {
-      for (const d of shuffle([0, 1, 2, 3, 4])) {
-        const freePeriods = shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
-        if (freePeriods.length > 0) {
-          placeSlot(d, freePeriods[0], ssaS, false, sLabel);
-          placedS = true;
-          break;
-        }
-      }
-    }
-
-    for (const s of ssaSubjects) {
-      remaining.set(s.id, 0);
-    }
-  }
+  placeUnifiedSoftSkills(grid, subjects, remaining, ctx, year || 'II', section || 'A', placeSlot, isYear2SoftSkillOrAptitude);
 
   // ── 5. NPTEL (if present) ─────────────────────────────────────────────────
   const nptelSubj = subjects.find(isYear2NPTEL);
   if (nptelSubj) {
     let needed = remaining.get(nptelSubj.id) || 0;
     const allowedPeriods = [0, 1, 2, 5, 6];
-    while (needed > 0) {
+    let nptelGuard = 20;
+    while (needed > 0 && nptelGuard-- > 0) {
       let placedSingle = false;
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (grid[d].some((c) => c === nptelSubj.name)) continue;
@@ -2683,74 +3191,127 @@ async function generateYear2EvenTimetable({
     )
   );
 
-  otherTheory.sort((a, b) => {
-    const aProf = isProfSubj(a) ? 1 : 0;
-    const bProf = isProfSubj(b) ? 1 : 0;
-    return bProf - aProf;
-  });
+  // 6a. Lab Hours Placement Preference:
+  // "next if for lab hr faculties can take 3 to 4 hrs continuously but it not issue bcoz morning 2 hrs assign any theory subject if last 3 hrs are lab
+  // next assign 1st hr any theory for any class then yo assign last 4 hrs as lab"
+  for (let d = 0; d < 5; d++) {
+    const has4HrLab = grid[d][3] !== null && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][3]));
+    const has3HrLab = !has4HrLab && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][4]));
 
-  // Pass 1: Strict (max 1 hr per day on weekdays, faculty free)
+    const targetMorningPeriods = has4HrLab ? [0] : has3HrLab ? [0, 1] : [];
+    for (const p of targetMorningPeriods) {
+      if (grid[d][p] === null) {
+        const cand = otherTheory.find((s) => (remaining.get(s.id) || 0) > 0 &&
+          (!ctx.facultyMap || findAvailableFacultyForSlot(s.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success)
+        );
+        if (cand) {
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
+  // Pass 1: Strict (max 1 hr per day on weekdays, professors before afternoon, faculty well-spaced)
   for (const subj of otherTheory) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].some((c) => c === subj.name)) continue;
 
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section).success;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success;
           if (facOk) {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
+            if (placeSlot(d, p, subj)) {
+              rem--;
+              break;
+            }
           }
         }
       }
     }
   }
 
-  // Pass 2: Relaxed (allow 2nd hr per day, faculty free)
+  // Pass 2: Relaxed (allow 2nd hr per day, faculty free, max 2 consecutive hours)
   for (const subj of otherTheory) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].filter((c) => c === subj.name).length >= 2) continue;
 
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section).success;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'relaxed' }).success;
           if (facOk) {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
+            if (placeSlot(d, p, subj)) {
+              rem--;
+              break;
+            }
           }
         }
       }
     }
   }
 
-  // Pass 3: Force (place remaining subject hours)
+  // Pass 3: Force (place remaining subject hours while avoiding cross-class conflicts)
   for (const subj of otherTheory) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          placeSlot(d, p, subj);
-          rem = remaining.get(subj.id) || 0;
-          if (rem <= 0) break;
+      if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+          if (facOk) {
+            if (placeSlot(d, p, subj)) {
+              rem = remaining.get(subj.id) || 0;
+              break;
+            }
+          }
         }
       }
     }
@@ -2758,11 +3319,16 @@ async function generateYear2EvenTimetable({
     if (rem > 0) {
       for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
         if (rem <= 0) break;
-        for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-          if (grid[d][p] === null) {
-            placeSlot(d, p, subj);
-            rem = remaining.get(subj.id) || 0;
-            if (rem <= 0) break;
+        if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+        for (const p of [0, 1, 2, 3, 4, 5, 6]) {
+          if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+            let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+            if (facOk) {
+              if (placeSlot(d, p, subj)) {
+                rem = remaining.get(subj.id) || 0;
+                break;
+              }
+            }
           }
         }
       }
@@ -2776,13 +3342,19 @@ async function generateYear2EvenTimetable({
         const underAllocated = subjects.filter(
           (s) => (remaining.get(s.id) || 0) > 0 &&
                  s.type !== "lab" &&
-                 s.type !== "open elective"
+                 s.type !== "open elective" &&
+                 !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+                 countSubjectHoursOnDay(grid, d, s) < 2
         );
         if (underAllocated.length > 0) {
-          const cand = underAllocated.sort(
+          const sortedCands = underAllocated.sort(
             (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-          )[0];
-          placeSlot(d, p, cand);
+          );
+          for (const cand of sortedCands) {
+            if (placeSlot(d, p, cand)) {
+              break;
+            }
+          }
         }
       }
     }
@@ -2797,6 +3369,8 @@ async function generateYear2EvenTimetable({
   }
 
   // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
@@ -2905,14 +3479,24 @@ async function generateYear3Timetable({
     customLabel?: string
   ): boolean => {
     if (grid[d][p] !== null) return false;
+    // CRITICAL: Strictly prevent 3 consecutive hours of the same theory subject
+    if (!isLab && subject.type !== 'lab') {
+      if (wouldCreateThreeConsecutiveTheory(grid, d, p, subject)) return false;
+      if (countSubjectHoursOnDay(grid, d, subject) >= 2) return false;
+    }
+    let allocatedFacId: string | undefined = undefined;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section, { mode: 'force' });
+      if (!fac.success) {
+        return false;
+      }
+      allocatedFacId = fac.facultyId;
+    }
     const label = /library/i.test(subject.name) ? "Library" : (customLabel || subject.name);
     grid[d][p] = label;
     console.log(`[PLACE Y3 ${section || '?'}] Day ${DAYS[d]} P${p + 1}: "${label}" (subjId: ${subject.id})`);
-    if (ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section);
-      if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
-      }
+    if (ctx.facultyMap && allocatedFacId) {
+      allocateFacultyToSlot(allocatedFacId, d, p, ctx.facultyMap, isLab ? 'lab' : 'theory');
     }
     remaining.set(subject.id, Math.max(0, (remaining.get(subject.id) || 1) - 1));
     return true;
@@ -3087,10 +3671,12 @@ async function generateYear3Timetable({
             .map((c, p) => ({ cell: c, p }))
             .filter((item) => item.cell && isSameSubject(item.cell, lab.name));
           if (placedOnDay.length > 0) {
-            const maxP = Math.max(...placedOnDay.map((x) => x.p));
-            while (rem > 0 && maxP + 1 < PERIODS && grid[d][maxP + 1] === null) {
-              placeSlot(d, maxP + 1, lab, true);
+            let nextP = Math.max(...placedOnDay.map((x) => x.p)) + 1;
+            while (rem > 0 && nextP < PERIODS && grid[d][nextP] === null) {
+              const placed = placeSlot(d, nextP, lab, true);
+              if (!placed) break;
               rem = remaining.get(lab.id) || 0;
+              nextP++;
             }
           }
         }
@@ -3196,27 +3782,36 @@ async function generateYear3Timetable({
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (dayHasLab(d)) continue;
         if (hoursNeeded === 4 && grid[d][3] === null && grid[d][4] === null && grid[d][5] === null && grid[d][6] === null) {
-          for (let p = 3; p <= 6; p++) placeSlot(d, p, lab, true);
-          dayUsedForLab.add(d);
-          remaining.set(lab.id, 0);
-          placed = true;
-          break;
+          let facOk = !ctx.facultyMap || [3, 4, 5, 6].every(p => findAvailableFacultyForSlot(lab.id, d, p, ctx.facultyMap!, true, year, section).success);
+          if (facOk) {
+            for (let p = 3; p <= 6; p++) placeSlot(d, p, lab, true);
+            dayUsedForLab.add(d);
+            remaining.set(lab.id, 0);
+            placed = true;
+            break;
+          }
         } else if (hoursNeeded === 3 && grid[d][4] === null && grid[d][5] === null && grid[d][6] === null) {
-          for (let p = 4; p <= 6; p++) placeSlot(d, p, lab, true);
-          dayUsedForLab.add(d);
-          remaining.set(lab.id, 0);
-          placed = true;
-          break;
+          let facOk = !ctx.facultyMap || [4, 5, 6].every(p => findAvailableFacultyForSlot(lab.id, d, p, ctx.facultyMap!, true, year, section).success);
+          if (facOk) {
+            for (let p = 4; p <= 6; p++) placeSlot(d, p, lab, true);
+            dayUsedForLab.add(d);
+            remaining.set(lab.id, 0);
+            placed = true;
+            break;
+          }
         } else if (hoursNeeded === 2) {
           const candidateBlocks = shuffle([[0, 1], [2, 3], [5, 6]]);
           for (const [p1, p2] of candidateBlocks) {
             if (grid[d][p1] === null && grid[d][p2] === null) {
-              placeSlot(d, p1, lab, true);
-              placeSlot(d, p2, lab, true);
-              dayUsedForLab.add(d);
-              remaining.set(lab.id, 0);
-              placed = true;
-              break;
+              let facOk = !ctx.facultyMap || (findAvailableFacultyForSlot(lab.id, d, p1, ctx.facultyMap!, true, year, section).success && findAvailableFacultyForSlot(lab.id, d, p2, ctx.facultyMap!, true, year, section).success);
+              if (facOk) {
+                placeSlot(d, p1, lab, true);
+                placeSlot(d, p2, lab, true);
+                dayUsedForLab.add(d);
+                remaining.set(lab.id, 0);
+                placed = true;
+                break;
+              }
             }
           }
           if (placed) break;
@@ -3228,39 +3823,7 @@ async function generateYear3Timetable({
   // 3. NO AUDIT COURSE (strictly not scheduled for 3rd year)
 
   // 4. SOFT SKILLS AND APTITUDE
-  // Exactly 1 hour per day, on weekdays only, 4 hours total
-  // Strictly NOT in 1st hr (p=0), 6th hr (p=5), or 7th hr (p=6) -> allowed: [1, 2, 3, 4]
-  const ssaSubjects = subjects.filter(isYear3SoftSkillOrAptitude);
-  const eligibleDays = shuffle(
-    [0, 1, 2, 3, 4].filter((d) => [1, 2, 3, 4].some((p) => grid[d][p] === null))
-  );
-  const ssaDays = eligibleDays.slice(0, 4).sort((a, b) => a - b);
-
-  for (const d of ssaDays) {
-    const activeSsa = ssaSubjects.find((s) => (remaining.get(s.id) || 0) > 0) || ssaSubjects[0];
-    if (!activeSsa) break;
-
-    const candidatePeriods = shuffle([1, 2, 3, 4].filter((p) => grid[d][p] === null));
-    let chosenPeriod = -1;
-    for (const p of candidatePeriods) {
-      if (ctx.facultyMap) {
-        const fac = findAvailableFacultyForSlot(activeSsa.id, d, p, ctx.facultyMap, false);
-        if (fac.success) {
-          chosenPeriod = p;
-          break;
-        }
-      } else {
-        chosenPeriod = p;
-        break;
-      }
-    }
-    if (chosenPeriod === -1 && candidatePeriods.length > 0) {
-      chosenPeriod = candidatePeriods[0];
-    }
-    if (chosenPeriod !== -1) {
-      placeSlot(d, chosenPeriod, activeSsa);
-    }
-  }
+  placeUnifiedSoftSkills(grid, subjects, remaining, ctx, year || 'III', section || 'A', placeSlot, isYear3SoftSkillOrAptitude);
 
   // 5. NPTEL
   // 1 hr on 1 day and 1 hr on another day (preferred) OR 2 hrs continuous.
@@ -3298,7 +3861,8 @@ async function generateYear3Timetable({
     }
 
     // Split placement: 1 hr per day on distinct weekdays in allowed periods
-    while (needed > 0) {
+    let nptelGuard = 20;
+    while (needed > 0 && nptelGuard-- > 0) {
       let placedSingle = false;
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (grid[d].some((c) => c === nptelSubj.name)) continue;
@@ -3350,83 +3914,163 @@ async function generateYear3Timetable({
     )
   );
 
+  // 6a. Lab Hours Placement Preference:
+  // "next if for lab hr faculties can take 3 to 4 hrs continuously but it not issue bcoz morning 2 hrs assign any theory subject if last 3 hrs are lab
+  // next assign 1st hr any theory for any class then yo assign last 4 hrs as lab"
+  for (let d = 0; d < 5; d++) {
+    const has4HrLab = grid[d][3] !== null && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][3]));
+    const has3HrLab = !has4HrLab && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][4]));
+
+    const targetMorningPeriods = has4HrLab ? [0] : has3HrLab ? [0, 1] : [];
+    for (const p of targetMorningPeriods) {
+      if (grid[d][p] === null) {
+        const cand = otherTheory.find((s) => (remaining.get(s.id) || 0) > 0 &&
+          (!ctx.facultyMap || findAvailableFacultyForSlot(s.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success)
+        );
+        if (cand) {
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
   // Multi-pass placement into empty cells on weekdays
-  // Pass 1: Strict (max 1 hr per day, faculty must be free)
+  // Pass 1: Strict (max 1 hr per day, professors before afternoon, faculty must be free and well-spaced)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].some((c) => c === subj.name)) continue;
 
-      const candidatePeriods = facultyBeforeAfternoon
-        ? [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null)
-        : shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
 
       for (const p of candidatePeriods) {
-        if (grid[d][p] === null) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free)
+  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free, max 2 consecutive hours)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].filter((c) => c === subj.name).length >= 2) continue;
 
-      const candidatePeriods = facultyBeforeAfternoon
-        ? [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null)
-        : shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
 
       for (const p of candidatePeriods) {
-        if (grid[d][p] === null) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'relaxed' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
+  // Pass 3: Force (place remaining subject hours while avoiding cross-class double-booking)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4, 5], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
-      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-        if (grid[d][p] === null) {
-          placeSlot(d, p, subj);
-          rem = remaining.get(subj.id) || 0;
-          if (rem <= 0) break;
+      if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = true;
+          if (ctx.facultyMap) {
+            facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+          }
+          if (facOk) {
+            if (placeSlot(d, p, subj)) {
+              rem = remaining.get(subj.id) || 0;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (rem > 0) {
+      for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
+        if (rem <= 0) break;
+        if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+        for (const p of [0, 1, 2, 3, 4, 5, 6]) {
+          if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+            let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+            if (facOk) {
+              if (placeSlot(d, p, subj)) {
+                rem = remaining.get(subj.id) || 0;
+                break;
+              }
+            }
+          }
         }
       }
     }
@@ -3438,13 +4082,21 @@ async function generateYear3Timetable({
     for (let p = 0; p < PERIODS; p++) {
       if (grid[d][p] === null) {
         const underAllocated = subjects.filter(
-          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+          (s) => (remaining.get(s.id) || 0) > 0 &&
+                 s.type !== "lab" &&
+                 s.type !== "open elective" &&
+                 !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+                 countSubjectHoursOnDay(grid, d, s) < 2
         );
         if (underAllocated.length > 0) {
-          const cand = underAllocated.sort(
+          const sortedCands = underAllocated.sort(
             (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-          )[0];
-          placeSlot(d, p, cand);
+          );
+          for (const cand of sortedCands) {
+            if (placeSlot(d, p, cand)) {
+              break;
+            }
+          }
         }
       }
     }
@@ -3460,6 +4112,8 @@ async function generateYear3Timetable({
   }
 
   // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
@@ -3522,13 +4176,23 @@ async function generateYear3EvenTimetable({
     customLabel?: string
   ): boolean => {
     if (grid[d][p] !== null) return false;
+    // CRITICAL: Strictly prevent 3 consecutive hours of the same theory subject
+    if (!isLab && subject.type !== 'lab') {
+      if (wouldCreateThreeConsecutiveTheory(grid, d, p, subject)) return false;
+      if (countSubjectHoursOnDay(grid, d, subject) >= 2) return false;
+    }
+    let allocatedFacId: string | undefined = undefined;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section, { mode: 'force' });
+      if (!fac.success) {
+        return false;
+      }
+      allocatedFacId = fac.facultyId;
+    }
     const label = /library/i.test(subject.name) ? "Library" : (customLabel || subject.name);
     grid[d][p] = label;
-    if (ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section);
-      if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
-      }
+    if (ctx.facultyMap && allocatedFacId) {
+      allocateFacultyToSlot(allocatedFacId, d, p, ctx.facultyMap, isLab ? 'lab' : 'theory');
     }
     remaining.set(subject.id, Math.max(0, (remaining.get(subject.id) || 1) - 1));
     return true;
@@ -3548,6 +4212,14 @@ async function generateYear3EvenTimetable({
   grid[5][1] = oeLabel;
   if (oeSubj) {
     remaining.set(oeSubj.id, Math.max(0, (remaining.get(oeSubj.id) || oeSubj.hoursPerWeek) - 2));
+    if (ctx.facultyMap) {
+      for (const p of [0, 1]) {
+        const fac = findAvailableFacultyForSlot(oeSubj.id, 5, p, ctx.facultyMap, false, year, section, { mode: 'force' });
+        if (fac.success && fac.facultyId) {
+          allocateFacultyToSlot(fac.facultyId, 5, p, ctx.facultyMap, 'theory');
+        }
+      }
+    }
   }
 
   grid[5][2] = "Seminar";
@@ -3557,10 +4229,10 @@ async function generateYear3EvenTimetable({
   grid[5][6] = "Counselling";
 
   if (ctx.classCounselorInfo?.id && ctx.facultyMap) {
-    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 2, ctx.facultyMap);
-    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 3, ctx.facultyMap);
-    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 5, ctx.facultyMap);
-    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 6, ctx.facultyMap);
+    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 2, ctx.facultyMap, 'special');
+    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 3, ctx.facultyMap, 'special');
+    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 5, ctx.facultyMap, 'special');
+    allocateFacultyToSlot(ctx.classCounselorInfo.id, 5, 6, ctx.facultyMap, 'special');
   }
 
   // ── 2. OPEN ELECTIVE (REMAINING 3 HRS ON MON, WED, FRI 1ST HR) ──────────────
@@ -3569,6 +4241,14 @@ async function generateYear3EvenTimetable({
   grid[4][0] = oeLabel;
   if (oeSubj) {
     remaining.set(oeSubj.id, Math.max(0, (remaining.get(oeSubj.id) || 0) - 3));
+    if (ctx.facultyMap) {
+      for (const d of [0, 2, 4]) {
+        const fac = findAvailableFacultyForSlot(oeSubj.id, d, 0, ctx.facultyMap, false, year, section, { mode: 'force' });
+        if (fac.success && fac.facultyId) {
+          allocateFacultyToSlot(fac.facultyId, d, 0, ctx.facultyMap, 'theory');
+        }
+      }
+    }
   }
 
   // ── 3. LABS ────────────────────────────────────────────────────────────────
@@ -3717,26 +4397,15 @@ async function generateYear3EvenTimetable({
 
 
   // ── 5. SOFT SKILLS & APTITUDE (IF PRESENT) ────────────────────────────────
-  const ssaSubjects = subjects.filter(isYear3SoftSkillOrAptitude);
-  if (ssaSubjects.length > 0) {
-    const activeSsa = ssaSubjects[0];
-    let needed = remaining.get(activeSsa.id) || activeSsa.hoursPerWeek;
-    for (const d of shuffle([0, 1, 2, 3, 4])) {
-      if (needed <= 0) break;
-      const candidatePeriods = shuffle([1, 2, 3, 4].filter((p) => grid[d][p] === null));
-      if (candidatePeriods.length > 0) {
-        placeSlot(d, candidatePeriods[0], activeSsa);
-        needed--;
-      }
-    }
-  }
+  placeUnifiedSoftSkills(grid, subjects, remaining, ctx, year || 'III', section || 'A', placeSlot, isYear3SoftSkillOrAptitude);
 
   // ── 6. NPTEL (IF PRESENT) ─────────────────────────────────────────────────
   const nptelSubj = subjects.find(isYear3NPTEL);
   if (nptelSubj) {
     let needed = remaining.get(nptelSubj.id) || 0;
     const allowedPeriods = [0, 1, 2, 5, 6];
-    while (needed > 0) {
+    let nptelGuard = 20;
+    while (needed > 0 && nptelGuard-- > 0) {
       let placedSingle = false;
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (grid[d].some((c) => c === nptelSubj.name)) continue;
@@ -3776,24 +4445,57 @@ async function generateYear3EvenTimetable({
     return bProf - aProf;
   });
 
-  // Pass 1: Strict (max 1 hr per day on weekdays, faculty free)
+  // 7a. Lab Hours Placement Preference:
+  // If afternoon has 4hr lab -> morning period 0 theory
+  // If afternoon has 3hr lab -> morning periods 0, 1 theory
+  for (let d = 0; d < 5; d++) {
+    const has4HrLab = grid[d][3] !== null && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][3]));
+    const has3HrLab = !has4HrLab && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][4]));
+
+    const targetMorningPeriods = has4HrLab ? [0] : has3HrLab ? [0, 1] : [];
+    for (const p of targetMorningPeriods) {
+      if (grid[d][p] === null) {
+        const cand = otherTheory.find((s) => (remaining.get(s.id) || 0) > 0 &&
+          (!ctx.facultyMap || findAvailableFacultyForSlot(s.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success)
+        );
+        if (cand) {
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
+  // Pass 1: Strict (max 1 hr per day on weekdays, faculty free & rested)
   for (const subj of otherTheory) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].some((c) => c === subj.name)) continue;
 
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section).success;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success;
           if (facOk) {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
+            if (placeSlot(d, p, subj)) {
+              rem--;
+              break;
+            }
           }
         }
       }
@@ -3805,39 +4507,68 @@ async function generateYear3EvenTimetable({
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].filter((c) => c === subj.name).length >= 2) continue;
 
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section).success;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'relaxed' }).success;
           if (facOk) {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
+            if (placeSlot(d, p, subj)) {
+              rem--;
+              break;
+            }
           }
         }
       }
     }
   }
 
-  // Pass 3: Force (place remaining subject hours)
+  // Pass 3: Force (place remaining subject hours while strictly preventing cross-class double-booking)
   for (const subj of otherTheory) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
     const isProf = isProfSubj(subj);
-    const candidatePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
+    const basePeriods = isProf ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
-      for (const p of shuffle(candidatePeriods)) {
-        if (grid[d][p] === null) {
-          placeSlot(d, p, subj);
-          rem = remaining.get(subj.id) || 0;
-          if (rem <= 0) break;
+      if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = true;
+          if (ctx.facultyMap) {
+            facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+          }
+          if (facOk) {
+            if (placeSlot(d, p, subj)) {
+              rem = remaining.get(subj.id) || 0;
+              break;
+            }
+          }
         }
       }
     }
@@ -3845,11 +4576,28 @@ async function generateYear3EvenTimetable({
     if (rem > 0) {
       for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
         if (rem <= 0) break;
-        for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-          if (grid[d][p] === null) {
-            placeSlot(d, p, subj);
-            rem = remaining.get(subj.id) || 0;
-            if (rem <= 0) break;
+        if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+        const candidatePeriods = sortPeriodsByFacultyRest(
+          [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+          d,
+          subj.id,
+          ctx.facultyMap,
+          year,
+          section,
+          false
+        );
+        for (const p of candidatePeriods) {
+          if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+            let facOk = true;
+            if (ctx.facultyMap) {
+              facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+            }
+            if (facOk) {
+              if (placeSlot(d, p, subj)) {
+                rem = remaining.get(subj.id) || 0;
+                break;
+              }
+            }
           }
         }
       }
@@ -3863,13 +4611,19 @@ async function generateYear3EvenTimetable({
         const underAllocated = subjects.filter(
           (s) => (remaining.get(s.id) || 0) > 0 &&
                  s.type !== "lab" &&
-                 s.type !== "open elective"
+                 s.type !== "open elective" &&
+                 !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+                 countSubjectHoursOnDay(grid, d, s) < 2
         );
         if (underAllocated.length > 0) {
-          const cand = underAllocated.sort(
+          const sortedCands = underAllocated.sort(
             (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-          )[0];
-          placeSlot(d, p, cand);
+          );
+          for (const cand of sortedCands) {
+            if (placeSlot(d, p, cand)) {
+              break;
+            }
+          }
         }
       }
     }
@@ -3884,6 +4638,8 @@ async function generateYear3EvenTimetable({
   }
 
   // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
@@ -4097,14 +4853,24 @@ async function generateYear4Timetable({
     customLabel?: string
   ): boolean => {
     if (grid[d][p] !== null) return false;
+    // CRITICAL: Strictly prevent 3 consecutive hours of the same theory subject
+    if (!isLab && subject.type !== 'lab') {
+      if (wouldCreateThreeConsecutiveTheory(grid, d, p, subject)) return false;
+      if (countSubjectHoursOnDay(grid, d, subject) >= 2) return false;
+    }
+    let allocatedFacId: string | undefined = undefined;
+    if (ctx.facultyMap) {
+      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section, { mode: 'force' });
+      if (!fac.success) {
+        return false;
+      }
+      allocatedFacId = fac.facultyId;
+    }
     const label = /library/i.test(subject.name) ? "Library" : (customLabel || subject.name);
     grid[d][p] = label;
     console.log(`[PLACE Y4 ${section || '?'}] Day ${DAYS[d]} P${p + 1}: "${label}" (subjId: ${subject.id})`);
-    if (ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(subject.id, d, p, ctx.facultyMap, isLab, year, section);
-      if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
-      }
+    if (ctx.facultyMap && allocatedFacId) {
+      allocateFacultyToSlot(allocatedFacId, d, p, ctx.facultyMap, isLab ? 'lab' : 'theory');
     }
     remaining.set(subject.id, Math.max(0, (remaining.get(subject.id) || 1) - 1));
     return true;
@@ -4127,9 +4893,9 @@ async function generateYear4Timetable({
   for (const { d, p } of OE_FIXED_SLOTS) {
     grid[d][p] = oeLabel;
     if (oeSubj && ctx.facultyMap) {
-      const fac = findAvailableFacultyForSlot(oeSubj.id, d, p, ctx.facultyMap, false, year, section);
+      const fac = findAvailableFacultyForSlot(oeSubj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' });
       if (fac.success && fac.facultyId) {
-        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap);
+        allocateFacultyToSlot(fac.facultyId, d, p, ctx.facultyMap, 'theory');
       }
     }
   }
@@ -4327,38 +5093,50 @@ async function generateYear4Timetable({
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (dayHasLab(d)) continue;
         if (hoursNeeded === 4 && grid[d][3] === null && grid[d][4] === null && grid[d][5] === null && grid[d][6] === null) {
-          for (let p = 3; p <= 6; p++) placeSlot(d, p, lab, true);
-          dayUsedForLab.add(d);
-          remaining.set(lab.id, 0);
-          placed = true;
-          break;
+          let facOk = !ctx.facultyMap || [3, 4, 5, 6].every(p => findAvailableFacultyForSlot(lab.id, d, p, ctx.facultyMap!, true, year, section).success);
+          if (facOk) {
+            for (let p = 3; p <= 6; p++) placeSlot(d, p, lab, true);
+            dayUsedForLab.add(d);
+            remaining.set(lab.id, 0);
+            placed = true;
+            break;
+          }
         } else if (hoursNeeded === 3 && grid[d][4] === null && grid[d][5] === null && grid[d][6] === null) {
-          for (let p = 4; p <= 6; p++) placeSlot(d, p, lab, true);
-          dayUsedForLab.add(d);
-          remaining.set(lab.id, 0);
-          placed = true;
-          break;
+          let facOk = !ctx.facultyMap || [4, 5, 6].every(p => findAvailableFacultyForSlot(lab.id, d, p, ctx.facultyMap!, true, year, section).success);
+          if (facOk) {
+            for (let p = 4; p <= 6; p++) placeSlot(d, p, lab, true);
+            dayUsedForLab.add(d);
+            remaining.set(lab.id, 0);
+            placed = true;
+            break;
+          }
         } else if (hoursNeeded === 2) {
           const candidateBlocks = shuffle([[0, 1], [2, 3], [5, 6]]);
           for (const [p1, p2] of candidateBlocks) {
             if (grid[d][p1] === null && grid[d][p2] === null) {
-              placeSlot(d, p1, lab, true);
-              placeSlot(d, p2, lab, true);
-              dayUsedForLab.add(d);
-              remaining.set(lab.id, 0);
-              placed = true;
-              break;
+              let facOk = !ctx.facultyMap || (findAvailableFacultyForSlot(lab.id, d, p1, ctx.facultyMap!, true, year, section).success && findAvailableFacultyForSlot(lab.id, d, p2, ctx.facultyMap!, true, year, section).success);
+              if (facOk) {
+                placeSlot(d, p1, lab, true);
+                placeSlot(d, p2, lab, true);
+                dayUsedForLab.add(d);
+                remaining.set(lab.id, 0);
+                placed = true;
+                break;
+              }
             }
           }
           if (placed) break;
         } else if (hoursNeeded === 1) {
           for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
             if (grid[d][p] === null) {
-              placeSlot(d, p, lab, true);
-              dayUsedForLab.add(d);
-              remaining.set(lab.id, 0);
-              placed = true;
-              break;
+              let facOk = !ctx.facultyMap || findAvailableFacultyForSlot(lab.id, d, p, ctx.facultyMap!, true, year, section).success;
+              if (facOk) {
+                placeSlot(d, p, lab, true);
+                dayUsedForLab.add(d);
+                remaining.set(lab.id, 0);
+                placed = true;
+                break;
+              }
             }
           }
           if (placed) break;
@@ -4368,41 +5146,7 @@ async function generateYear4Timetable({
   }
 
   // 4. SOFT SKILLS AND APTITUDE (if present in 4th year)
-  const ssaSubjects = subjects.filter(isYear4SoftSkillOrAptitude);
-  if (ssaSubjects.length > 0) {
-    const totalSsaNeeded = ssaSubjects.reduce((acc, s) => acc + (remaining.get(s.id) || 0), 0);
-    const numDays = Math.min(totalSsaNeeded, 4);
-    const eligibleDays = shuffle(
-      [0, 1, 2, 3, 4].filter((d) => [1, 2, 3, 4].some((p) => grid[d][p] === null))
-    );
-    const ssaDays = eligibleDays.slice(0, numDays).sort((a, b) => a - b);
-
-    for (const d of ssaDays) {
-      const activeSsa = ssaSubjects.find((s) => (remaining.get(s.id) || 0) > 0) || ssaSubjects[0];
-      if (!activeSsa) break;
-
-      const candidatePeriods = shuffle([1, 2, 3, 4].filter((p) => grid[d][p] === null));
-      let chosenPeriod = -1;
-      for (const p of candidatePeriods) {
-        if (ctx.facultyMap) {
-          const fac = findAvailableFacultyForSlot(activeSsa.id, d, p, ctx.facultyMap, false);
-          if (fac.success) {
-            chosenPeriod = p;
-            break;
-          }
-        } else {
-          chosenPeriod = p;
-          break;
-        }
-      }
-      if (chosenPeriod === -1 && candidatePeriods.length > 0) {
-        chosenPeriod = candidatePeriods[0];
-      }
-      if (chosenPeriod !== -1) {
-        placeSlot(d, chosenPeriod, activeSsa);
-      }
-    }
-  }
+  placeUnifiedSoftSkills(grid, subjects, remaining, ctx, year || 'IV', section || 'A', placeSlot, isYear4SoftSkillOrAptitude);
 
   // 5. NPTEL (if present in 4th year)
   const nptelSubj = subjects.find(isYear4NPTEL);
@@ -4437,7 +5181,8 @@ async function generateYear4Timetable({
       }
     }
 
-    while (needed > 0) {
+    let nptelGuard = 20;
+    while (needed > 0 && nptelGuard-- > 0) {
       let placedSingle = false;
       for (const d of shuffle([0, 1, 2, 3, 4])) {
         if (grid[d].some((c) => c === nptelSubj.name)) continue;
@@ -4488,83 +5233,175 @@ async function generateYear4Timetable({
     )
   );
 
+  // 6a. Lab Hours Placement Preference:
+  // "next if for lab hr faculties can take 3 to 4 hrs continuously but it not issue bcoz morning 2 hrs assign any theory subject if last 3 hrs are lab
+  // next assign 1st hr any theory for any class then yo assign last 4 hrs as lab"
+  for (let d = 0; d < 5; d++) {
+    const has4HrLab = grid[d][3] !== null && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][3]));
+    const has3HrLab = !has4HrLab && grid[d][4] !== null && grid[d][5] !== null && grid[d][6] !== null &&
+      /lab/i.test(String(grid[d][4]));
+
+    const targetMorningPeriods = has4HrLab ? [0] : has3HrLab ? [0, 1] : [];
+    for (const p of targetMorningPeriods) {
+      if (grid[d][p] === null) {
+        const cand = otherTheory.find((s) => (remaining.get(s.id) || 0) > 0 &&
+          (!ctx.facultyMap || findAvailableFacultyForSlot(s.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' }).success)
+        );
+        if (cand) {
+          placeSlot(d, p, cand);
+        }
+      }
+    }
+  }
+
   // Multi-pass placement into empty cells on weekdays
-  // Pass 1: Strict (max 1 hr per day, faculty must be free)
+  // Pass 1: Strict (max 1 hr per day, professors before afternoon, faculty must be free and well-spaced)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].some((c) => c === subj.name)) continue;
 
-      const candidatePeriods = facultyBeforeAfternoon
-        ? [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null)
-        : shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
 
       for (const p of candidatePeriods) {
-        if (grid[d][p] === null) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'strict' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free)
+  // Pass 2: Relaxed (allow 2nd hour on a day, faculty free, max 2 consecutive hours)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
       if (grid[d].filter((c) => c === subj.name).length >= 2) continue;
 
-      const candidatePeriods = facultyBeforeAfternoon
-        ? [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null)
-        : shuffle([0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null));
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
 
       for (const p of candidatePeriods) {
-        if (grid[d][p] === null) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
           if (ctx.facultyMap) {
-            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section);
+            const fac = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'relaxed' });
             if (fac.success) {
-              placeSlot(d, p, subj);
+              if (placeSlot(d, p, subj)) {
+                rem--;
+                break;
+              }
+            }
+          } else {
+            if (placeSlot(d, p, subj)) {
               rem--;
               break;
             }
-          } else {
-            placeSlot(d, p, subj);
-            rem--;
-            break;
           }
         }
       }
     }
   }
 
-  // Pass 3: Force (place remaining subject hours in any empty slot across all days)
+  // Pass 3: Force (place remaining subject hours while strictly avoiding cross-class double-booking)
   for (const subj of shuffle(otherTheory)) {
     let rem = remaining.get(subj.id) || 0;
     if (rem <= 0) continue;
+    const isProf = ctx.facultyMap ? isSubjectTaughtByProfessor(subj.id, ctx.facultyMap, year, section) : false;
+    const basePeriods = (isProf || facultyBeforeAfternoon) ? [0, 1, 2, 3] : [0, 1, 2, 3, 4, 5, 6];
 
     for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
       if (rem <= 0) break;
-      for (const p of shuffle([0, 1, 2, 3, 4, 5, 6])) {
-        if (grid[d][p] === null) {
-          placeSlot(d, p, subj);
-          rem = remaining.get(subj.id) || 0;
-          if (rem <= 0) break;
+      if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+      const candidatePeriods = sortPeriodsByFacultyRest(
+        basePeriods.filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+        d,
+        subj.id,
+        ctx.facultyMap,
+        year,
+        section,
+        false
+      );
+
+      for (const p of candidatePeriods) {
+        if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+          let facOk = true;
+          if (ctx.facultyMap) {
+            facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+          }
+          if (facOk) {
+            if (placeSlot(d, p, subj)) {
+              rem = remaining.get(subj.id) || 0;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (rem > 0) {
+      for (const d of sortDaysByFacultyLoad([0, 1, 2, 3, 4], subj.id, ctx.facultyMap, year, section)) {
+        if (rem <= 0) break;
+        if (countSubjectHoursOnDay(grid, d, subj) >= 2) continue;
+        const candidatePeriods = sortPeriodsByFacultyRest(
+          [0, 1, 2, 3, 4, 5, 6].filter((p) => grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)),
+          d,
+          subj.id,
+          ctx.facultyMap,
+          year,
+          section,
+          false
+        );
+        for (const p of candidatePeriods) {
+          if (grid[d][p] === null && !wouldCreateThreeConsecutiveTheory(grid, d, p, subj)) {
+            let facOk = true;
+            if (ctx.facultyMap) {
+              facOk = findAvailableFacultyForSlot(subj.id, d, p, ctx.facultyMap, false, year, section, { mode: 'force' }).success;
+            }
+            if (facOk) {
+              if (placeSlot(d, p, subj)) {
+                rem = remaining.get(subj.id) || 0;
+                break;
+              }
+            }
+          }
         }
       }
     }
@@ -4576,13 +5413,21 @@ async function generateYear4Timetable({
     for (let p = 0; p < PERIODS; p++) {
       if (grid[d][p] === null) {
         const underAllocated = subjects.filter(
-          (s) => (remaining.get(s.id) || 0) > 0 && s.type !== "lab" && s.type !== "open elective"
+          (s) => (remaining.get(s.id) || 0) > 0 &&
+                 s.type !== "lab" &&
+                 s.type !== "open elective" &&
+                 !wouldCreateThreeConsecutiveTheory(grid, d, p, s) &&
+                 countSubjectHoursOnDay(grid, d, s) < 2
         );
         if (underAllocated.length > 0) {
-          const cand = underAllocated.sort(
+          const sortedCands = underAllocated.sort(
             (a, b) => (remaining.get(b.id) || 0) - (remaining.get(a.id) || 0)
-          )[0];
-          placeSlot(d, p, cand);
+          );
+          for (const cand of sortedCands) {
+            if (placeSlot(d, p, cand)) {
+              break;
+            }
+          }
         }
       }
     }
@@ -4598,6 +5443,8 @@ async function generateYear4Timetable({
   }
 
   // Step 5: Self-healing rebalance pass to ensure exact equality of weekly hours
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
@@ -4873,6 +5720,8 @@ export async function generateTimetable({
 
   // ── PHASE 5: Hours Rebalancing & Self-Healing ─────────────────────────────
   rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
+  sanitizeNoThreeConsecutiveTheory(grid, subjects, ctx.facultyMap, year, section);
+  rebalanceSubjectHours(grid, subjects, ctx.facultyMap, year, section);
   fillRemainingEmptySlotsWithLibrary(grid, ctx.classCounselorInfo, ctx.facultyMap);
 
   return grid;
@@ -5008,6 +5857,31 @@ export function validateLabPlacement(
     }
   }
 
+  // Validate that no theory subject has 3 or more consecutive hours on any day
+  for (let d = 0; d < 6; d++) {
+    for (let p = 0; p < PERIODS - 2; p++) {
+      const c1 = grid[d]?.[p];
+      const c2 = grid[d]?.[p + 1];
+      const c3 = grid[d]?.[p + 2];
+      if (!c1 || !c2 || !c3) continue;
+      if (c1 === 'BREAK' || c1 === 'LUNCH' || c1 === 'FREE' || c1 === 'Library') continue;
+
+      const subjObj = subjects.find((s) => isCellMatchingSubject(c1, s));
+      const isLab = subjObj
+        ? subjObj.type === "lab" || /\blab\b|\blaboratory\b/i.test(subjObj.name)
+        : /\blab\b|\blaboratory\b/i.test(c1);
+      if (isLab) continue; // Only labs can be 3+ continuous hours!
+
+      const sameSubj2 = subjObj ? isCellMatchingSubject(c2, subjObj) : isCellMatchingSubjectName(c2, c1);
+      const sameSubj3 = subjObj ? isCellMatchingSubject(c3, subjObj) : isCellMatchingSubjectName(c3, c1);
+      if (sameSubj2 && sameSubj3) {
+        errors.push(
+          `Day ${DAYS[d]} has 3 continuous hours of theory subject "${c1}" (Periods P${p + 1}, P${p + 2}, P${p + 3}). Only labs can be 3-4 continuous hours.`
+        );
+      }
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -5030,7 +5904,7 @@ export type YearSectionResult = {
   grid: string[][];
   status: 'ok' | 'error';
   error?: string;
-  hourVerification?: TimetableHourVerificationResult;
+  hourVerification?: TimetableHourVerificationResult | any;
 };
 
 export type BatchGenerationResult = {
@@ -5073,6 +5947,82 @@ export async function generateAllYears(
     }
   } else {
     Object.assign(sectionsToGenerate, YEAR_SECTIONS);
+  }
+
+  // Primary Solver: Global Constraint Programming (CP) Optimizer
+  try {
+    const selectedYears = Object.entries(sectionsToGenerate).map(([year, sections]) => ({ year, sections }));
+    const optResult = await generateOptimizedTimetableBatch({
+      selections: [{ departmentName, selectedYears }],
+      semesterType,
+      facultyBeforeAfternoon,
+      onProgress: (_dept, y, s, st, err) => onProgress?.(y, s, st, err),
+    });
+
+    if (optResult.isFeasible && optResult.sectionResults.length > 0) {
+      const results: YearSectionResult[] = optResult.sectionResults.map(r => {
+        const totalAllocated = Object.values(r.weeklyHourVerification.allocatedHours).reduce((a, b) => a + b, 0);
+        const totalExpected = Object.values(r.weeklyHourVerification.expectedHours).reduce((a, b) => a + b, 0);
+        const subjectsList: SubjectHourVerification[] = Object.entries(r.weeklyHourVerification.expectedHours).map(([sName, exp]) => {
+          const act = r.weeklyHourVerification.allocatedHours[sName] || 0;
+          const diff = act - exp;
+          return {
+            subjectId: sName,
+            subjectName: sName,
+            name: sName,
+            type: 'theory',
+            givenHours: exp,
+            generatedHours: act,
+            difference: diff,
+            diff,
+            isMatch: diff === 0,
+            status: diff === 0 ? 'match' : diff < 0 ? 'under' : 'over',
+          };
+        });
+
+        const mismatchesList: SubjectHourVerification[] = r.weeklyHourVerification.mismatches.map(m => ({
+          subjectId: m.subject,
+          subjectName: m.subject,
+          name: m.subject,
+          type: 'theory',
+          givenHours: m.expected,
+          generatedHours: m.actual,
+          difference: m.actual - m.expected,
+          diff: m.actual - m.expected,
+          isMatch: false,
+          status: (m.actual < m.expected ? 'under' : 'over') as any,
+        }));
+
+        const hourVerification: TimetableHourVerificationResult = {
+          isValid: r.weeklyHourVerification.isValid,
+          totalGivenHours: totalExpected,
+          totalGeneratedHours: totalAllocated,
+          subjects: subjectsList,
+          unallocatedSlots: 0,
+          mismatches: mismatchesList,
+          summaryText: r.weeklyHourVerification.mismatches.length === 0
+            ? 'All subject hours match 100% exactly.'
+            : `${r.weeklyHourVerification.mismatches.length} mismatch(es) detected.`,
+        };
+
+        return {
+          departmentName: r.departmentName,
+          year: r.year,
+          section: r.section,
+          grid: r.grid,
+          status: 'ok',
+          hourVerification,
+        };
+      });
+
+      return {
+        results,
+        totalOk: results.length,
+        totalError: 0,
+      };
+    }
+  } catch (optErr) {
+    console.warn('Global optimizer encountered error or fallback needed:', optErr);
   }
 
   // Collect all (year, section) pairs being generated so we can exclude stale DB timetables
@@ -5175,8 +6125,16 @@ export async function generateAllYears(
           semesterType,
         });
 
+        let hourVerification = verifySubjectHours(grid, sectionSubjects, specialHoursConfigs);
+        if (!hourVerification.isValid) {
+          rebalanceSubjectHours(grid, sectionSubjects, sharedFacultyMap, year, section);
+          sanitizeNoThreeConsecutiveTheory(grid, sectionSubjects, sharedFacultyMap, year, section);
+          rebalanceSubjectHours(grid, sectionSubjects, sharedFacultyMap, year, section);
+          fillRemainingEmptySlotsWithLibrary(grid, undefined, sharedFacultyMap);
+          hourVerification = verifySubjectHours(grid, sectionSubjects, specialHoursConfigs);
+        }
+
         const gridAsStrings = grid.map((row) => row.map((c) => c || ''));
-        const hourVerification = verifySubjectHours(grid, sectionSubjects, specialHoursConfigs);
 
         console.log(`[Hour Verification ${departmentName} Year ${year} Sec ${section}] ${hourVerification.summaryText}`);
 

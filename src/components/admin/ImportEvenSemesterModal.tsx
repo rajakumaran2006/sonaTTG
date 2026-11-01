@@ -57,7 +57,23 @@ export interface DbFaculty {
   email: string | null;
   department_id: string;
   designation?: string | null;
+  takes_electives?: string | null;
 }
+
+const isUnassignedFaculty = (name?: string | null): boolean => {
+  if (!name) return true;
+  const s = name.trim().toLowerCase();
+  return (
+    !s ||
+    s === "unassigned" ||
+    s === "(not assigned)" ||
+    s === "not assigned" ||
+    s === "-" ||
+    s === "none" ||
+    s === "na" ||
+    s === "n/a"
+  );
+};
 
 // Standard even semester starter curriculum for all major departments with realistic odd-sem faculty mapping
 export const DEFAULT_EVEN_SUBJECTS: Record<string, ParsedSubject[]> = {
@@ -189,7 +205,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
   useEffect(() => {
     Promise.all([
       getDepartments(),
-      (supabase as any).from("faculty_members").select("id, name, email, department_id, designation").order("name"),
+      (supabase as any).from("faculty_members").select("id, name, email, department_id, designation, takes_electives").order("name"),
     ])
       .then(([depts, facResult]) => {
         if (depts && depts.length > 0) {
@@ -255,7 +271,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
     return null;
   };
 
-  // Helper to find matching faculty from existing odd semester faculty
+  // Helper to find matching faculty strictly within the target department (preferring Even Semester faculty)
   const findMatchingFaculty = (
     rawFacultyName: string,
     targetDeptId?: string | null
@@ -264,45 +280,45 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
     const raw = rawFacultyName.trim().toLowerCase();
     const normalizedRaw = normalizePersonName(rawFacultyName);
 
-    // Prefer department faculty if available, then fallback to all faculty
-    const pool = targetDeptId
+    // Strictly search within the target department pool only.
+    // If faculty is assigned in multiple departments (e.g. IT and ADS), each department has its own faculty record!
+    const deptEvenPool = targetDeptId
+      ? dbFaculty.filter((f) => f.department_id === targetDeptId && f.takes_electives === "even")
+      : [];
+    const deptAnyPool = targetDeptId
       ? dbFaculty.filter((f) => f.department_id === targetDeptId)
-      : dbFaculty;
+      : [];
 
-    // 1. Exact email match
-    if (raw.includes("@")) {
-      const byEmail =
-        pool.find((f) => f.email?.toLowerCase().trim() === raw) ||
-        dbFaculty.find((f) => f.email?.toLowerCase().trim() === raw);
-      if (byEmail) return byEmail;
-    }
+    const searchInPool = (pool: DbFaculty[]) => {
+      if (raw.includes("@")) {
+        const byEmail = pool.find((f) => f.email?.toLowerCase().trim() === raw);
+        if (byEmail) return byEmail;
+      }
+      const exact = pool.find((f) => f.name.toLowerCase().trim() === raw);
+      if (exact) return exact;
 
-    // 2. Exact name match (case insensitive)
-    const exact =
-      pool.find((f) => f.name.toLowerCase().trim() === raw) ||
-      dbFaculty.find((f) => f.name.toLowerCase().trim() === raw);
-    if (exact) return exact;
+      if (normalizedRaw.length >= 3) {
+        const normMatch = pool.find((f) => normalizePersonName(f.name) === normalizedRaw);
+        if (normMatch) return normMatch;
 
-    // 3. Normalized name match (strips Dr., Mr., etc.)
-    if (normalizedRaw.length >= 3) {
-      const normMatch =
-        pool.find((f) => normalizePersonName(f.name) === normalizedRaw) ||
-        dbFaculty.find((f) => normalizePersonName(f.name) === normalizedRaw);
-      if (normMatch) return normMatch;
-
-      // 4. Substring / contains match
-      const subMatch =
-        pool.find((f) => {
-          const fn = normalizePersonName(f.name);
-          return fn.includes(normalizedRaw) || normalizedRaw.includes(fn);
-        }) ||
-        dbFaculty.find((f) => {
+        const subMatch = pool.find((f) => {
           const fn = normalizePersonName(f.name);
           return fn.includes(normalizedRaw) || normalizedRaw.includes(fn);
         });
-      if (subMatch) return subMatch;
-    }
+        if (subMatch) return subMatch;
+      }
+      return null;
+    };
 
+    // 1. Match even-semester faculty in this department
+    const matchedEven = searchInPool(deptEvenPool);
+    if (matchedEven) return matchedEven;
+
+    // 2. Match general faculty in this department
+    const matchedDept = searchInPool(deptAnyPool);
+    if (matchedDept) return matchedDept;
+
+    // Do NOT borrow from another department!
     return null;
   };
 
@@ -438,7 +454,10 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
             const hours = Number(
               row["Hours Per Week"] || row["hours_per_week"] || row["Hours"] || row["hours"] || 4
             );
-            const credits = Number(row["Credits"] || row["credits"] || 3);
+            const rawCreditsVal = row["Credits"] ?? row["credits"] ?? row["CREDITS"];
+            const credits = rawCreditsVal !== undefined && rawCreditsVal !== null && String(rawCreditsVal).trim() !== ""
+              ? parseFloat(String(rawCreditsVal).trim())
+              : 3;
             const rawYear = String(row["Year"] || row["year"] || "II").toUpperCase().trim();
             const year: "II" | "III" | "IV" =
               rawYear.includes("IV") || rawYear === "4"
@@ -659,22 +678,48 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
         totalSaved += rows.length;
         savedDepts.push(deptName);
 
-        // 3. Map subjects to existing odd semester faculty in faculty_subject_assignments
+        // 3. Map subjects to dedicated Even Semester faculty in faculty_subject_assignments
         const assignmentsToInsert: any[] = [];
         const seenKeys = new Set<string>();
 
-        deptsSubjects.forEach((s, idx) => {
+        for (let idx = 0; idx < deptsSubjects.length; idx++) {
+          const s = deptsSubjects[idx];
           const insertedSubj =
             insertedSubjects[idx] ||
             insertedSubjects.find((sub) => sub.name === s.name && (sub as any).year === s.year);
 
-          if (!insertedSubj) return;
+          if (!insertedSubj) continue;
 
-          // Resolve faculty member ID
+          // Resolve or automatically create faculty member in this department for Even Semester
           let facultyId = s.facultyId;
-          if (!facultyId && s.facultyName) {
+          if (!facultyId && s.facultyName && !isUnassignedFaculty(s.facultyName)) {
             const matched = findMatchingFaculty(s.facultyName, deptId);
-            if (matched) facultyId = matched.id;
+            if (matched) {
+              facultyId = matched.id;
+            } else {
+              // Create independent Even Semester faculty record for this department
+              const normName = normalizePersonName(s.facultyName);
+              const deptCode = dbDepartments.find((d) => d.id === deptId)?.name?.toLowerCase() || "dept";
+              const autoEmail = `${normName || "faculty"}_${deptCode}_${Math.floor(100 + Math.random() * 900)}@sonatech.ac.in`;
+              const autoDesig = s.facultyName.startsWith("Dr.") ? "Associate Professor" : "Assistant Professor";
+
+              const { data: newFac, error: facCreateErr } = await (supabase as any)
+                .from("faculty_members")
+                .insert({
+                  name: s.facultyName.trim(),
+                  email: autoEmail,
+                  designation: autoDesig,
+                  department_id: deptId,
+                  takes_electives: "even",
+                })
+                .select("id, name, email, department_id, designation, takes_electives")
+                .single();
+
+              if (!facCreateErr && newFac) {
+                facultyId = newFac.id;
+                dbFaculty.push(newFac);
+              }
+            }
           }
 
           if (facultyId) {
@@ -712,7 +757,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
               });
             }
           }
-        });
+        }
 
         if (assignmentsToInsert.length > 0) {
           const { error: assignErr } = await (supabase as any)
@@ -734,7 +779,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
       toast.success(
         `Successfully saved ${totalSaved} Even Semester subjects across ${savedDepts.length} department(s)!`,
         {
-          description: `Mapped ${totalAssigned} faculty assignment slots directly using odd semester faculty. These will load automatically in Even Semester timetables.`,
+          description: `Mapped ${totalAssigned} faculty assignment slots across departments with dedicated Even Semester faculty. These will load automatically in Even Semester timetables.`,
           duration: 6000,
         }
       );
@@ -802,11 +847,11 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                   isDark ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25" : "bg-emerald-50 text-emerald-700 border-emerald-200"
                 }`}>
                   <UserCheck className="h-3 w-3 mr-1 inline" />
-                  Same Odd Sem Faculty Kept
+                  Separate Even Sem Faculty
                 </Badge>
               </DialogTitle>
               <DialogDescription className={`text-xs mt-0.5 ${isDark ? "text-indigo-300/70" : "text-slate-500"}`}>
-                Your existing Odd Semester faculty are preserved as-is. Map Even Semester subjects to them using the template or dropdowns below.
+                Manage Even Semester subjects and faculty assignments independently. Your Odd Semester faculty records remain preserved and unconflicted.
               </DialogDescription>
             </div>
           </div>
@@ -861,7 +906,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                   size="sm"
                   onClick={() => handleDownloadTemplate("xlsx")}
                   className="h-7 px-2 text-[11px] gap-1 rounded-md font-semibold text-foreground hover:bg-background"
-                  title="Download Excel Template with Faculty Mapping & Odd Sem Faculty List"
+                  title="Download Excel Template with Faculty Mapping & Even Sem Faculty List"
                 >
                   <Download className="h-3 w-3" />
                   Excel (with Faculty)
@@ -1030,7 +1075,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                       <th className="p-2">Abbr</th>
                       <th className="p-2">Type</th>
                       <th className="p-2 text-right">Hrs</th>
-                      <th className="p-2 min-w-[200px]">Faculty (Odd Sem)</th>
+                      <th className="p-2 min-w-[200px]">Faculty (Even Sem)</th>
                       <th className="p-2 text-center w-14">Sec</th>
                       <th className="p-2 text-center w-8">Del</th>
                     </tr>
@@ -1097,7 +1142,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                                 }`}
                               >
                                 <option value="">
-                                  {s.facultyName ? `Current: ${s.facultyName}` : "-- Select Odd Sem Faculty --"}
+                                  {s.facultyName ? `Current: ${s.facultyName}` : "-- Select Even Sem Faculty --"}
                                 </option>
                                 {deptFacultyOptions.map((fac) => (
                                   <option key={fac.id} value={fac.id}>
@@ -1106,12 +1151,12 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
                                 ))}
                               </select>
                               {s.facultyName && isMatchedInDb && (
-                                <span title="Matched to Odd Sem Faculty in Database" className="text-emerald-500 shrink-0">
+                                <span title="Matched to Even Sem Faculty in Database" className="text-emerald-500 shrink-0">
                                   <CheckCircle2 className="h-3.5 w-3.5" />
                                 </span>
                               )}
                               {s.facultyName && !isMatchedInDb && (
-                                <span title="Custom name (select from dropdown to link to odd sem faculty)" className="text-amber-500 shrink-0">
+                                <span title="Custom name (select from dropdown to link to faculty)" className="text-amber-500 shrink-0">
                                   <AlertCircle className="h-3.5 w-3.5" />
                                 </span>
                               )}
@@ -1164,7 +1209,7 @@ export const ImportEvenSemesterModal: React.FC<ImportEvenSemesterModalProps> = (
               <span>
                 <strong>{subjectsList.length}</strong> subjects across{" "}
                 <strong>{distinctLoadedDepts.length}</strong> department(s) •{" "}
-                <strong className="text-emerald-600 dark:text-emerald-400">{yearStats.mappedFaculty}</strong> mapped to Odd Sem faculty
+                <strong className="text-emerald-600 dark:text-emerald-400">{yearStats.mappedFaculty}</strong> faculty mapped
               </span>
             ) : (
               <span>No subjects selected yet.</span>

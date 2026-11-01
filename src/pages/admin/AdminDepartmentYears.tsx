@@ -7,7 +7,7 @@ import AdminNavbar from '@/components/navbar/AdminNavbar';
 import SuperNavbar from '@/components/navbar/Navbar';
 import FacultyNavbar from '@/components/navbar/facultyadmin';
 import SelectionHeader from '@/components/admin/SelectionHeader';
-import { Upload, BookOpen, Clock, ChevronRight, Sparkles, BookMarked } from 'lucide-react';
+import { Upload, BookOpen, Clock, ChevronRight, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTimetableStore } from '@/store/timetableStore';
 import { calculateYearGrandTotalHours, getOpenElectiveHours } from '@/lib/supabaseService';
@@ -154,7 +154,6 @@ const AdminDepartmentYears = () => {
   const semesterType = useTimetableStore((s) => s.semesterType);
   const setSemesterType = useTimetableStore((s) => s.setSemesterType);
   const [hasEven, setHasEven] = useState(false);
-  const [addingLibYear, setAddingLibYear] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!userType || !activeDeptId) return;
@@ -243,76 +242,6 @@ const AdminDepartmentYears = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const handleAddLibForYear = async (year: string, currentHours: number) => {
-    if (!activeDeptId || currentHours >= 42 || currentHours <= 0) return;
-    const deficit = Math.max(0, 42 - currentHours);
-    setAddingLibYear(year);
-
-    try {
-      const activeSem = (!hasEven && semesterType === 'even') ? 'odd' : semesterType;
-      // 1. Search for existing Library subject for this department, year, and active semester
-      const { data: existingLibSubs } = await (supabase as any)
-        .from('subjects')
-        .select('*')
-        .eq('department_id', activeDeptId)
-        .eq('year', year)
-        .ilike('name', '%library%');
-
-      const semLib = (existingLibSubs || []).find((s: any) => {
-        const isEven = (s.tags || []).some((t: string) => /even_sem|even\b/i.test(t));
-        return activeSem === 'even' ? isEven : !isEven;
-      });
-
-      if (semLib) {
-        const newHpw = (semLib.hours_per_week || 0) + deficit;
-        const { error } = await (supabase as any)
-          .from('subjects')
-          .update({
-            type: 'theory',
-            hours_per_week: newHpw,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', semLib.id);
-
-        if (error) throw error;
-      } else {
-        const tagList = activeSem === 'even' ? ['even_sem'] : ['odd_sem'];
-        const existingNames = new Set((existingLibSubs || []).map((s: any) => String(s.name).trim().toLowerCase()));
-
-        let targetName = activeSem === 'even' ? 'Library (Even)' : 'Library';
-        if (existingNames.has(targetName.toLowerCase())) {
-          targetName = activeSem === 'even' ? 'Library (Even Sem)' : 'Library (Odd)';
-        }
-
-        const { error } = await (supabase as any)
-          .from('subjects')
-          .insert({
-            department_id: activeDeptId,
-            year: year,
-            name: targetName,
-            code: 'LIB',
-            abbreviation: 'LIB',
-            type: 'theory',
-            hours_per_week: deficit,
-            credits: 1,
-            tags: tagList,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-
-        if (error) throw error;
-      }
-
-      toast.success(`Added ${deficit}h Library for ${activeSem === 'even' ? 'Even' : 'Odd'} Semester. Weekly load is now exactly 42h!`);
-      await loadData();
-    } catch (err: any) {
-      console.error("Failed to add library hours:", err);
-      toast.error(`Failed to add library hours: ${err.message || 'Unknown error'}`);
-    } finally {
-      setAddingLibYear(null);
-    }
-  };
 
   const handleManageYear = (year: string) => {
     useTimetableStore.setState(state => ({
@@ -556,20 +485,6 @@ const AdminDepartmentYears = () => {
                       </div>
                       <div className="flex items-baseline justify-between mt-1">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{y.totalHours}h</div>
-                        {y.totalHours < 42 && y.totalHours > 0 && y.subjects > 0 && (
-                          <Button 
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddLibForYear(y.year, y.totalHours);
-                            }}
-                            disabled={addingLibYear === y.year}
-                            className="h-7 px-2.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
-                          >
-                            <BookMarked className="h-3.5 w-3.5" />
-                            <span>{addingLibYear === y.year ? "Adding..." : "Add Lib"}</span>
-                          </Button>
-                        )}
                       </div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">
                         {y.subjects === 0

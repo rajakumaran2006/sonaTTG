@@ -13,9 +13,10 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { createPullRequest } from "@/lib/supabaseService";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, CheckCircle, LayoutGrid, List, Pencil, ArrowLeftRight, X, FileDown, FileText, Printer, ChevronDown, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle, LayoutGrid, List, Pencil, ArrowLeftRight, X, FileDown, FileText, Printer, ChevronDown, Loader2, Users } from "lucide-react";
 import AdminNavbar from "@/components/navbar/AdminNavbar";
 import SelectionHeader from "@/components/admin/SelectionHeader";
+import { FacultyTimetableModal } from "@/components/admin/FacultyTimetableModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +70,7 @@ function Timetable() {
   const [subjectToFaculty, setSubjectToFaculty] = useState<Record<string, string>>({});
   const [classCounselorName, setClassCounselorName] = useState<string | null>(null);
   const [exportingAllPdf, setExportingAllPdf] = useState(false);
+  const [facultyModalOpen, setFacultyModalOpen] = useState(false);
 
   // PR modal state
   const [open, setOpen] = useState(false);
@@ -720,6 +722,13 @@ function Timetable() {
                         <div className="text-[10px] text-muted-foreground">Combined PDF of all saved sections</div>
                       </div>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setFacultyModalOpen(true)} className="cursor-pointer gap-2 py-2">
+                      <Users className="h-4 w-4 text-purple-500" />
+                      <div>
+                        <div className="font-semibold text-xs">Faculty Timetables (View / Print)</div>
+                        <div className="text-[10px] text-muted-foreground">Synchronized individual faculty timetables</div>
+                      </div>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button variant="outline" size="sm" onClick={exportXLSX} className="h-10">Excel</Button>
@@ -844,7 +853,7 @@ function Timetable() {
                             staff = staffList.join(' / ');
                           }
 
-                          if (isSpecialHoursCell(cell)) {
+                          if (isSpecialHoursCell(cell) || /seminar|library|counsell/i.test(cell)) {
                             staff = classCounselorName || staff;
                           }
 
@@ -918,7 +927,7 @@ function Timetable() {
                           }).filter(Boolean);
                           staff = staffList.join(' / ');
                         }
-                        if (isSpecialHoursCell(cell)) staff = classCounselorName || staff;
+                        if (isSpecialHoursCell(cell) || /seminar|library|counsell/i.test(cell)) staff = classCounselorName || staff;
 
                         const isOpenElective = cellParts.some(part => {
                           const subj = selected.find((s) => s.name === part);
@@ -1094,7 +1103,7 @@ function Timetable() {
                                     <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">{s.code || '-'}</span>
                                     <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
                                     <span className="font-medium">{s.name}</span>
-                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits ?? 3} credits)</span>
                                     <span className="text-xs text-muted-foreground font-bold">•</span>
                                     <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
                                   </div>
@@ -1114,7 +1123,7 @@ function Timetable() {
                                     <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200">{s.code || '-'}</span>
                                     <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
                                     <span className="font-medium">{s.name}</span>
-                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-blue-50 px-1 py-0.5 rounded border border-blue-100">{s.hoursPerWeek}h ({s.credits ?? 3} credits)</span>
                                     <span className="text-xs text-muted-foreground font-bold">•</span>
                                     <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
                                   </div>
@@ -1134,7 +1143,7 @@ function Timetable() {
                                     <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-200">{s.code || '-'}</span>
                                     <span className="text-xs text-muted-foreground">{s.abbreviation || s.id}</span>
                                     <span className="font-medium">{s.name}</span>
-                                    <span className="text-xs text-muted-foreground font-mono bg-purple-50 px-1 py-0.5 rounded border border-purple-100">{s.hoursPerWeek}h ({s.credits || 3} credits)</span>
+                                    <span className="text-xs text-muted-foreground font-mono bg-purple-50 px-1 py-0.5 rounded border border-purple-100">{s.hoursPerWeek}h ({s.credits ?? 3} credits)</span>
                                     <span className="text-xs text-muted-foreground font-bold">•</span>
                                     <span className="text-sm">{subjectToFaculty[s.id] || s.staff || '-'}</span>
                                   </div>
@@ -1179,6 +1188,12 @@ function Timetable() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          <FacultyTimetableModal
+            open={facultyModalOpen}
+            onClose={() => setFacultyModalOpen(false)}
+            defaultSemesterType={semesterType}
+          />
         </section>
       </main>
     </div>

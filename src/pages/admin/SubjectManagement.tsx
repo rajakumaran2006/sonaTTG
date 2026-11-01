@@ -361,7 +361,7 @@ const SubjectManagement = () => {
         code: form.code?.trim() || undefined,
         abbreviation: form.abbreviation?.trim() || undefined,
         staff: form.staff?.trim() || undefined,
-        credits: form.credits || 3,
+        credits: form.credits ?? 3,
         departmentId: dep.id,
         year: selection.year,
       });
@@ -571,7 +571,7 @@ const SubjectManagement = () => {
         type: s.type,
         code: s.code || "",
         abbreviation: s.abbreviation || "",
-        credits: s.credits || 3,
+        credits: s.credits ?? 3,
         hoursPerWeek: s.hoursPerWeek,
         assignedFacultyName: assignedFaculty,
         assignedFacultyId: facultyObj ? facultyObj.id : (isAssigned ? "assigned-other" : "unassigned"),
@@ -1015,7 +1015,7 @@ const SubjectManagement = () => {
                             {row.code && <span className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 px-1 py-0.5 rounded font-mono">{row.code}</span>}
                             {row.abbreviation && <span className="font-semibold text-slate-600 dark:text-slate-400">({row.abbreviation})</span>}
                             <span className="text-slate-300 dark:text-slate-600">•</span>
-                            <span>{row.credits || 3} credits</span>
+                            <span>{row.credits ?? 3} credits</span>
                           </div>
                         </div>
                       )
@@ -1149,7 +1149,7 @@ const SubjectManagement = () => {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{row.hoursPerWeek} hours/week</span>
                               <span>•</span>
-                              <span>{row.credits || 3} credits</span>
+                              <span>{row.credits ?? 3} credits</span>
                               {row.abbreviation && <><span>•</span><span className="font-semibold text-slate-700 dark:text-slate-300">{row.abbreviation}</span></>}
                             </div>
                             
